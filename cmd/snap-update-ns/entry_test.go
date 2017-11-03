@@ -20,6 +20,7 @@
 package main_test
 
 import (
+	"fmt"
 	"math"
 	"os"
 
@@ -28,6 +29,7 @@ import (
 	update "github.com/snapcore/snapd/cmd/snap-update-ns"
 	"github.com/snapcore/snapd/interfaces/mount"
 	"github.com/snapcore/snapd/osutil"
+	"github.com/snapcore/snapd/testutil"
 )
 
 type entrySuite struct{}
@@ -105,10 +107,18 @@ func (s *entrySuite) TestXSnapdGID(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(gid, Equals, uint64(0))
 
-	// Group is parsed from the x-snapd.gid = option.
-	nogroupGID, err := osutil.FindGid("nogroup")
-	c.Assert(err, IsNil)
-	e = &mount.Entry{Options: []string{"x-snapd.gid=nogroup"}}
+	// Group is parsed from the x-snapd-group= option.
+	var nogroup string
+	var nogroupGID uint64
+	for _, grp := range []string{"nogroup", "nobody"} {
+		nogroup = grp
+		nogroupGID, _ = osutil.FindGid(nogroup)
+	}
+	c.Assert([]string{"nogroup", "nobody"}, testutil.Contains, nogroup)
+
+	e = &mount.Entry{
+		Options: []string{fmt.Sprintf("x-snapd.gid=%s", nogroup)},
+	}
 	gid, err = update.XSnapdGID(e)
 	c.Assert(err, IsNil)
 	c.Assert(gid, Equals, nogroupGID)
