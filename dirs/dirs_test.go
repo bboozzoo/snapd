@@ -78,22 +78,38 @@ func (s *DirsTestSuite) TestClassicConfinementSymlinkWorkaround(c *C) {
 }
 
 func (s *DirsTestSuite) TestClassicConfinementSupportOnSpecificDistributions(c *C) {
+	notSymlink := func(_ string, _ string) bool {
+		return false
+	}
+	isSymlink := func(_ string, _ string) bool {
+		return true
+	}
+	notCalled := func(from string, to string) bool {
+		c.Errorf("called with %s %v but expected not to",
+			from, to)
+		return false
+	}
 	for _, t := range []struct {
-		ID       string
-		IDLike   []string
-		Expected bool
+		ID            string
+		IDLike        []string
+		IsSymlinkMock func(from string, to string) bool
+		Expected      bool
 	}{
-		{"fedora", nil, false},
-		{"rhel", []string{"fedora"}, false},
-		{"centos", []string{"fedora"}, false},
-		{"ubuntu", []string{"debian"}, true},
-		{"debian", nil, true},
-		{"suse", nil, true},
-		{"yocto", nil, true},
+		{"fedora", nil, notSymlink, false},
+		{"rhel", []string{"fedora"}, notSymlink, false},
+		{"centos", []string{"fedora"}, notSymlink, false},
+		{"ubuntu", []string{"debian"}, notCalled, true},
+		{"debian", nil, notCalled, true},
+		{"suse", nil, notCalled, true},
+		{"yocto", nil, notCalled, true},
+		{"arch", []string{"archlinux"}, isSymlink, true},
 	} {
 		reset := release.MockReleaseInfo(&release.OS{ID: t.ID, IDLike: t.IDLike})
 		defer reset()
 		dirs.SetRootDir("/")
+		// mock symlink check to isolate from loca file
+		symlinkReset := dirs.MockIsASymlinkTo(t.IsSymlinkMock)
 		c.Check(dirs.SupportsClassicConfinement(), Equals, t.Expected, Commentf("unexpected result for %v", t.ID))
+		symlinkReset()
 	}
 }

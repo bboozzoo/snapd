@@ -115,6 +115,10 @@ var (
 	snappyDir = filepath.Join("var", "lib", "snapd")
 )
 
+var (
+	isASymlinkFromToFunc = isASymlinkFromTo
+)
+
 func init() {
 	// init the global directories at startup
 	root := os.Getenv("SNAPPY_GLOBAL_ROOT")
@@ -137,6 +141,18 @@ func StripRootDir(dir string) string {
 	return "/" + result
 }
 
+func isASymlinkFromTo(from string, to string) bool {
+	fi, err := os.Lstat(from)
+	if err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		if target, err := filepath.EvalSymlinks(from); err == nil {
+			if target == to {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // SupportsClassicConfinement returns true if the current directory layout supports classic confinement.
 func SupportsClassicConfinement() bool {
 	smd := filepath.Join(GlobalRootDir, defaultSnapMountDir)
@@ -147,16 +163,7 @@ func SupportsClassicConfinement() bool {
 	// distros with a non-default /snap location may still be good
 	// if there is a symlink in place that links from the
 	// defaultSnapMountDir (/snap) to the distro specific mount dir
-	fi, err := os.Lstat(smd)
-	if err == nil && fi.Mode()&os.ModeSymlink != 0 {
-		if target, err := filepath.EvalSymlinks(smd); err == nil {
-			if target == SnapMountDir {
-				return true
-			}
-		}
-	}
-
-	return false
+	return isASymlinkFromToFunc(smd, SnapMountDir)
 }
 
 // SetRootDir allows settings a new global root directory, this is useful
