@@ -187,7 +187,6 @@ func isLastWeekdayInMonth(a time.Time) bool {
 		isLast = true
 	}
 
-	// fmt.Printf("is %v last %v in month %v? %v\n", a, a.Weekday(), a.Month(), isLast)
 	return isLast
 }
 
@@ -212,7 +211,6 @@ func (sched *Schedule) Next(last time.Time) (start, end time.Time) {
 		// location is set
 		t = t.Add(24 * time.Hour)
 
-		// fmt.Printf("now: %v %s week day: %v month week day: %v\n", a, a.Weekday(), sched.Weekday, int(sched.MonthWeekday))
 		if sched.Weekday != "" {
 			// looking for a specific weekday
 
@@ -224,7 +222,6 @@ func (sched *Schedule) Next(last time.Time) (start, end time.Time) {
 			if sched.MonthWeekday != monthWeekdayNone {
 				// looking for a specific weekday in a month
 				week := MonthWeekday((a.Day() / 7) + 1)
-				// fmt.Printf("week %v expecting: %v\n", week, sched.MonthWeekday)
 				switch {
 				case sched.MonthWeekday == monthWeekdayLast:
 					if !isLastWeekdayInMonth(a) {
@@ -237,7 +234,6 @@ func (sched *Schedule) Next(last time.Time) (start, end time.Time) {
 				}
 			}
 
-			// fmt.Printf("wd: %v wdend: %v a.weekday %v\n", wdStart, wdEnd%7, a.Weekday())
 			// we have not hit the right day yet
 			switch {
 			case wdStart == wdEnd && a.Weekday() != wdStart:
@@ -262,7 +258,6 @@ func (sched *Schedule) Next(last time.Time) (start, end time.Time) {
 			continue
 		}
 
-		// fmt.Printf("got start: %v end %v\n", a, b)
 		return a, b
 	}
 }
@@ -305,7 +300,6 @@ func Next(schedule []*Schedule, last time.Time) time.Duration {
 	for _, sched := range schedule {
 		start, end := sched.Next(last)
 		if start.Before(a) {
-			// fmt.Printf("sched: %+v\n", sched)
 			randomize = sched.Randomize
 			a = start
 			b = end
@@ -573,29 +567,24 @@ func parseWeekdaySpec(s string) (string, MonthWeekday, error) {
 		if mw < monthWeekdayMin || mw > monthWeekdayMax {
 			return "", monthWeekdayNone, fmt.Errorf("cannot parse %q: incorrect week number", mw)
 		}
-		// fmt.Printf("mw: %v\n", mw)
 	}
 	if !isValidWeekday(wday) {
 		return "", monthWeekdayNone, fmt.Errorf("cannot parse %q: invalid weekday", s)
 	}
 
-	// fmt.Printf("wday %v mw %v\n", wday, int(mw))
 	return wday, mw, nil
 }
 
 func makeTimeSchedules(template []*Schedule, conf timeScheduleConf) []*Schedule {
-	// fmt.Printf("temp scheds: %v\n", template)
 
 	scheds := []*Schedule{}
 	for _, tsch := range template {
 		if conf.count > 1 {
 			step := time.Duration(uint64(conf.end.Sub(conf.start)) / uint64(conf.count))
-			// fmt.Printf("time step %v\n", step)
 			tempConf := conf
 			tempConf.start = conf.start
 			for i := uint(0); i < conf.count; i++ {
 				tempConf.end = tempConf.start.Add(step)
-				// fmt.Printf("ts %+v\n", tempConf)
 				scheds = append(scheds,
 					makeTimeSchedule(tempConf, tsch))
 				tempConf.start = tempConf.end
@@ -660,8 +649,6 @@ func parseEventSetScheduleV2(s string) ([]*Schedule, error) {
 		var start string
 		var end string
 
-		// fmt.Printf("event: %v\n", event)
-
 		if strings.Contains(event, countToken) {
 			//     timespan = time ( "-" / "~" ) time [ "/" ( time / count ) ]
 			ws := strings.Split(event, countToken)
@@ -681,7 +668,6 @@ func parseEventSetScheduleV2(s string) ([]*Schedule, error) {
 		}
 
 		if special, ok := specialTokens[event]; ok {
-			fmt.Printf("special event %v -> %v\n", event, special)
 			event = special
 		}
 
@@ -742,9 +728,6 @@ func parseEventSetScheduleV2(s string) ([]*Schedule, error) {
 			return nil, fmt.Errorf("cannot parse %q: not a valid event", event)
 		}
 
-		// fmt.Printf("event %s\n\tspecs: %v-%v\n\trandomize %v\n\tcount %v\n",
-		// 	event, start, end, randomized, count)
-		// fmt.Printf("\tscheds: %+v\n", scheds)
 	}
 
 	if len(scheds) == 0 {

@@ -660,7 +660,6 @@ func (ts *timeutilSuite) TestScheduleV2(c *C) {
 
 		sched, err := timeutil.ParseScheduleV2(t.schedule)
 		c.Assert(err, IsNil)
-		// c.Logf("schedule:\n%v\n", sched)
 
 		// keep track of previous result for tests where event time is
 		// randomized
