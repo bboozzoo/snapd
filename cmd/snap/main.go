@@ -39,6 +39,7 @@ import (
 	"github.com/snapcore/snapd/i18n"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
+	"github.com/snapcore/snapd/polkit"
 	"github.com/snapcore/snapd/snap"
 )
 
@@ -307,6 +308,12 @@ func main() {
 			panic(v)
 		}
 	}()
+
+	if agent, err := polkit.StartAgent(); err != nil {
+		logger.Debugf("failed to start policykit agent: %v", err)
+	} else {
+		defer agent.Close()
+	}
 
 	// no magic /o\
 	if err := run(); err != nil {
