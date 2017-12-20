@@ -38,6 +38,7 @@ const fuseSupportConnectedPlugSecComp = `
 # not supported at this time.
 
 mount
+umount2
 `
 
 const fuseSupportConnectedPlugAppArmor = `
@@ -67,6 +68,10 @@ mount fstype=fuse.* options=(ro,nosuid,nodev) ** -> /home/*/snap/@{SNAP_NAME}/@{
 mount fstype=fuse.* options=(rw,nosuid,nodev) ** -> /home/*/snap/@{SNAP_NAME}/@{SNAP_REVISION}/{,**/},
 mount fstype=fuse.* options=(ro,nosuid,nodev) ** -> /var/snap/@{SNAP_NAME}/@{SNAP_REVISION}/{,**/},
 mount fstype=fuse.* options=(rw,nosuid,nodev) ** -> /var/snap/@{SNAP_NAME}/@{SNAP_REVISION}/{,**/},
+
+# Allow unmounting
+umount fstype=fuse.* /home/*/snap/@{SNAP_NAME}/@{SNAP_REVISION}/{,**/},
+umount fstype=fuse.* /var/snap/@{SNAP_NAME}/@{SNAP_REVISION}/{,**/},
 
 # Explicitly deny reads to /etc/fuse.conf. We do this to ensure that
 # the safe defaults of fuse are used (which are enforced by our mount
