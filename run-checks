@@ -135,10 +135,6 @@ if [ "$STATIC" = 1 ]; then
         exit 1
     fi
 
-    # go vet
-    echo Running vet
-    go list ./... | grep -v '/vendor/' | xargs go vet
-
     echo 'Check for usages of http.Status*'
     got=""
     for dir in $(go list -f '{{.Dir}}' ./... | grep -v '/vendor/' ); do
@@ -181,22 +177,15 @@ if [ "$STATIC" = 1 ]; then
         misspell -error -i auther,PROCES,PROCESSS,proces,processs,exportfs "$file"
     done
 
-    echo Checking for ineffective assignments
-    if ! which ineffassign >/dev/null; then
-        go get -u github.com/gordonklaus/ineffassign
+    if ! which gometalinter >/dev/null; then
+        github.com/alecthomas/gometalinter
+        gometalinter --install
     fi
-    # ineffassign knows about ignoring vendor/ \o/
-    ineffassign .
 
-    echo Checking for naked returns
-    if ! which nakedret >/dev/null; then
-        go get -u github.com/alexkohler/nakedret
-    fi
-    got=$(nakedret ./... 2>&1)
-    if [ -n "$got" ]; then
-        echo "$got"
-        exit 1
-    fi
+    echo Running linters
+    gometalinter --config=.gometalinter.json -t $(find . \
+                                                       \( -name .git -o -name vendor -o -name tests \) -prune \
+                                                       -o -type d -print)
 
     echo Checking all interfaces have minimal spread test
     missing_interface_spread_test
