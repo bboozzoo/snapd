@@ -1,0 +1,10 @@
+{
+    "Enable": [
+        "ineffassign",
+        "misspell",
+        "deadcode",
+        "vet",
+        "gosimple",
+        "nakedret"
+    ]
+}
