@@ -363,6 +363,36 @@ func (s *SnapSuite) TestSectionCompletion(c *check.C) {
 	})
 }
 
+func (s *SnapSuite) TestFindSections(c *check.C) {
+	n := 0
+	s.RedirectClientToTestServer(func(w http.ResponseWriter, r *http.Request) {
+		c.Check(r.Method, check.Equals, "GET")
+		c.Check(r.URL.Path, check.Equals, "/v2/sections")
+		switch n {
+		case 0:
+			EncodeResponseBody(c, w, map[string]interface{}{
+				"type":   "sync",
+				"result": []string{"foo", "bar", "baz"},
+			})
+		case 1:
+			EncodeResponseBody(c, w, map[string]interface{}{
+				"type":   "sync",
+				"result": []string{},
+			})
+		default:
+			c.Fatalf("expected to get 2 requests, now on #%d", n+1)
+		}
+		n++
+	})
+	_, err := snap.Parser().ParseArgs([]string{"find", "--section=help"})
+	c.Assert(err, check.IsNil)
+	c.Check(s.Stdout(), check.Equals, "Available sections:\n  bar\n  baz\n  foo\n")
+
+	_, err = snap.Parser().ParseArgs([]string{"find", "--section=help"})
+	c.Assert(err, check.IsNil)
+	c.Check(s.Stderr(), check.Equals, "No sections could be found.\n")
+}
+
 const findNetworkTimeoutErrorJSON = `
 {
   "type": "error",

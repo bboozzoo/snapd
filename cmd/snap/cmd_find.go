@@ -22,6 +22,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/jessevdk/go-flags"
@@ -90,7 +91,7 @@ func (s SectionName) Complete(match string) []flags.Completion {
 
 type cmdFind struct {
 	Private    bool        `long:"private"`
-	Section    SectionName `long:"section"`
+	Section    SectionName `long:"section"  optional:"1" optional-value:"<list-sections>"`
 	Positional struct {
 		Query string
 	} `positional-args:"yes"`
@@ -101,7 +102,7 @@ func init() {
 		return &cmdFind{}
 	}, map[string]string{
 		"private": i18n.G("Search private snaps"),
-		"section": i18n.G("Restrict the search to a given section"),
+		"section": i18n.G("Restrict the search to a given section or use --section to list available sections"),
 	}, []argDesc{{
 		// TRANSLATORS: This needs to be wrapped in <>s.
 		name: i18n.G("<query>"),
@@ -125,6 +126,24 @@ func (x *cmdFind) Execute(args []string) error {
 	}
 
 	cli := Client()
+
+	if x.Section == "<list-sections>" {
+		sections, err := cli.Sections()
+		if err != nil {
+			return fmt.Errorf("unable to contact snap store")
+		}
+		if len(sections) > 0 {
+			sort.Strings(sections)
+			fmt.Fprintf(Stdout, i18n.G("Available sections:\n"))
+			for _, s := range sections {
+				fmt.Fprintf(Stdout, "  %s\n", s)
+			}
+		} else {
+			fmt.Fprintf(Stderr, i18n.G("No sections could be found.\n"))
+		}
+		return nil
+	}
+
 	opts := &client.FindOptions{
 		Private: x.Private,
 		Section: string(x.Section),
