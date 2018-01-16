@@ -22,6 +22,9 @@ prepare: |
     echo "test service is known to systemd and enabled"
     systemctl list-unit-files --type service --no-legend | MATCH 'snap.test-snapd-service\..*\.service\s+enabled'
 
+    echo "udev rules for core snap are present"
+    test -f /etc/udev/rules.d/70-snap.core.rules
+
 execute: |
     echo "Stop snapd before purging"
     systemctl stop snapd.service snapd.socket
@@ -62,3 +65,6 @@ execute: |
 
     echo "No dangling service symlinks are left behind"
     test -z "$(find /etc/systemd/system/multi-user.target.wants/ -name 'snap.test-snapd-service.*')"
+
+    echo "No udev rules are left behind"
+    test "$(find /etc/udev/rules.d -name '70-snap.*.rules' | wc -l)" = "0"
