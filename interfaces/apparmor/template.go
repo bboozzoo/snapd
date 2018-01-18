@@ -436,6 +436,11 @@ var defaultTemplate = `
   # Allow read-access to / for navigating to other parts of the filesystem.
   / r,
 
+  # For calling systemd-notify to send status notification on behalf of the caller
+  /bin/systemd-notify ixr,
+  # For sending status notifications to systemd
+  /run/systemd/notify w,
+
 ###SNIPPETS###
 }
 `
