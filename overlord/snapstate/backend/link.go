@@ -24,6 +24,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"golang.org/x/net/context"
+
 	"github.com/snapcore/snapd/boot"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/progress"
@@ -74,8 +76,8 @@ func (b Backend) LinkSnap(info *snap.Info) error {
 	return updateCurrentSymlinks(info)
 }
 
-func (b Backend) StartServices(apps []*snap.AppInfo, meter progress.Meter) error {
-	return wrappers.StartServices(apps, meter)
+func (b Backend) StartServices(ctx context.Context, apps []*snap.AppInfo, meter progress.Meter) error {
+	return wrappers.StartServices(ctx, apps, meter)
 }
 
 func (b Backend) StopServices(apps []*snap.AppInfo, meter progress.Meter) error {
