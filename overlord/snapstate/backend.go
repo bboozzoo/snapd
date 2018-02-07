@@ -54,7 +54,7 @@ type managerBackend interface {
 	SetupSnap(snapFilePath string, si *snap.SideInfo, meter progress.Meter) error
 	CopySnapData(newSnap, oldSnap *snap.Info, meter progress.Meter) error
 	LinkSnap(info *snap.Info) error
-	StartServices(svcs []*snap.AppInfo, meter progress.Meter) error
+	StartServices(ctx context.Context, svcs []*snap.AppInfo, meter progress.Meter) error
 	StopServices(svcs []*snap.AppInfo, meter progress.Meter) error
 
 	// the undoers for install

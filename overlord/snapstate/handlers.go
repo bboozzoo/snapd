@@ -861,7 +861,7 @@ func (m *SnapManager) doToggleSnapFlags(t *state.Task, _ *tomb.Tomb) error {
 	return nil
 }
 
-func (m *SnapManager) startSnapServices(t *state.Task, _ *tomb.Tomb) error {
+func (m *SnapManager) startSnapServices(t *state.Task, tomb *tomb.Tomb) error {
 	st := t.State()
 	st.Lock()
 	defer st.Unlock()
@@ -882,7 +882,7 @@ func (m *SnapManager) startSnapServices(t *state.Task, _ *tomb.Tomb) error {
 
 	pb := NewTaskProgressAdapterUnlocked(t)
 	st.Unlock()
-	err = m.backend.StartServices(svcs, pb)
+	err = m.backend.StartServices(tomb.Context(nil), svcs, pb)
 	st.Lock()
 	return err
 }
