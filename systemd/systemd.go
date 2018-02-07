@@ -20,6 +20,7 @@
 package systemd
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -29,6 +30,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/context"
 
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/osutil"
@@ -54,6 +57,21 @@ var systemctlCmd = func(args ...string) ([]byte, error) {
 	}
 
 	return bs, nil
+}
+
+var interruptibleSystemctlCmd = func(ctx context.Context, args ...string) ([]byte, error) {
+	out := &bytes.Buffer{}
+	cmd := exec.Command("systemctl", args...)
+	cmd.Stdout = out
+	cmd.Stderr = out
+
+	err := osutil.RunWithContext(ctx, cmd)
+	if err != nil {
+		exitCode, _ := osutil.ExitCode(err)
+		return nil, &Error{cmd: args, exitCode: exitCode, msg: out.Bytes()}
+	}
+
+	return out.Bytes(), nil
 }
 
 // MockSystemctl is called from the commands to actually call out to
@@ -104,6 +122,7 @@ type Systemd interface {
 	Enable(service string) error
 	Disable(service string) error
 	Start(service ...string) error
+	StartInterruptible(ctx context.Context, service ...string) error
 	Stop(service string, timeout time.Duration) error
 	Kill(service, signal string) error
 	Restart(service string, timeout time.Duration) error
@@ -175,6 +194,13 @@ func (s *systemd) Mask(serviceName string) error {
 // Start the given service or services
 func (*systemd) Start(serviceNames ...string) error {
 	_, err := systemctlCmd(append([]string{"start"}, serviceNames...)...)
+	return err
+}
+
+// StartInterruptible starts the given service or services but allowing the
+// process to be canceled
+func (*systemd) StartInterruptible(ctx context.Context, serviceNames ...string) error {
+	_, err := interruptibleSystemctlCmd(ctx, append([]string{"start"}, serviceNames...)...)
 	return err
 }
 
