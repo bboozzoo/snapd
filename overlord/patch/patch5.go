@@ -72,7 +72,7 @@ func patch5(st *state.State) error {
 			return err
 		}
 
-		err = wrappers.StartServices(svcs, log)
+		err = wrappers.StartServices(nil, svcs, log)
 		if err != nil {
 			return err
 		}
