@@ -28,6 +28,8 @@ import (
 	"text/template"
 	"time"
 
+	"golang.org/x/net/context"
+
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
@@ -90,7 +92,7 @@ func stopService(sysd systemd.Systemd, app *snap.AppInfo, inter interacter) erro
 }
 
 // StartServices starts service units for the applications from the snap which are services.
-func StartServices(apps []*snap.AppInfo, inter interacter) (err error) {
+func StartServices(ctx context.Context, apps []*snap.AppInfo, inter interacter) (err error) {
 	sysd := systemd.New(dirs.GlobalRootDir, inter)
 
 	services := make([]string, 0, len(apps))
@@ -134,7 +136,7 @@ func StartServices(apps []*snap.AppInfo, inter interacter) (err error) {
 	}
 
 	if len(services) > 0 {
-		if err := sysd.Start(services...); err != nil {
+		if err := sysd.StartInterruptible(ctx, services...); err != nil {
 			// cleanup was set up by iterating over apps
 			return err
 		}
