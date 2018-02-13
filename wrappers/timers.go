@@ -28,6 +28,13 @@ func AddSnapTimers(info *snap.Info) error {
 	return nil
 }
 
-func GenTimer(schedule []*timeutil.Schedule) (string, error) {
-	return "foobar", nil
+func generateTimerSchedules(timer string) ([]string, error) {
+
+	_, err := timeutil.ParseSchedule(timer)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: fixed schedule, every 10 minutes
+	return []string{"*-*-* *:00,10,20,30,40,50:00"}, nil
 }
