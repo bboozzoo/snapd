@@ -21,8 +21,10 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"os/user"
@@ -31,6 +33,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/jessevdk/go-flags"
 
@@ -40,6 +43,7 @@ import (
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/snap"
 	"github.com/snapcore/snapd/snap/snapenv"
+	"github.com/snapcore/snapd/timeutil"
 	"github.com/snapcore/snapd/x11"
 )
 
@@ -61,7 +65,8 @@ type cmdRun struct {
 
 	// not a real option, used to check if cmdRun is initialized by
 	// the parser
-	ParserRan int `long:"parser-ran" default:"1" hidden:"yes"`
+	ParserRan int  `long:"parser-ran" default:"1" hidden:"yes"`
+	Timer     bool `long:"timer" hidden:"yes"`
 }
 
 func init() {
@@ -76,6 +81,7 @@ func init() {
 			"r":          i18n.G("Use a specific snap revision when running hook"),
 			"shell":      i18n.G("Run a shell instead of the command (useful for debugging)"),
 			"strace":     i18n.G("Run the command under strace (useful for debugging). Extra strace options can be specified as well here."),
+			"timer":      i18n.G("Run a timer service command"),
 			"parser-ran": "",
 		}, nil)
 }
@@ -98,6 +104,9 @@ func (x *cmdRun) Execute(args []string) error {
 		// TRANSLATORS: %q is the hook name; %s a space-separated list of extra arguments
 		return fmt.Errorf(i18n.G("too many arguments for hook %q: %s"), x.HookName, strings.Join(args, " "))
 	}
+	if x.Timer && (x.Hook != "" || x.Command != "") {
+		return fmt.Errorf(i18n.G("cannot use --timer with either --hook or --command"))
+	}
 
 	// Now actually handle the dispatching
 	if x.HookName != "" {
@@ -108,7 +117,11 @@ func (x *cmdRun) Execute(args []string) error {
 		snapApp, args = antialias(snapApp, args)
 	}
 
-	return x.snapRunApp(snapApp, args)
+	if x.Timer {
+		return snapRunTimer(snapApp, args)
+	}
+
+	return snapRunApp(snapApp, args)
 }
 
 // antialias changes snapApp and args if snapApp is actually an alias
@@ -303,6 +316,70 @@ func (x *cmdRun) snapRunHook(snapName string) error {
 	}
 
 	return x.runSnapConfine(info, hook.SecurityTag(), snapName, hook.Name, nil)
+}
+
+func snapRunTimer(snapApp, command string, args []string) error {
+	logger.Noticef("run timer: %q %q args: %v", snapApp, command, args)
+	timerFile := filepath.Join(dirs.SnapTimersDir, snapApp)
+	content, err := ioutil.ReadFile(timerFile)
+	if err != nil {
+		return fmt.Errorf("cannot load timer information for %v: %v", snapApp, err)
+	}
+	var timerInfo struct {
+		Timer   string
+		LastUTC time.Time
+		NextUTC time.Time
+	}
+
+	if err := json.Unmarshal(content, &timerInfo); err != nil {
+		return fmt.Errorf("failed to parse timer information for %v: %v", snapApp, err)
+	}
+
+	sched, err := timeutil.ParseSchedule(timerInfo.Timer)
+	if err != nil {
+		return fmt.Errorf("incorrect timer data for %v", snapApp)
+	}
+
+	logger.Noticef("last run at %v, planned next run after %v ", timerInfo.LastUTC.Local(), timerInfo.NextUTC.Local())
+	// next := time.Now().Add(timeutil.Next(sched, timerInfo.LastUTC.Local()))
+	// logger.Noticef("next run at %v given last run was at %v", next, timerInfo.LastUTC.Local())
+
+	if time.Now().Before(timerInfo.NextUTC) {
+		return nil
+	}
+
+	if time.Now().After(timerInfo.NextUTC) && !timerInfo.LastUTC.After(timerInfo.NextUTC) {
+		logger.Noticef("next run timer has elapsed, running now")
+	}
+
+	snapPath := "/usr/bin/snap"
+	if isReexeced() {
+		snapPath = filepath.Join(dirs.SnapMountDir, "core/current/usr/bin/snap")
+	}
+	logger.Noticef("snap path: %v", snapPath)
+	cmd := exec.Command(snapPath, append([]string{"run", snapApp}, args...)...)
+	logger.Noticef("command: %v", cmd)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		logger.Noticef("execution failed: %v", err)
+		return err
+	}
+
+	timerInfo.LastUTC = time.Now().UTC()
+	next := time.Now().Add(timeutil.Next(sched, timerInfo.LastUTC.Local()))
+	timerInfo.NextUTC = next.UTC()
+
+	logger.Noticef("timer info: %+v", timerInfo)
+	data, err := json.Marshal(&timerInfo)
+	if err != nil {
+		return fmt.Errorf("failed to parse timer information for %v: %v", snapApp, err)
+	}
+
+	if err := osutil.AtomicWriteFile(timerFile, data, 0644, 0); err != nil {
+		return fmt.Errorf("failed to update timer information for %v: %v", snapApp, err)
+	}
+	return nil
 }
 
 var osReadlink = os.Readlink
