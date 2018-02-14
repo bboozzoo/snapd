@@ -502,6 +502,7 @@ X-Snappy=yes
 
 [Timer]
 Unit={{.ServiceFileName}}
+Persistent=true
 {{ range .Schedules }}OnCalendar={{ . }}
 {{- end }}
 
