@@ -21,10 +21,8 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"os/user"
@@ -320,35 +318,21 @@ func (x *cmdRun) snapRunHook(snapName string) error {
 
 func snapRunTimer(snapApp, command string, args []string) error {
 	logger.Noticef("run timer: %q %q args: %v", snapApp, command, args)
-	timerFile := filepath.Join(dirs.SnapTimersDir, snapApp)
-	content, err := ioutil.ReadFile(timerFile)
+
+	timer, err := timeutil.PersistentTimerFromStorage(snapApp, dirs.SnapTimersDir)
 	if err != nil {
-		return fmt.Errorf("cannot load timer information for %v: %v", snapApp, err)
-	}
-	var timerInfo struct {
-		Timer   string
-		LastUTC time.Time
-		NextUTC time.Time
+		return fmt.Errorf("failed to restore timer information for %v: %v", snapApp, err)
 	}
 
-	if err := json.Unmarshal(content, &timerInfo); err != nil {
-		return fmt.Errorf("failed to parse timer information for %v: %v", snapApp, err)
-	}
+	logger.Noticef("last run at %v, planned next run after %v ", timer.Last(), timer.PlannedNext())
 
-	sched, err := timeutil.ParseSchedule(timerInfo.Timer)
-	if err != nil {
-		return fmt.Errorf("incorrect timer data for %v", snapApp)
-	}
-
-	logger.Noticef("last run at %v, planned next run after %v ", timerInfo.LastUTC.Local(), timerInfo.NextUTC.Local())
-	// next := time.Now().Add(timeutil.Next(sched, timerInfo.LastUTC.Local()))
-	// logger.Noticef("next run at %v given last run was at %v", next, timerInfo.LastUTC.Local())
-
-	if time.Now().Before(timerInfo.NextUTC) {
+	if time.Now().Before(timer.PlannedNext()) {
+		// before the next planned run
 		return nil
 	}
 
-	if time.Now().After(timerInfo.NextUTC) && !timerInfo.LastUTC.After(timerInfo.NextUTC) {
+	if time.Now().After(timer.PlannedNext()) && timer.Last().Before(timer.PlannedNext()) {
+		// we are past expiration time, the timer did not run
 		logger.Noticef("next run timer has elapsed, running now")
 	}
 
@@ -356,6 +340,7 @@ func snapRunTimer(snapApp, command string, args []string) error {
 	if isReexeced() {
 		snapPath = filepath.Join(dirs.SnapMountDir, "core/current/usr/bin/snap")
 	}
+
 	logger.Noticef("snap path: %v", snapPath)
 	cmd := exec.Command(snapPath, append([]string{"run", snapApp}, args...)...)
 	logger.Noticef("command: %v", cmd)
@@ -366,19 +351,14 @@ func snapRunTimer(snapApp, command string, args []string) error {
 		return err
 	}
 
-	timerInfo.LastUTC = time.Now().UTC()
-	next := time.Now().Add(timeutil.Next(sched, timerInfo.LastUTC.Local()))
-	timerInfo.NextUTC = next.UTC()
+	timer.Expire(time.Now())
 
-	logger.Noticef("timer info: %+v", timerInfo)
-	data, err := json.Marshal(&timerInfo)
-	if err != nil {
-		return fmt.Errorf("failed to parse timer information for %v: %v", snapApp, err)
+	logger.Noticef("timer expired %v next planned run %v", timer.Last(), timer.PlannedNext())
+
+	if err := timer.Save(); err != nil {
+		return err
 	}
 
-	if err := osutil.AtomicWriteFile(timerFile, data, 0644, 0); err != nil {
-		return fmt.Errorf("failed to update timer information for %v: %v", snapApp, err)
-	}
 	return nil
 }
 
