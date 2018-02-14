@@ -332,6 +332,7 @@ X-Snappy=yes
 
 [Timer]
 Unit=snap.snap.app.service
+Persistent=true
 OnCalendar=*-*-* *:00,10,20,30,40,50:00
 
 [Install]
