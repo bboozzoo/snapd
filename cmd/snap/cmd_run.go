@@ -63,8 +63,8 @@ type cmdRun struct {
 
 	// not a real option, used to check if cmdRun is initialized by
 	// the parser
-	ParserRan int  `long:"parser-ran" default:"1" hidden:"yes"`
-	Timer     bool `long:"timer" hidden:"yes"`
+	ParserRan int    `long:"parser-ran" default:"1" hidden:"yes"`
+	Timer     string `long:"timer" hidden:"yes"`
 }
 
 func init() {
@@ -79,7 +79,7 @@ func init() {
 			"r":          i18n.G("Use a specific snap revision when running hook"),
 			"shell":      i18n.G("Run a shell instead of the command (useful for debugging)"),
 			"strace":     i18n.G("Run the command under strace (useful for debugging). Extra strace options can be specified as well here."),
-			"timer":      i18n.G("Run a timer service command"),
+			"timer":      i18n.G("Run as a timer service"),
 			"parser-ran": "",
 		}, nil)
 }
@@ -102,7 +102,7 @@ func (x *cmdRun) Execute(args []string) error {
 		// TRANSLATORS: %q is the hook name; %s a space-separated list of extra arguments
 		return fmt.Errorf(i18n.G("too many arguments for hook %q: %s"), x.HookName, strings.Join(args, " "))
 	}
-	if x.Timer && (x.Hook != "" || x.Command != "") {
+	if x.Timer != "" && (x.Hook != "" || x.Command != "") {
 		return fmt.Errorf(i18n.G("cannot use --timer with either --hook or --command"))
 	}
 
@@ -116,7 +116,7 @@ func (x *cmdRun) Execute(args []string) error {
 	}
 
 	if x.Timer {
-		return snapRunTimer(snapApp, args)
+		return snapRunTimer(snapApp, x.Timer, args)
 	}
 
 	return snapRunApp(snapApp, args)
@@ -316,50 +316,20 @@ func (x *cmdRun) snapRunHook(snapName string) error {
 	return x.runSnapConfine(info, hook.SecurityTag(), snapName, hook.Name, nil)
 }
 
-func snapRunTimer(snapApp, command string, args []string) error {
-	logger.Noticef("run timer: %q %q args: %v", snapApp, command, args)
+func snapRunTimer(snapApp, timer string, args []string) error {
+	logger.Noticef("run timer %q: %q %q args: %v", timer, snapApp, args)
 
-	timer, err := timeutil.PersistentTimerFromStorage(snapApp, dirs.SnapTimersDir)
+	schedule, err := timeutil.ParseSchedule(timer)
 	if err != nil {
-		return fmt.Errorf("failed to restore timer information for %v: %v", snapApp, err)
+		return fmt.Errorf("invalid timer format: %v", err)
 	}
 
-	logger.Noticef("last run at %v, planned next run after %v ", timer.Last(), timer.PlannedNext())
-
-	if time.Now().Before(timer.PlannedNext()) {
-		// before the next planned run
+	if !timeutil.Includes(schedule, time.Now()) {
+		logger.Noticef("attempted to run %v timer %q outside of scheduled time", snapApp, timer)
 		return nil
 	}
 
-	if time.Now().After(timer.PlannedNext()) && timer.Last().Before(timer.PlannedNext()) {
-		// we are past expiration time, the timer did not run
-		logger.Noticef("next run timer has elapsed, running now")
-	}
-
-	snapPath := "/usr/bin/snap"
-	if isReexeced() {
-		snapPath = filepath.Join(dirs.SnapMountDir, "core/current/usr/bin/snap")
-	}
-
-	logger.Noticef("snap path: %v", snapPath)
-	cmd := exec.Command(snapPath, append([]string{"run", snapApp}, args...)...)
-	logger.Noticef("command: %v", cmd)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		logger.Noticef("execution failed: %v", err)
-		return err
-	}
-
-	timer.Expire(time.Now())
-
-	logger.Noticef("timer expired %v next planned run %v", timer.Last(), timer.PlannedNext())
-
-	if err := timer.Save(); err != nil {
-		return err
-	}
-
-	return nil
+	return snapRunApp(snapApp, args)
 }
 
 var osReadlink = os.Readlink
