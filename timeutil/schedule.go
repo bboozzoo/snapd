@@ -291,8 +291,8 @@ func isLastWeekdayInMonth(t time.Time) bool {
 	return t.Month() != t.Add(7*24*time.Hour).Month()
 }
 
-// ScheduleWindow represents a time window between Start and End times when the
-// scheduled event can happen.
+// ScheduleWindow represents a time window between Start and End (but excluding
+// End) times when the scheduled event can happen.
 type ScheduleWindow struct {
 	Start time.Time
 	End   time.Time
@@ -301,9 +301,9 @@ type ScheduleWindow struct {
 	Spread bool
 }
 
-// Includes returns whether t is inside the window.
+// Includes returns whether t is inside the [start,end) interval
 func (s ScheduleWindow) Includes(t time.Time) bool {
-	return !(t.Before(s.Start) || t.After(s.End))
+	return t.Equal(s.Start) || (t.After(s.Start) && t.Before(s.End))
 }
 
 // IsZero returns whether s is uninitialized.
@@ -363,7 +363,7 @@ func (sched *Schedule) Next(last time.Time) ScheduleWindow {
 				window = newWindow
 			}
 		}
-		if window.End.Before(now) {
+		if window.End.Before(now) || window.End.Equal(now) {
 			// no suitable time span was found this day so try the
 			// next day
 			continue
@@ -733,9 +733,7 @@ func (sched *Schedule) Includes(t time.Time) bool {
 			// in fact is: [10:00, 10:01)
 			window.End = window.End.Add(time.Minute)
 		}
-		// Includes() does the [start,end] check, but we really what
-		// [start,end)
-		if window.Includes(t) && t.Before(window.End) {
+		if window.Includes(t) {
 			return true
 		}
 	}

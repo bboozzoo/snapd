@@ -712,6 +712,14 @@ func (ts *timeutilSuite) TestScheduleNext(c *C) {
 			now:  "2017-02-06 9:30",
 			next: "270m-270m",
 		}, {
+			// between 9am and 9:10am
+			schedule: "9:00-9:10",
+			// yesterday, within the scheduled window
+			last: "2017-02-06 9:01",
+			// next one at 2pm
+			now:  "2017-02-07 9:10",
+			next: "23h50m-23h50m",
+		}, {
 			// 2 ranges, reversed order in spec
 			schedule: "10:00~11:00,9:00-10:00",
 			// last attempt at the beginning of window
