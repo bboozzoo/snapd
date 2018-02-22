@@ -542,8 +542,7 @@ X-Snappy=yes
 [Timer]
 Unit={{.ServiceFileName}}
 {{ range .Schedules }}OnCalendar={{ . }}
-{{- end }}
-
+{{ end }}
 [Install]
 WantedBy={{.TimersTarget}}
 `
