@@ -422,6 +422,8 @@ ListenStream=%s
 
 `, filepath.Join(s.tempdir, "/var/snap/hello-snap/12/sock2.socket"))
 	c.Check(sock2File, testutil.FileContains, expected)
+
+	c.Check(sysdLog, HasLen, 0)
 }
 
 func (s *servicesTestSuite) TestStartSnapMultiServicesFailStartCleanup(c *C) {
