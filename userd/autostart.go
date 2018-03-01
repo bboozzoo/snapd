@@ -55,17 +55,18 @@ func findExec(desktopFilePath string) (string, error) {
 			continue
 		}
 
-		execCmd = strings.Split(string(bline), "Exec=")[1]
+		execCmd = string(bline[len("Exec="):])
 		for _, key := range replacedDesktopKeys {
 			execCmd = strings.Replace(execCmd, key, "", -1)
 		}
-		return execCmd, nil
+		break
 	}
 
+	execCmd = strings.TrimSpace(execCmd)
 	if execCmd == "" {
-		return "", fmt.Errorf("Exec not found")
+		return "", fmt.Errorf("Exec not found or invalid")
 	}
-	return "", nil
+	return execCmd, nil
 }
 
 func getCurrentSnapInfo(snapName string) (*snap.Info, error) {
@@ -140,10 +141,12 @@ func (f failedAutostartError) Error() string {
 	return out.String()
 }
 
+var userCurrent = user.Current
+
 // AutostartSessionApps starts applications which have placed their desktop
 // files in $SNAP_USER_DATA/.config/autostart
 func AutostartSessionApps() error {
-	usr, err := user.Current()
+	usr, err := userCurrent()
 	if err != nil {
 		return err
 	}
