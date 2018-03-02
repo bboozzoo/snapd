@@ -23,6 +23,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"os/user"
@@ -32,6 +33,7 @@ import (
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/snap"
+	"github.com/snapcore/snapd/wrappers"
 )
 
 var (
@@ -39,14 +41,8 @@ var (
 		"%n", "%N", "%i", "%c", "%k", "%v", "%m"}
 )
 
-func findExec(desktopFilePath string) (string, error) {
-	f, err := os.Open(desktopFilePath)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
+func findExec(desktopFileContent []byte) (string, error) {
+	scanner := bufio.NewScanner(bytes.NewBuffer(desktopFileContent))
 	execCmd := ""
 	for scanner.Scan() {
 		bline := scanner.Bytes()
@@ -92,41 +88,27 @@ func tryAutostartApp(snapName, desktopFilePath string) error {
 		return fmt.Errorf("failed to obtain snap information for snap %q: %v", snapName, err)
 	}
 
-	var app *snap.AppInfo
-	for _, candidate := range info.Apps {
-		if candidate.Autostart == desktopFile {
-			app = candidate
-			break
-		}
+	content, err := ioutil.ReadFile(desktopFilePath)
+	if err != nil {
+		return err
 	}
 
-	if app == nil {
-		return fmt.Errorf("could not match desktop file %v with an app in snap %q", desktopFile, snapName)
-	}
-
+	sanitized := wrappers.SanitizeAutostartDesktopFile(info, desktopFilePath, content)
 	// use the sanitized desktop file
-	command, err := findExec(desktopFilePath)
+	command, err := findExec(sanitized)
 	if err != nil {
 		return fmt.Errorf("failed to determine startup command: %v", err)
 	}
 	logger.Debugf("exec line: %v", command)
 
-	pos := strings.Index(command, app.Command)
-	if pos == -1 {
-		return fmt.Errorf("startup command does not match app %q from snap %q", app.Name, snapName)
-	}
-
-	args := command[pos+len(app.Command):]
-	logger.Debugf(`remaining args: "%v"`, args)
+	split := strings.Split(command, " ")
 
 	// TODO: shlex
-	args = strings.TrimSpace(args)
-	split := strings.Split(args, " ")
-	cmd := exec.Command(app.WrapperPath(), split...)
+	cmd := exec.Command(split[0], split[1:]...)
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to autostart %q: %v", app.Name, err)
+		return fmt.Errorf("failed to autostart %q: %v", desktopFile, err)
 	}
 	return nil
 }

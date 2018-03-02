@@ -20,10 +20,6 @@
 package userd_test
 
 import (
-	"fmt"
-	"io/ioutil"
-	"path/filepath"
-
 	. "gopkg.in/check.v1"
 
 	"github.com/snapcore/snapd/userd"
@@ -76,11 +72,8 @@ Exec=
 		out: "foo --bar   +%s",
 	}} {
 		c.Logf("tc %d", i)
-		path := filepath.Join(s.dir, fmt.Sprintf("tc-%d.desktop", i))
-		err := ioutil.WriteFile(path, []byte(tc.in), 0600)
-		c.Assert(err, IsNil)
 
-		cmd, err := userd.FindExec(path)
+		cmd, err := userd.FindExec([]byte(tc.in))
 		if tc.err != "" {
 			c.Check(cmd, Equals, "")
 			c.Check(err, ErrorMatches, tc.err)
