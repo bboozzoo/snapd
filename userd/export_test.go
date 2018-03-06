@@ -20,11 +20,15 @@
 package userd
 
 import (
+	"os/user"
+
 	"github.com/godbus/dbus"
 )
 
 var (
 	SnapFromPid = snapFromPid
+
+	FindExec = findExec
 )
 
 func MockSnapFromSender(f func(*dbus.Conn, dbus.Sender) (string, error)) func() {
@@ -32,5 +36,13 @@ func MockSnapFromSender(f func(*dbus.Conn, dbus.Sender) (string, error)) func() 
 	snapFromSender = f
 	return func() {
 		snapFromSender = origSnapFromSender
+	}
+}
+
+func MockUserCurrent(f func() (*user.User, error)) func() {
+	origUserCurrent := userCurrent
+	userCurrent = f
+	return func() {
+		userCurrent = origUserCurrent
 	}
 }
