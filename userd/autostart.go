@@ -80,24 +80,24 @@ func getCurrentSnapInfo(snapName string) (*snap.Info, error) {
 	return snap.ReadInfo(snapName, &snap.SideInfo{Revision: revision})
 }
 
-func tryAutostartApp(snapName, desktopFilePath string) error {
+func tryAutostartApp(snapName, desktopFilePath string) (*exec.Cmd, error) {
 	desktopFile := filepath.Base(desktopFilePath)
 
 	info, err := getCurrentSnapInfo(snapName)
 	if err != nil {
-		return fmt.Errorf("failed to obtain snap information for snap %q: %v", snapName, err)
+		return nil, fmt.Errorf("failed to obtain snap information for snap %q: %v", snapName, err)
 	}
 
 	content, err := ioutil.ReadFile(desktopFilePath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	sanitized := wrappers.SanitizeAutostartDesktopFile(info, desktopFilePath, content)
 	// use the sanitized desktop file
 	command, err := findExec(sanitized)
 	if err != nil {
-		return fmt.Errorf("failed to determine startup command: %v", err)
+		return nil, fmt.Errorf("failed to determine startup command: %v", err)
 	}
 	logger.Debugf("exec line: %v", command)
 
@@ -108,9 +108,9 @@ func tryAutostartApp(snapName, desktopFilePath string) error {
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to autostart %q: %v", desktopFile, err)
+		return nil, fmt.Errorf("failed to autostart %q: %v", desktopFile, err)
 	}
-	return nil
+	return cmd, nil
 }
 
 type failedAutostartError map[string]error
@@ -154,7 +154,7 @@ func AutostartSessionApps() error {
 
 		logger.Debugf("snap name: %q", snapName)
 
-		if err := tryAutostartApp(snapName, desktopFilePath); err != nil {
+		if _, err := tryAutostartApp(snapName, desktopFilePath); err != nil {
 			logger.Debugf("error encountered when trying to autostart %v for snap %q: %v", desktopFile, snapName, err)
 			failedApps[desktopFile] = err
 		}
