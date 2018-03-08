@@ -33,6 +33,7 @@ import (
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/snap"
+	"github.com/snapcore/snapd/strutil/shlex"
 	"github.com/snapcore/snapd/wrappers"
 )
 
@@ -101,9 +102,13 @@ func tryAutostartApp(snapName, desktopFilePath string) (*exec.Cmd, error) {
 	}
 	logger.Debugf("exec line: %v", command)
 
-	split := strings.Split(command, " ")
+	split, err := shlex.SplitLine(command)
+	if err != nil {
+		return nil, err
+	}
 
 	// TODO: shlex
+	fmt.Printf("command: %v\n", split)
 	cmd := exec.Command(split[0], split[1:]...)
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
