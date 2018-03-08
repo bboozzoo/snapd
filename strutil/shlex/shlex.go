@@ -23,6 +23,7 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 )
@@ -53,6 +54,42 @@ var (
 	ErrNoClosingQuotation = errors.New("no closing quotation")
 	ErrNoEscapedCharacter = errors.New("no escaped character")
 )
+
+func (p parserState) String() string {
+	switch p {
+	case stateNone:
+		return "none"
+	case stateUnquotedWord:
+		return "unquoted-word"
+	case stateOpeningSingleQuote:
+		return "opening-single-quote"
+	case stateClosingSingleQuote:
+		return "closing-single-quote"
+	case stateSingleQuotedWord:
+		return "single-quoted-word"
+	case stateOpeningDoubleQuote:
+		return "opening-double-quote"
+	case stateClosingDoubleQuote:
+		return "closing-double-quote"
+	case stateDoubleQuotedWord:
+		return "double-quoted-word"
+	case stateSingleQuotedWordEscape:
+		return "escape-char-in-single-quoted"
+	case stateSingleQuotedWordEscapedCharacter:
+		return "escaped-char-in-single-quoted"
+	case stateDoubleQuotedWordEscape:
+		return "escape-char-in-double-quoted"
+	case stateDoubleQuotedWordEscapedCharacter:
+		return "escaped-char-in-double-quoted"
+	case stateEscape:
+		return "escape-char"
+	case stateEscapedCharacter:
+		return "escaped-char"
+	case stateEOF:
+		return "eof"
+	}
+	return "<unknown>"
+}
 
 // Finish returns an error when the parser expects more input
 func (p parserState) Finish() error {
@@ -227,6 +264,7 @@ func (t *tokenizer) token() (string, error) {
 	for {
 		r, _, err := t.in.ReadRune()
 		next, prev := t.state.Next(r, err), t.state
+		fmt.Printf("rune: %q err: %v state: %v -> %v \n", r, err, t.state, next)
 		if err != nil {
 			if err != io.EOF {
 				return "", err
@@ -239,8 +277,10 @@ func (t *tokenizer) token() (string, error) {
 		t.state = next
 
 		if next.Accumulate() {
+			fmt.Printf("accum\n")
 			b.WriteRune(r)
 		} else if next.Consume(prev) {
+			fmt.Printf("consume: %q\n", b.String())
 			break
 		}
 	}
@@ -254,6 +294,7 @@ func SplitLine(s string) ([]string, error) {
 
 	for {
 		token, err := tkn.token()
+		fmt.Printf("token: %q err %v\n", token, err)
 		if err != nil {
 			if err != io.EOF {
 				return nil, err
@@ -264,4 +305,9 @@ func SplitLine(s string) ([]string, error) {
 		out = append(out, token)
 	}
 	return out, nil
+}
+
+func Fuzz(in []byte) int {
+	SplitLine(string(in))
+	return 0
 }
