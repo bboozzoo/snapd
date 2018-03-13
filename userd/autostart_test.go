@@ -136,7 +136,7 @@ func (s *autostartSuite) TestTryAutostartAppValid(c *C) {
 	fooDesktopFile := filepath.Join(autostartDir, "foo-stable.desktop")
 	err = ioutil.WriteFile(fooDesktopFile,
 		[]byte(`[Desktop Entry]
-Exec=this-is-ignored -a -b --foo="a-b-c" -z "dev"
+Exec=this-is-ignored -a -b --foo="a b c" -z "dev"
 `), 0644)
 	c.Assert(err, IsNil)
 
@@ -151,7 +151,7 @@ Exec=this-is-ignored -a -b --foo="a-b-c" -z "dev"
 				filepath.Base(appWrapperPath),
 				"-a",
 				"-b",
-				"--foo=\"a-b-c\"",
+				"--foo=a b c",
 				"-z",
 				"dev",
 			},
@@ -178,7 +178,7 @@ func (s *autostartSuite) TestTryAutostartAppNoMatchingApp(c *C) {
 	fooDesktopFile := filepath.Join(autostartDir, "foo-no-match.desktop")
 	err = ioutil.WriteFile(fooDesktopFile,
 		[]byte(`[Desktop Entry]
-Exec=this-is-ignored -a -b --foo="a-b-c" -z "dev"
+Exec=this-is-ignored -a -b --foo="a b c" -z "dev"
 `), 0644)
 	c.Assert(err, IsNil)
 
@@ -201,7 +201,7 @@ func (s *autostartSuite) TestTryAutostartAppNoSnap(c *C) {
 	fooDesktopFile := filepath.Join(autostartDir, "foo-stable.desktop")
 	err = ioutil.WriteFile(fooDesktopFile,
 		[]byte(`[Desktop Entry]
-Exec=this-is-ignored -a -b --foo="a-b-c" -z "dev"
+Exec=this-is-ignored -a -b --foo="a b c" -z "dev"
 `), 0644)
 	c.Assert(err, IsNil)
 
