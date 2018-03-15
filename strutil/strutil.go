@@ -94,10 +94,10 @@ func WordWrap(s string, max int) []string {
 			line.Truncate(0)
 			n = 0
 		} else if n > 0 {
-			fmt.Fprintf(line, " ")
+			fmt.Fprint(line, " ")
 			n += 1
 		}
-		fmt.Fprintf(line, word)
+		fmt.Fprint(line, word)
 		n += len(word)
 	}
 	if line.Len() > 0 {
