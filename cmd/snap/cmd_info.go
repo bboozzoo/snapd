@@ -176,10 +176,12 @@ func formatDescr(descr string, max int) string {
 	for _, line := range strings.Split(strings.TrimSpace(descr), "\n") {
 		if len(line) > max {
 			for _, chunk := range strutil.WordWrap(line, max) {
-				fmt.Fprintf(out, "  %s\n", chunk)
+				fmt.Fprint(out, "  ")
+				fmt.Fprintln(out, chunk)
 			}
 		} else {
-			fmt.Fprintf(out, "  %s\n", line)
+			fmt.Fprint(out, "  ")
+			fmt.Fprintln(out, line)
 		}
 	}
 
@@ -329,7 +331,8 @@ func (x *infoCmd) Execute([]string) error {
 		noneOK = false
 
 		fmt.Fprintf(w, "name:\t%s\n", both.Name)
-		fmt.Fprintf(w, "summary:\t%s\n", formatSummary(both.Summary))
+		fmt.Fprintf(w, "summary:\t")
+		fmt.Fprintln(w, formatSummary(both.Summary))
 		// TODO: have publisher; use publisher here,
 		// and additionally print developer if publisher != developer
 		fmt.Fprintf(w, "publisher:\t%s\n", both.Developer)
@@ -342,7 +345,8 @@ func (x *infoCmd) Execute([]string) error {
 		}
 		fmt.Fprintf(w, "license:\t%s\n", license)
 		maybePrintPrice(w, remote, resInfo)
-		fmt.Fprintf(w, "description: |\n%s\n", formatDescr(both.Description, termWidth))
+		fmt.Fprintln(w, "description: |")
+		fmt.Fprint(w, formatDescr(both.Description, termWidth))
 		maybePrintCommands(w, snapName, both.Apps, termWidth)
 		maybePrintServices(w, snapName, both.Apps, termWidth)
 
