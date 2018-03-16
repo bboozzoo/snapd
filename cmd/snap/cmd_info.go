@@ -187,30 +187,43 @@ func rLastIndexSpace(a []rune) int {
 // behaviour.
 // This (and probably formatDescr below) should move to strutil once we're
 // happy with it getting wider use.
-func wrap1(out io.Writer, text []rune, width int) {
-	text = rTrimRightSpace(text)
-	idx := 0
-	for idx < len(text) && unicode.IsSpace(text[idx]) {
-		idx++
+func wrap1(out io.Writer, text string, width int) {
+	text = strings.TrimRightFunc(text, unicode.IsSpace)
+	var idx int
+	var c rune
+	for idx, c = range text {
+		if !unicode.IsSpace(c) {
+			break
+		}
 	}
 	dent := "  " + string(text[:idx])
+	output := func(what string) {
+		fmt.Fprint(out, dent)
+		fmt.Fprintln(out, what)
+	}
 	text = text[idx:]
 	width -= idx + 2
-	for len(text) > width {
-		idx = rLastIndexSpace(text[:width+1])
+	for len([]rune(text)) > width {
+		idx = len(text)
+		for idx > 0 && len([]rune(text[:idx])) > width {
+			idx = strings.LastIndexFunc(text[:idx], unicode.IsSpace)
+		}
 		if idx < 0 {
 			idx = width
 		}
-		fmt.Fprintln(out, dent+string(text[:idx]))
+		output(text[:idx])
 		text = text[idx:]
-		idx = 0
-		for idx < len(text) && unicode.IsSpace(text[idx]) {
+
+		for idx, c = range text {
+			if !unicode.IsSpace(c) {
+				break
+			}
 			idx++
 		}
 		text = text[idx:]
 	}
 
-	fmt.Fprintln(out, dent+string(text))
+	output(text)
 }
 
 // printDescr formats a given string (typically a snap description)
@@ -223,7 +236,7 @@ func wrap1(out io.Writer, text []rune, width int) {
 func printDescr(w io.Writer, descr string, max int) {
 	descr = strings.TrimRightFunc(descr, unicode.IsSpace)
 	for _, line := range strings.Split(descr, "\n") {
-		wrap1(w, []rune(line), max)
+		wrap1(w, line, max)
 	}
 }
 

@@ -447,11 +447,11 @@ func (infoSuite) TestDescr(c *check.C) {
 	for k, v := range map[string]string{
 		"": "  \n",
 		`one:
- * two three four five six  
+ * two three 日本語 four five six
    * seven height nine ten
 `: `  one:
-   * two three four
-   five six
+   * two three 日本語
+   four five six
      * seven height
      nine ten
 `,
