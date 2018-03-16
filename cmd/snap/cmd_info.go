@@ -20,6 +20,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -188,6 +190,7 @@ func rLastIndexSpace(a []rune) int {
 // This (and probably formatDescr below) should move to strutil once we're
 // happy with it getting wider use.
 func wrap1(out io.Writer, text string, width int) {
+	fmt.Printf("text: %q\n", text)
 	text = strings.TrimRightFunc(text, unicode.IsSpace)
 	var idx int
 	var c rune
@@ -197,33 +200,111 @@ func wrap1(out io.Writer, text string, width int) {
 		}
 	}
 	dent := "  " + string(text[:idx])
-	output := func(what string) {
-		fmt.Fprint(out, dent)
-		fmt.Fprintln(out, what)
-	}
 	text = text[idx:]
-	width -= idx + 2
-	for len([]rune(text)) > width {
-		idx = len(text)
-		for idx > 0 && len([]rune(text[:idx])) > width {
-			idx = strings.LastIndexFunc(text[:idx], unicode.IsSpace)
-		}
-		if idx < 0 {
-			idx = width
-		}
-		output(text[:idx])
-		text = text[idx:]
 
-		for idx, c = range text {
-			if !unicode.IsSpace(c) {
-				break
+	in := bytes.NewBufferString(text)
+	// output := func(what string) {
+	// 	fmt.Fprint(out, dent)
+	// 	fmt.Fprintln(out, what)
+	// }
+
+	perLine := width - (idx + 2)
+	thisLine := perLine
+	wordLen := 0
+	rout := bufio.NewWriter(out)
+	var word bytes.Buffer
+	const (
+		readingLeadingSpace = iota
+		readingWord
+		readingSpace
+	)
+	state := readingLeadingSpace
+	for {
+		r, _, err := in.ReadRune()
+		switch state {
+		case readingLeadingSpace:
+			fmt.Printf("-- reading leading space\n")
+		case readingSpace:
+			fmt.Printf("-- reading space\n")
+		case readingWord:
+			fmt.Printf("-- reading word\n")
+		}
+		fmt.Printf("got rune: %v '%c' err: %v, this line: %v per line: %v\n", r, r, err, thisLine, perLine)
+		if err == io.EOF {
+			// rout.WriteString(dent)
+			if state == readingWord {
+				rout.Write(word.Bytes())
+				rout.WriteRune('\n')
 			}
-			idx++
+			break
 		}
-		text = text[idx:]
+		switch state {
+		case readingLeadingSpace:
+			if !unicode.IsSpace(r) {
+				state = readingWord
+				fmt.Printf("<< unread\n")
+				in.UnreadRune()
+				rout.WriteString(dent)
+			}
+		case readingWord:
+			if unicode.IsSpace(r) {
+				if word.Len() > 0 {
+					if wordLen > thisLine {
+						rout.WriteRune('\n')
+						rout.WriteString(dent)
+						thisLine = perLine
+					}
+					rout.Write(word.Bytes())
+					word.Reset()
+					thisLine -= wordLen
+					wordLen = 0
+				}
+				state = readingSpace
+				fmt.Printf("<< unread\n")
+				in.UnreadRune()
+				continue
+			}
+			word.WriteRune(r)
+			wordLen += 1
+			// thisLine -= 1
+		case readingSpace:
+			if thisLine <= 0 {
+				fmt.Printf("-- newline\n")
+				rout.WriteRune('\n')
+				rout.WriteString(dent)
+				thisLine = perLine
+			}
+			if !unicode.IsSpace(r) {
+				rout.WriteRune(' ')
+				thisLine -= 1
+				state = readingWord
+				fmt.Printf("<< unread\n")
+				in.UnreadRune()
+			}
+		}
 	}
+	rout.Flush()
+	// for len([]rune(text)) > width {
+	// 	idx = len(text)
+	// 	for idx > 0 && len([]rune(text[:idx])) > width {
+	// 		idx = strings.LastIndexFunc(text[:idx], unicode.IsSpace)
+	// 	}
+	// 	if idx < 0 {
+	// 		idx = width
+	// 	}
+	// 	output(text[:idx])
+	// 	text = text[idx:]
 
-	output(text)
+	// 	for idx, c = range text {
+	// 		if !unicode.IsSpace(c) {
+	// 			break
+	// 		}
+	// 		idx++
+	// 	}
+	// 	text = text[idx:]
+	// }
+
+	// output(text)
 }
 
 // printDescr formats a given string (typically a snap description)
