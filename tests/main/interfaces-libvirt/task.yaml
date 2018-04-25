@@ -42,6 +42,7 @@ restore: |
 
 execute: |
     echo "The interface is not connected by default"
+    #shellcheck disable=SC1117
     snap interfaces | MATCH "\- +test-snapd-libvirt-consumer:libvirt"
 
     echo "When the plug is connected"
@@ -66,4 +67,4 @@ execute: |
         echo "Expected permission error accessing libvirtd socket with disconnected plug"
         exit 1
     fi
-    cat creation.error | MATCH "Failed to connect socket to '/var/run/libvirt/libvirt-sock': Permission denied"
+    MATCH "Failed to connect socket to '/var/run/libvirt/libvirt-sock': Permission denied" < creation.error

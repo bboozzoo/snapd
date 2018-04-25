@@ -8,6 +8,7 @@ prepare: |
         echo "This test needs test keys to be trusted"
         exit
     fi
+    #shellcheck source=tests/lib/systemd.sh
     . $TESTSLIB/systemd.sh
     systemctl stop snapd.service snapd.socket
     rm -rf /var/lib/snapd/assertions/*
@@ -22,10 +23,10 @@ prepare: |
     mv /var/lib/snapd/seed/assertions/model model.bak
     cp /var/lib/snapd/seed/seed.yaml seed.yaml.bak
     python3 ./manip_seed.py /var/lib/snapd/seed/seed.yaml
-    cp $TESTSLIB/assertions/developer1.account /var/lib/snapd/seed/assertions
-    cp $TESTSLIB/assertions/developer1.account-key /var/lib/snapd/seed/assertions
-    cp $TESTSLIB/assertions/developer1-pc.model /var/lib/snapd/seed/assertions
-    cp $TESTSLIB/assertions/testrootorg-store.account-key /var/lib/snapd/seed/assertions
+    cp "$TESTSLIB"/assertions/developer1.account /var/lib/snapd/seed/assertions
+    cp "$TESTSLIB"/assertions/developer1.account-key /var/lib/snapd/seed/assertions
+    cp "$TESTSLIB"/assertions/developer1-pc.model /var/lib/snapd/seed/assertions
+    cp "$TESTSLIB"/assertions/testrootorg-store.account-key /var/lib/snapd/seed/assertions
     # start fake device svc
     systemd_create_and_start_unit fakedevicesvc "$(which fakedevicesvc) localhost:11029"
     # kick first boot again
@@ -35,6 +36,7 @@ restore: |
         echo "This test needs test keys to be trusted"
         exit
     fi
+    #shellcheck source=tests/lib/systemd.sh
     . $TESTSLIB/systemd.sh
     systemctl stop snapd.service snapd.socket
     systemd_stop_and_destroy_unit fakedevicesvc
@@ -55,7 +57,7 @@ restore: |
     rm -f /var/lib/snapd/seed/assertions/developer1-pc.model
     rm -f /var/lib/snapd/seed/assertions/testrootorg-store.account-key
     cp model.bak /var/lib/snapd/seed/assertions/model
-    rm -f *.bak
+    rm -f ./*.bak
     # kick first boot again
     systemctl start snapd.service snapd.socket
     # wait for first boot to be done

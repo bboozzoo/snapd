@@ -10,7 +10,7 @@ systems: [-ubuntu-core-*]
 
 prepare: |
     echo "Given the desktop snap is installed"
-    snap try $TESTSLIB/snaps/test-snapd-desktop
+    snap try "$TESTSLIB"/snaps/test-snapd-desktop
 
 execute: |
     dirs="/var/cache/fontconfig /usr/share/icons /usr/share/pixmaps"
@@ -20,13 +20,13 @@ execute: |
     snap interfaces | MATCH ":desktop .*test-snapd-desktop"
 
     echo "Then the snap is able to desktop files and directories"
-    test-snapd-desktop.check-files $files
-    test-snapd-desktop.check-dirs $dirs
+    test-snapd-desktop.check-files "$files"
+    test-snapd-desktop.check-dirs "$dirs"
 
     echo "The mount namespace contains shared font directories"
     for d in /usr/share/fonts /usr/local/share/fonts /var/cache/fontconfig; do
         if [ -d "$d" ]; then
-                cat /run/snapd/ns/snap.test-snapd-desktop.fstab | MATCH "$d"
+                MATCH "$d" < /run/snapd/ns/snap.test-snapd-desktop.fstab
                 test-snapd-desktop.check-dirs "$d"
         fi
     done
@@ -40,7 +40,7 @@ execute: |
 
     echo "Then the snap is not able to access the desktop files"
     for file in $files; do
-        if test-snapd-desktop.check-files $file 2>${PWD}/call.error; then
+        if test-snapd-desktop.check-files "$file" 2>"${PWD}"/call.error; then
             echo "Expected permission error calling desktop with disconnected plug"
             exit 1
         fi
@@ -49,7 +49,7 @@ execute: |
 
     echo "Then the snap is not able to access the desktop dirs"
     for dir in $dirs; do
-        if test-snapd-desktop.check-dirs $dir 2>${PWD}/call.error; then
+        if test-snapd-desktop.check-dirs "$dir" 2>"${PWD}"/call.error; then
             echo "Expected permission error calling desktop with disconnected plug"
             exit 1
         fi

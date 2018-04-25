@@ -10,4 +10,5 @@ execute: |
     echo "Seeing that snap-confine is in $snap_confine"
 
     echo "I also see a corresponding apparmor profile"
+    #shellcheck disable=SC1117
     MATCH "$snap_confine \(enforce\)" < /sys/kernel/security/apparmor/profiles

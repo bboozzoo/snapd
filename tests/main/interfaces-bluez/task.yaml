@@ -12,8 +12,9 @@ environment:
 
 execute: |
     echo "Installing bluez snap from the store ..."
+    #shellcheck disable=SC1117
     expected="(?s)$SNAP_NAME .* from 'canonical' installed\n"
-    snap install $SNAP_NAME | grep -Pzq "$expected"
+    snap install "$SNAP_NAME" | grep -Pzq "$expected"
 
     echo "Connecting bluez snap plugs/slots ..."
     snap connect bluez:client bluez:service

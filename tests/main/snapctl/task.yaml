@@ -1,7 +1,7 @@
 summary: Check that `snapctl` can be run from within hooks
 
 prepare: |
-    snap pack $TESTSLIB/snaps/snapctl-hooks
+    snap pack "$TESTSLIB"/snaps/snapctl-hooks
     snap install --dangerous snapctl-hooks_1.0_all.snap
 
 restore: |
@@ -15,12 +15,14 @@ execute: |
     fi
 
     echo "Verify that the snapd API is only available via the snapd socket"
+    #shellcheck disable=SC1117
     if ! printf "GET /v2/snaps HTTP/1.0\r\n\r\n" | nc -U -w 1 /run/snapd.socket | grep "200 OK"; then
         echo "Expected snapd API to be available on the snapd socket"
         echo "Got: $(curl -s --unix-socket /run/snapd.socket http:/v2/snaps)"
         exit 1
     fi
 
+    #shellcheck disable=SC1117
     if ! printf "GET /v2/snaps HTTP/1.0\r\n\r\n" | nc -U -w 1 /run/snapd-snap.socket | grep "401 Unauthorized"; then
         echo "Expected snapd API to be unauthorized on the snap socket"
         exit 1

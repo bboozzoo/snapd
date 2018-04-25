@@ -5,6 +5,7 @@ details: |
     directory on demand but that directory will retain the group identity of
     the user.
 prepare: |
+    #shellcheck source=tests/lib/snaps.sh
     . "$TESTSLIB/snaps.sh"
     install_local test-snapd-tools
     if [ -d /var/lib/snapd/hostfs ]; then

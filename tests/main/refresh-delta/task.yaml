@@ -16,11 +16,11 @@ prepare: |
     # r3 -> r5b
     #
     echo "Given a snap is installed"
-    snap install --edge $SNAP_NAME
+    snap install --edge "$SNAP_NAME"
 
 execute: |
     echo "When the snap is refreshed"
-    snap refresh --beta $SNAP_NAME
+    snap refresh --beta "$SNAP_NAME"
 
     echo "Then deltas are successfully applied"
     journalctl -u snapd | MATCH "Successfully applied delta"

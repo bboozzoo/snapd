@@ -20,12 +20,14 @@ prepare: |
     snap install test-snapd-tools
 
     if [ "$STORE_TYPE" = "fake" ]; then
+        #shellcheck source=tests/lib/store.sh
         . $TESTSLIB/store.sh
-        setup_fake_store $BLOB_DIR
+        setup_fake_store "$BLOB_DIR"
 
         echo "And a new version of that snap put in the controlled store"
+        #shellcheck source=tests/lib/store.sh
         . $TESTSLIB/store.sh
-        init_fake_refreshes $BLOB_DIR test-snapd-tools
+        init_fake_refreshes "$BLOB_DIR" test-snapd-tools
     fi
 
 restore: |
@@ -37,8 +39,9 @@ restore: |
             echo "This test needs test keys to be trusted"
             exit
         fi
+        #shellcheck source=tests/lib/store.sh
         . $TESTSLIB/store.sh
-        teardown_fake_store $BLOB_DIR
+        teardown_fake_store "$BLOB_DIR"
     fi
 
 execute: |
@@ -58,12 +61,14 @@ execute: |
         exit 1
     fi
 
+    #shellcheck source=tests/lib/dirs.sh
     . $TESTSLIB/dirs.sh
 
     echo "When a refresh is made"
     snap refresh --edge test-snapd-tools
 
     echo "Then the new version is installed"
+    #shellcheck disable=SC1117
     snap list | MATCH "test-snapd-tools +[0-9]+\.[0-9]+\+fake1"
 
     echo "And the snap runs"
@@ -73,10 +78,13 @@ execute: |
     snap revert test-snapd-tools
 
     echo "Then the old version is active"
+    #shellcheck disable=SC1117
     snap list | MATCH "test-snapd-tools +[0-9]+\.[0-9]+ "
 
     echo "And the data directories are present"
+    #shellcheck disable=SC2012
     ls $SNAP_MOUNT_DIR/test-snapd-tools | MATCH current
+    #shellcheck disable=SC2012
     ls /var/snap/test-snapd-tools | MATCH current
 
     echo "And the snap runs confined"
@@ -93,8 +101,10 @@ execute: |
 
     echo "And a refresh doesn't update the snap"
     snap refresh
+    #shellcheck disable=SC1117
     snap list | MATCH "test-snapd-tools +[0-9]+\.[0-9]+ "
 
     echo "Unless the snap is asked for explicitly"
     snap refresh --edge test-snapd-tools
+    #shellcheck disable=SC1117
     snap list | MATCH "test-snapd-tools +[0-9]+\.[0-9]+\+fake1"

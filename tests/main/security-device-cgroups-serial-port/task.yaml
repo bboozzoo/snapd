@@ -22,6 +22,7 @@ restore: |
 
 execute: |
     echo "Given a snap is installed"
+    #shellcheck source=tests/lib/snaps.sh
     . $TESTSLIB/snaps.sh
     install_local test-snapd-tools
 

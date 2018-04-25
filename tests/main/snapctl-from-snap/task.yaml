@@ -3,15 +3,17 @@ summary: Check that `snapctl` can be run from the snap
 prepare: |
     snap install --devmode jq
     echo "Build basic test package"
-    snap pack $TESTSLIB/snaps/snapctl-from-snap
+    snap pack "$TESTSLIB"/snaps/snapctl-from-snap
   
 restore: |
     rm -f snapctl-from-snap_1.0_all.snap
 
 execute: |
+    #shellcheck source=tests/lib/dirs.sh
     . $TESTSLIB/dirs.sh
 
     check_single_cookie() {
+        #shellcheck disable=SC2126
         cnt=$(jq -r '.data["snap-cookies"]' /var/lib/snapd/state.json | grep "$1" | wc -l)
         if [ "$cnt" -ne 1 ]; then
             echo "Expected single cookie for snap $1, found $cnt"
@@ -21,17 +23,17 @@ execute: |
 
     check_cookie() {
         COOKIE_FILE=/var/lib/snapd/cookie/snap.$1
-        if ! test -f $COOKIE_FILE ; then
+        if ! test -f "$COOKIE_FILE" ; then
             echo "Cookie file $COOKIE_FILE is missing"
             exit 1
         fi
-        if [ $(stat -c %a $COOKIE_FILE) != "600" ]; then
+        if [ "$(stat -c %a "$COOKIE_FILE")" != "600" ]; then
             echo "Incorrect permissions of file $COOKIE_FILE"
             exit 1
         fi
-        wc -c $COOKIE_FILE | MATCH 44
+        wc -c "$COOKIE_FILE" | MATCH 44
 
-        check_single_cookie $1
+        check_single_cookie "$1"
     }
 
     snap install --dangerous snapctl-from-snap_1.0_all.snap

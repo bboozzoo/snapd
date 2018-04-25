@@ -14,7 +14,7 @@ details: |
     snap is removed (individual files are unlinked and disappear from the
     bind-mounted view of the mounted snap).
 execute: |
-    cp -a  $TESTSLIB/snaps/test-snapd-sh .
+    cp -a  "$TESTSLIB"/snaps/test-snapd-sh .
     snap try test-snapd-sh
 
     snap list | MATCH test-snapd-sh

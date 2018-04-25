@@ -6,6 +6,7 @@ details: |
     devmode snaps.
 prepare: |
     echo "Having installed a test snap in devmode"
+    #shellcheck source=tests/lib/snaps.sh
     . "$TESTSLIB/snaps.sh"
     install_local_devmode test-snapd-tools
 execute: |

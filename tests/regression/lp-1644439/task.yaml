@@ -12,6 +12,7 @@ details: |
     snap-specific namespace, has a predictable PID and is long lived.
 prepare: |
     echo "Having installed the test snap in devmode"
+    #shellcheck source=tests/lib/snaps.sh
     . "$TESTSLIB/snaps.sh"
     install_local_devmode test-snapd-tools
 execute: |
@@ -35,6 +36,7 @@ execute: |
         echo "This test is not supported on kernels older than 4.4.0-67"
         exit 0
     fi
+    #shellcheck source=tests/lib/dirs.sh
     . "$TESTSLIB/dirs.sh"
     echo "We can now run a snap command from the namespace of a snap command and see it work"
     test-snapd-tools.cmd /bin/true

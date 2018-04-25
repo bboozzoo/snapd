@@ -27,5 +27,6 @@ execute: |
     systemd-run --unit unity-app --setenv=DISPLAY="$DISPLAY" --uid "$(id -u test)" "$(which xvfb-run)" --server-args="$DISPLAY -screen 0 1200x960x24 -ac +extension RANDR" "$(which ubuntu-clock-app.clock)"
 
     echo "Then the app window is created"
+    #shellcheck disable=SC1117
     expected=".*?\"qmlscene: clockMainView\": \(\"qmlscene\" \"com\.ubuntu\.clock\"\)"
     while ! xwininfo -tree -root | grep -Pq "$expected"; do sleep 1; done

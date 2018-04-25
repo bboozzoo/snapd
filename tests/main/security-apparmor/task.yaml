@@ -2,6 +2,7 @@ summary: Check basic apparmor confinement rules.
 
 prepare: |
     echo "Given a basic snap is installed"
+    #shellcheck source=tests/lib/snaps.sh
     . $TESTSLIB/snaps.sh
     install_local test-snapd-tools
 execute: |

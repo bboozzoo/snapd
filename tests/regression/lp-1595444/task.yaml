@@ -15,6 +15,7 @@ systems:
 
 prepare: |
     echo "Having installed the test snap"
+    #shellcheck source=tests/lib/snaps.sh
     . "$TESTSLIB/snaps.sh"
     install_local test-snapd-tools
     echo "Hanving created a directory not present in the core snap"

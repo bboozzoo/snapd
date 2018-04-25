@@ -5,6 +5,7 @@ summary: Check that `snap run` runs
 systems: [-*-s390x]
 
 prepare: |
+    #shellcheck source=tests/lib/snaps.sh
     . $TESTSLIB/snaps.sh
     install_local basic-run
     install_local test-snapd-tools
@@ -57,7 +58,7 @@ execute: |
     if which gdb; then
        echo "Test snap run --gdb works"
        echo "c" | snap run --gdb test-snapd-tools.echo hello > stdout
-       cat stdout | MATCH 'Continuing.'
-       cat stdout | MATCH hello
+       MATCH 'Continuing.' < stdout
+       MATCH hello < stdout
     fi
 

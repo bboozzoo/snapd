@@ -9,6 +9,7 @@ environment:
     TESTKEY: "$HOME/.ssh/testkey"
 
 prepare: |
+    #shellcheck source=tests/lib/snaps.sh
     . $TESTSLIB/snaps.sh
     install_local test-snapd-ssh-keys
 
@@ -29,6 +30,7 @@ restore: |
 
 execute: |
     echo "The interface is not connected by default"
+    #shellcheck disable=SC1117
     snap interfaces | MATCH "\- +test-snapd-ssh-keys:ssh-keys"
 
     echo "When the interface is connected"
@@ -50,7 +52,7 @@ execute: |
     snap disconnect test-snapd-ssh-keys:ssh-keys
 
     echo "Then the snap is not able to read a ssh private key"
-    if test-snapd-ssh-keys.sh -c "cat $TESTKEY" 2>${PWD}/call.error; then
+    if test-snapd-ssh-keys.sh -c "cat $TESTKEY" 2>"${PWD}"/call.error; then
         echo "Expected permission error accessing to ssh"
         exit 1
     fi

@@ -25,6 +25,7 @@ prepare: |
         echo "And a snap providing a upower-observe slot is installed"
         snap install upower
     else
+        #shellcheck source=tests/lib/pkgdb.sh
         . "$TESTSLIB/pkgdb.sh"
         distro_install_package upower
     fi
@@ -32,6 +33,7 @@ prepare: |
 restore: |
     rm -f upower.error
     if [[ "$SPREAD_SYSTEM" != ubuntu-core-* ]]; then
+        #shellcheck source=tests/lib/pkgdb.sh
         . "$TESTSLIB/pkgdb.sh"
         distro_purge_package upower
     fi
@@ -49,7 +51,7 @@ execute: |
 
     echo "When the plug is connected the snap is able to dump info about the upower devices"
     expected="/org/freedesktop/UPower/devices/DisplayDevice.*"
-    for i in $(seq 20); do
+    for _ in $(seq 20); do
         if ! test-snapd-upower-observe-consumer.upower --dump | MATCH "$expected"; then
             sleep 1
         fi
@@ -61,9 +63,9 @@ execute: |
         snap disconnect test-snapd-upower-observe-consumer:upower-observe
 
         echo "Then the snap is not able to dump info about the upower devices"
-        if test-snapd-upower-observe-consumer.upower --dump 2>${PWD}/upower.error; then
+        if test-snapd-upower-observe-consumer.upower --dump 2>"${PWD}"/upower.error; then
             echo "Expected permission error accessing upower info with disconnected plug"
             exit 1
         fi
-        cat upower.error | MATCH "Permission denied"
+        MATCH "Permission denied" < upower.error
     fi

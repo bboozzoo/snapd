@@ -6,4 +6,5 @@ details: |
 execute: |
     snap debug get-base-declaration | MATCH 'type: base-declaration'
     # The string "$builtin" terminates the declaration
+    #shellcheck disable=SC1117,SC2016
     snap debug get-base-declaration | MATCH '^\$builtin$'

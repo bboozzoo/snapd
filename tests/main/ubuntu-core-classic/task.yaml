@@ -21,6 +21,7 @@ execute: |
     echo "Ensure that after classic exits no processes are left behind"
     classic "sleep 133713371337&"
     # use "[f]oo" to search for "foo" in ps output without having to filter yourself out
+    #shellcheck disable=SC2009
     if ps afx|grep '[1]33713371337'; then
         echo "The sleep process was not killed when classic exited"
         echo "Something is wrong with the cleanup"
@@ -32,6 +33,7 @@ execute: |
     # tty reports "no tty" inside snaps (LP: #1611493)
     #
     # "script" adds extra \r into the output that we need to filter here
+    #shellcheck disable=SC1117
     if [ "$(classic sudo id -u|tr -d "\r")" != "0" ]; then
         echo "sudo inside classic did not work as expected"
         exit 1

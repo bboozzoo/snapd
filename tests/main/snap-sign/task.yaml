@@ -4,11 +4,14 @@ summary: Run snap sign to sign a model assertion
 systems: [-ubuntu-core-16-*, -ubuntu-*-ppc64el, -fedora-*, -opensuse-*]
 
 prepare: |
+    #shellcheck source=tests/lib/mkpinentry.sh
     . "$TESTSLIB"/mkpinentry.sh
+    #shellcheck source=tests/lib/random.sh
     . "$TESTSLIB"/random.sh
     kill_gpg_agent
 
 debug: |
+    #shellcheck source=tests/lib/random.sh
     . "$TESTSLIB"/random.sh
     debug_random
 

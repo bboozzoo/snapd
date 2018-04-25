@@ -29,6 +29,7 @@ systems: [ubuntu-core-16-64, ubuntu-14.04-32, ubuntu-16.04-64, ubuntu-18.04-64, 
 backends: [-autopkgtest]
 
 execute: |
+    #shellcheck source=tests/lib/dirs.sh
     . $TESTSLIB/dirs.sh
 
     PROVIDER_SNAP="test-snapd-policy-app-provider-classic"
@@ -38,6 +39,7 @@ execute: |
     fi
 
     echo "Given a snap is installed"
+    #shellcheck source=tests/lib/snaps.sh
     . $TESTSLIB/snaps.sh
     install_local "$PROVIDER_SNAP"
 
@@ -49,7 +51,8 @@ execute: |
         slotcmd_bn=$(basename "$slotcmd")
         slot_iface=$(echo "$slotcmd_bn" | tr '.' ':')
 
-        plugcmd=$(echo $slotcmd | sed "s/$PROVIDER_SNAP/$CONSUMER_SNAP/")
+        #shellcheck disable=SC2001
+        plugcmd=$(echo "$slotcmd" | sed "s/$PROVIDER_SNAP/$CONSUMER_SNAP/")
         plugcmd_bn=$(basename "$plugcmd")
         plug_iface=$(echo "$plugcmd_bn" | tr '.' ':')
 
@@ -75,6 +78,7 @@ execute: |
     for plugcmd in "$SNAP_MOUNT_DIR"/bin/"$CONSUMER_SNAP".* ; do
         plugcmd_bn=$(basename "$plugcmd")
         plug_iface=$(echo "$plugcmd_bn" | tr '.' ':')
+        #shellcheck disable=SC2001
         slot_iface=$(echo "$plug_iface" | sed "s/$CONSUMER_SNAP//")
 
         # we test browser-support two different ways, so account for that

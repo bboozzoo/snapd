@@ -2,6 +2,7 @@ summary: Check that snap after/before ordering works
 
 execute: |
     echo "When the service snap is installed"
+    #shellcheck source=tests/lib/snaps.sh
     . $TESTSLIB/snaps.sh
     install_local test-snapd-after-before-service
 
@@ -11,9 +12,11 @@ execute: |
     done
 
     echo "Service 'middle' is started after 'before-middle'"
+    #shellcheck disable=SC1117
     systemctl list-dependencies --plain --after snap.test-snapd-after-before-service.middle.service | \
         MATCH "\s*snap.test-snapd-after-before-service.before-middle.service"
 
     echo "Service 'middle' is started before 'after-middle'"
+    #shellcheck disable=SC1117
     systemctl list-dependencies --plain --before snap.test-snapd-after-before-service.middle.service | \
         MATCH "\s*snap.test-snapd-after-before-service.after-middle.service"

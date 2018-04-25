@@ -6,12 +6,12 @@ environment:
     SERVICEOPTIONFILE: /var/snap/test-snapd-service/current/service-option
 
 restore: |
-    rm -f $SERVICEOPTIONFILE
+    rm -f "$SERVICEOPTIONFILE"
 
 execute: |
     wait_for_service() {
         retry=5
-        while ! snap services $1 | MATCH $2; do
+        while ! snap services "$1" | MATCH "$2"; do
             retry=$(( retry - 1 ))
             if [ $retry -le 0 ]; then
                 echo "Failed to match the status of service $1, expected: $2"
@@ -23,7 +23,7 @@ execute: |
 
     wait_for_file_change() {
         retry=5
-        while ! cat $1 | MATCH $2; do
+        while ! MATCH "$2" < "$1"  ; do
             retry=$(( retry - 1 ))
             if [ $retry -le 0 ]; then
                 echo "Failed to match the content of file $1, expected: $2"
@@ -34,6 +34,7 @@ execute: |
     }
 
     echo "When the service snap is installed"
+    #shellcheck source=tests/lib/snaps.sh
     . $TESTSLIB/snaps.sh
     install_local test-snapd-service
 
@@ -68,7 +69,7 @@ execute: |
     snap tasks --last=configure|MATCH -z "restart of .test-snapd-service.test-snapd-service.+restart of .test-snapd-service.test-snapd-other-service"
 
     echo "And service could get the new service-option set from the hook"
-    wait_for_file_change $SERVICEOPTIONFILE "^foo$"
+    wait_for_file_change "$SERVICEOPTIONFILE" "^foo$"
 
     echo "Reinstalling the snap with configure hook calling snapctl restart works"
     snap set test-snapd-service command=restart

@@ -3,6 +3,7 @@ summary: Ensure that snap-repair is available
 systems: [-fedora-*, -opensuse-*, -arch-*]
 
 execute: |
+    #shellcheck source=tests/lib/dirs.sh
     . $TESTSLIB/dirs.sh
 
     if ! grep -q "ID=ubuntu-core" /etc/os-release; then

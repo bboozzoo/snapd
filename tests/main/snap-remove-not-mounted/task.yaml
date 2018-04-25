@@ -1,9 +1,10 @@
 summary: Ensure remove with unmounted base dir works
 
 execute: |
-    cp -ar $TESTSLIB/snaps/test-snapd-tools /tmp
+    cp -ar "$TESTSLIB"/snaps/test-snapd-tools /tmp
     snap try /tmp/test-snapd-tools
 
+    #shellcheck source=tests/lib/dirs.sh
     . $TESTSLIB/dirs.sh
 
     # simulate what happens if someone "snap try /tmp/something" and then

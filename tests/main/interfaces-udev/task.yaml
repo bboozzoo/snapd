@@ -11,6 +11,7 @@ details: |
     more interfaces declare udev snippets.
 
 prepare: |
+    #shellcheck source=tests/lib/snaps.sh
     . $TESTSLIB/snaps.sh
 
     echo "Given a snap declaring a slot with associated udev rules is installed"

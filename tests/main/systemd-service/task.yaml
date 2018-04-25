@@ -5,14 +5,15 @@ environment:
 
 execute: |
     echo "Given a service snap is installed"
-    snap pack $TESTSLIB/snaps/network-bind-consumer
+    snap pack "$TESTSLIB"/snaps/network-bind-consumer
     snap install --dangerous network-bind-consumer_1.0_all.snap
 
     echo "When the service state is reported as active"
-    while ! systemctl show -p ActiveState $SERVICE_NAME | grep -Pq "ActiveState=active"; do sleep 0.5; done
+    while ! systemctl show -p ActiveState "$SERVICE_NAME" | grep -Pq "ActiveState=active"; do sleep 0.5; done
 
     echo "Then systemctl reports the status of the service as loaded, active and running"
+    #shellcheck disable=SC1117
     expected="(?s).*?Loaded: loaded .*?Active: active \(running\)"
-    systemctl status $SERVICE_NAME | grep -Pqz "$expected"
+    systemctl status "$SERVICE_NAME" | grep -Pqz "$expected"
 restore: |
-    rm -f *.snap
+    rm -f ./*.snap

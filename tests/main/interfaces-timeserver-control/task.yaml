@@ -10,6 +10,7 @@ details: |
 systems: [-debian-sid-*]
 
 prepare: |
+    #shellcheck source=tests/lib/snaps.sh
     . $TESTSLIB/snaps.sh
 
     # Install a snap declaring a plug on timeserver-control
@@ -25,6 +26,7 @@ restore: |
 
 execute: |
     echo "The interface is disconnected by default"
+    #shellcheck disable=SC1117
     snap interfaces | MATCH "\- +test-snapd-timedate-control-consumer:timeserver-control"
 
     echo "When the interface is connected"
@@ -47,7 +49,7 @@ execute: |
 
     # Disconnect the interface and check access to timedatectl status
     snap disconnect test-snapd-timedate-control-consumer:timeserver-control
-    if test-snapd-timedate-control-consumer.timedatectl-timeserver status 2>${PWD}/call.error; then
+    if test-snapd-timedate-control-consumer.timedatectl-timeserver status 2>"${PWD}"/call.error; then
         echo "Expected permission error calling timedatectl status with disconnected plug"
         exit 1
     fi

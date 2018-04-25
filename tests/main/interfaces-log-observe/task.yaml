@@ -13,6 +13,7 @@ environment:
     PLUG: log-observe
 
 prepare: |
+    #shellcheck source=tests/lib/snaps.sh
     . "$TESTSLIB/snaps.sh"
 
     echo "Given a snap declaring the $PLUG plug is installed"
@@ -20,18 +21,20 @@ prepare: |
 
 execute: |
     echo "The interface is not connected by default"
+    #shellcheck disable=SC1117
     snap interfaces | MATCH "\- +$SNAP_NAME:$PLUG"
 
     echo "When the plug is connected"
-    snap connect $SNAP_NAME:$PLUG
+    snap connect "$SNAP_NAME:$PLUG"
 
     echo "Then the plug can be disconnected again"
-    snap disconnect $SNAP_NAME:$PLUG
+    snap disconnect "$SNAP_NAME:$PLUG"
 
     echo "When the plug is connected"
-    snap connect $SNAP_NAME:$PLUG
+    snap connect "$SNAP_NAME:$PLUG"
 
     echo "Then the snap is able to access the system logs"
+    #shellcheck disable=SC1117
     log-observe-consumer | grep -Pqz "ok\n"
 
     if [ "$(snap debug confinement)" = partial ] ; then
@@ -39,7 +42,7 @@ execute: |
     fi
 
     echo "When the plug is disconnected"
-    snap disconnect $SNAP_NAME:$PLUG
+    snap disconnect "$SNAP_NAME:$PLUG"
 
     echo "Then snap can't access the system logs"
     if log-observe-consumer; then

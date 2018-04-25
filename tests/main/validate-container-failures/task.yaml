@@ -16,8 +16,10 @@ prepare: |
 
 execute: |
     echo "Snap refuses to install"
-    snap try $TESTSLIB/snaps/$SNAP 2>error.log && exit 1 || true
+    #shellcheck disable=SC2015
+    snap try "$TESTSLIB/snaps/$SNAP" 2>error.log && exit 1 || true
     echo "The error tells you to ask the dev"
+    #shellcheck disable=SC1117
     tr -s "\n " " " < error.log | MATCH 'contact developer'
 
     echo "And the journal counts the ways"

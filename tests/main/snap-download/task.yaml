@@ -29,7 +29,7 @@ execute: |
     ls /home/test/test-snapd-tools_*.snap
     verify_asserts /home/test/test-snapd-tools_*.assert
 restore: |
-    rm -f *.snap
-    rm -f *.assert
+    rm -f ./*.snap
+    rm -f ./*.assert
     rm -f ~test/*.snap
     rm -f ~test/*.assert

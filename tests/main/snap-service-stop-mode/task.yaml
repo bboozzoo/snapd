@@ -8,11 +8,12 @@ systems: [-ubuntu-14.04-*]
 debug: |
     stop_modes="sighup sighup-all sigusr1 sigusr1-all sigusr2 sigusr2-all"
     for s in $stop_modes; do
-        systemctl status snap.test-snapd-service.test-snapd-${s}-service || true
+        systemctl status "snap.test-snapd-service.test-snapd-${s}-service" || true
     done
 
 execute: |
     echo "When the service snap is installed"
+    #shellcheck source=tests/lib/snaps.sh
     . $TESTSLIB/snaps.sh
     install_local test-snapd-service
 
@@ -22,7 +23,7 @@ execute: |
 
     stop_modes="sighup sighup-all sigusr1 sigusr1-all sigusr2 sigusr2-all"
     for s in $stop_modes; do
-        systemctl show -p ActiveState snap.test-snapd-service.test-snapd-${s}-service | MATCH "ActiveState=active"
+        systemctl show -p ActiveState "snap.test-snapd-service.test-snapd-${s}-service" | MATCH "ActiveState=active"
     done
 
     echo "When it is re-installed"
@@ -31,12 +32,12 @@ execute: |
     # note that sigterm{,-all} is tested separately
     for s in $stop_modes; do
         echo "We can see it is running"
-        systemctl show -p ActiveState snap.test-snapd-service.test-snapd-${s}-service | MATCH "ActiveState=active"
+        systemctl show -p ActiveState "snap.test-snapd-service.test-snapd-${s}-service" | MATCH "ActiveState=active"
 
         echo "and it got the right signal"
         echo "checking that the right signal was sent"
         sleep 1
-        journalctl -u snap.test-snapd-service.test-snapd-${s}-service | MATCH "got ${s%%-all}"
+        journalctl -u "snap.test-snapd-service.test-snapd-${s}-service" | MATCH "got ${s%%-all}"
     done
 
     echo "Regular services are restarted normally"
@@ -52,7 +53,7 @@ execute: |
     done
 
 restore: |
-    rm -f *.pid || true
+    rm -f ./*.pid || true
     # remove to ensure all services are stopped
     snap remove test-snapd-service || true
     killall sleep || true

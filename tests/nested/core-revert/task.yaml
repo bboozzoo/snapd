@@ -3,10 +3,12 @@ summary: core revert test
 systems: [ubuntu-16.04-64]
 
 prepare: |
+    #shellcheck source=tests/lib/nested.sh
     . "$TESTSLIB/nested.sh"
     create_nested_core_vm
 
 restore: |
+    #shellcheck source=tests/lib/nested.sh
     . "$TESTSLIB/nested.sh"
     destroy_nested_core_vm
 
@@ -30,9 +32,10 @@ debug: |
 kill-timeout: 40m
 
 execute: |
+    #shellcheck source=tests/lib/nested.sh
     . "$TESTSLIB/nested.sh"
 
-    cd "$SPREAD_PATH"
+    cd "$SPREAD_PATH" || exit 1
     execute_remote "sudo snap install network-manager"
     execute_remote "sudo snap install bluez"
     execute_remote "sudo bluez.bluetoothctl -a"

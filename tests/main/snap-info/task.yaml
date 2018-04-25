@@ -1,31 +1,36 @@
 summary: Check that snap info works
 
 prepare: |
+    #shellcheck source=tests/lib/pkgdb.sh
     . $TESTSLIB/pkgdb.sh
     distro_install_package python3-yaml
 
-    snap pack $TESTSLIB/snaps/basic
+    snap pack "$TESTSLIB"/snaps/basic
     snap install test-snapd-tools
     snap install --channel beta --devmode test-snapd-devmode
 
 restore: |
     rm -f basic_1.0_all.snap
+    #shellcheck source=tests/lib/pkgdb.sh
     . $TESTSLIB/pkgdb.sh
     distro_purge_package python3-yaml
     rm -f out
 
 execute: |
     echo "With no arguments, errors out"
+    #shellcheck disable=SC2015
     snap info && exit 1 || true
 
     echo "With one non-snap argument, errors out"
+    #shellcheck disable=SC2015
     snap info /etc/passwd && exit 1 || true
 
-    snap info basic_1.0_all.snap $TESTSLIB/snaps/basic-desktop test-snapd-tools test-snapd-devmode core /etc/passwd test-snapd-python-webserver > out
+    snap info basic_1.0_all.snap "$TESTSLIB"/snaps/basic-desktop test-snapd-tools test-snapd-devmode core /etc/passwd test-snapd-python-webserver > out
     PYTHONIOENCODING=utf8 python3 check.py < out
 
+    #shellcheck source=tests/lib/snaps.sh
     . $TESTSLIB/snaps.sh
-    snap info --verbose $TESTSLIB/snaps/basic-desktop|MATCH "path: "
+    snap info --verbose "$TESTSLIB"/snaps/basic-desktop|MATCH "path: "
     install_local basic-desktop
     snap info basic-desktop|MATCH "license:[ ]+GPL-3.0"
 

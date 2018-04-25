@@ -14,6 +14,7 @@ summary: |
 systems: [-debian-*, -arch-*]
 
 prepare: |
+    #shellcheck source=tests/lib/snaps.sh
     . "$TESTSLIB/snaps.sh"
 
     echo "Given a snap declaring a plug on the hardware-random-observe interface is installed"
@@ -24,6 +25,7 @@ restore: |
 
 execute: |
     echo "The interface is not connected by default"
+    #shellcheck disable=SC1117
     snap interfaces | MATCH "\- +test-snapd-hardware-random-observe:hardware-random-observe"
 
     echo "When the plug is connected"

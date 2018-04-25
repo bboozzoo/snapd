@@ -1,6 +1,7 @@
 summary: Check that `snap connect` runs interface hook
 
 prepare: |
+    #shellcheck source=tests/lib/snaps.sh
     . "$TESTSLIB/snaps.sh"
 
     echo "Install test hooks snaps"

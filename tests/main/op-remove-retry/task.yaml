@@ -10,9 +10,11 @@ execute: |
         while ! snap changes | grep -Pq "$expected"; do sleep 1; done
     }
 
+    #shellcheck source=tests/lib/systemd.sh
     . $TESTSLIB/systemd.sh
 
     echo "Given a snap is installed"
+    #shellcheck source=tests/lib/snaps.sh
     . $TESTSLIB/snaps.sh
     install_local test-snapd-tools
 
