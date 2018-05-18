@@ -192,8 +192,13 @@ func isProbablyPresent(path string) bool {
 // "/{,foo/{,bar/}}" and "/foo/bar/{*,*/,froz/{*,*/,baz}}". Coupled with the
 // aforementioned constants this translates to the following apparmor rules:
 //
-//   /{,foo/{,bar/}} r,
-//   /foo/bar/{*,*/,froz/{*,*/,baz}} rw,
+//   / r,
+//   /foo/ r,
+//   /foo/bar/ r,
+//   /foo/bar/* rw,
+//   /foo/bar/*/ rw,
+//   /foo/bar/*/froz/ rw,
+//   /foo/bar/*/froz/baz rw,
 //
 // Those rules allow the code to open (to traverse securely) /, then foo, then
 // bar and then create _either_ 1) any file in /foo/bar/ or 2) any directory
@@ -212,55 +217,55 @@ func isProbablyPresent(path string) bool {
 // re-creating empty files and directories as mount points for the subsequent
 // bind- mount operations to latch onto. This is the reason for the {*,*/,..}
 // part of the expression (we need it to make the empty placeholders).
-func chopTree(path string, assumedPrefixDepth int) (string, string) {
+func chopTree(path string, assumedPrefixDepth int) (left []string, right []string) {
 	isAbs := strings.HasPrefix(path, "/")
 	isDir := strings.HasSuffix(path, "/")
 
 	path = filepath.Clean(path)
-	if isDir {
-		// The trailing slash is significant for the algorithm.
-		path += "/"
-	}
 	parts := strings.Split(path, "/")
-
-	var left, right bytes.Buffer
 	if isAbs {
-		fmt.Fprintf(&left, "/")
-		fmt.Fprintf(&right, "/")
+		parts = parts[1:]
 	}
-	count := 0
-	for i, part := range parts {
-		if part == "" {
+
+	if assumedPrefixDepth < 0 {
+		assumedPrefixDepth = 0
+	}
+
+	prefixSplit := assumedPrefixDepth
+
+	if prefixSplit < len(parts) {
+		parts = append(parts[0:prefixSplit], append([]string{"*"}, parts[prefixSplit:]...)...)
+	}
+	for i := 0; i <= len(parts); i++ {
+		var path string
+		if isAbs {
+			path = "/"
+		}
+		path += strings.Join(parts[0:i], "/")
+
+		if i > 0 && i < len(parts) {
+			// parts in between are directories and have a / suffix
+			path += "/"
+		} else if i == len(parts) && isDir {
+			// past part has / suffix only if it was a directory in
+			// the first place
+			path += "/"
+		}
+
+		if path == "" {
 			continue
 		}
-		if count < assumedPrefixDepth {
-			fmt.Fprintf(&left, "{,%s", part)
-			fmt.Fprintf(&right, "%s", part)
-			if isDir || i != len(parts)-1 {
-				fmt.Fprintf(&left, "/")
-				fmt.Fprintf(&right, "/")
-			}
+		if i <= assumedPrefixDepth {
+			left = append(left, path)
 		} else {
-			fmt.Fprintf(&right, "{*,*/,%s", part)
-			if isDir || i != len(parts)-1 {
-				fmt.Fprintf(&right, "/")
+			if i == assumedPrefixDepth+1 {
+				right = append(right, path[0:len(path)-1])
 			}
+			right = append(right, path)
 		}
-		count++
 	}
-	count = 0
-	for _, part := range parts {
-		if part == "" {
-			continue
-		}
-		if count < assumedPrefixDepth {
-			fmt.Fprintf(&left, "}")
-		} else {
-			fmt.Fprintf(&right, "}")
-		}
-		count++
-	}
-	return left.String(), right.String()
+
+	return left, right
 }
 
 // WritableFileProfile writes a profile for snap-update-ns for making given file writable.
