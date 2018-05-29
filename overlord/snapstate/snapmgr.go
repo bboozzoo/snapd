@@ -82,7 +82,7 @@ func (snapsup *SnapSetup) Name() string {
 	if snapsup.SideInfo.RealName == "" {
 		panic("SnapSetup.SideInfo.RealName not set")
 	}
-	return snapsup.SideInfo.RealName
+	return snap.LocalName(snapsup.SideInfo.RealName, snapsup.SideInfo.LocalKey)
 }
 
 func (snapsup *SnapSetup) Revision() snap.Revision {

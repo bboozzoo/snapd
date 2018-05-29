@@ -2165,11 +2165,14 @@ func (s *Store) snapAction(ctx context.Context, currentSnaps []*CurrentSnap, act
 
 	curSnaps := make(map[string]*CurrentSnap, len(currentSnaps))
 	curSnapJSONs := make([]*currentSnapV2JSON, len(currentSnaps))
+	localNames := make(map[string]string, len(currentSnaps))
 	for i, curSnap := range currentSnaps {
 		if curSnap.SnapID == "" || curSnap.Name == "" || curSnap.Revision.Unset() {
 			return nil, fmt.Errorf("internal error: invalid current snap information")
 		}
-		curSnaps[curSnap.SnapID] = curSnap
+		instanceKey := fmt.Sprintf("%s_%s", curSnap.SnapID, curSnap.Name)
+		curSnaps[instanceKey] = curSnap
+		localNames[instanceKey] = curSnap.Name
 		channel := curSnap.TrackingChannel
 		if channel == "" {
 			channel = "stable"
@@ -2180,7 +2183,7 @@ func (s *Store) snapAction(ctx context.Context, currentSnaps []*CurrentSnap, act
 		}
 		curSnapJSONs[i] = &currentSnapV2JSON{
 			SnapID:           curSnap.SnapID,
-			InstanceKey:      curSnap.SnapID,
+			InstanceKey:      instanceKey,
 			Revision:         curSnap.Revision.N,
 			TrackingChannel:  channel,
 			IgnoreValidation: curSnap.IgnoreValidation,
@@ -2201,18 +2204,19 @@ func (s *Store) snapAction(ctx context.Context, currentSnaps []*CurrentSnap, act
 			ignoreValidation = &f
 		}
 
-		instanceKey := a.SnapID
+		instanceKey := fmt.Sprintf("%s_%s", a.Name, a.SnapID)
 		if a.Action == "install" {
 			installNum++
 			instanceKey = fmt.Sprintf("install-%d", installNum)
 			installKeys[instanceKey] = true
 		}
+		localNames[instanceKey] = a.Name
 
 		aJSON := &snapActionJSON{
 			Action:           a.Action,
 			InstanceKey:      instanceKey,
 			SnapID:           a.SnapID,
-			Name:             a.Name,
+			Name:             snap.StoreName(a.Name),
 			Channel:          a.Channel,
 			Revision:         a.Revision.N,
 			Epoch:            a.Epoch,
@@ -2266,6 +2270,7 @@ func (s *Store) snapAction(ctx context.Context, currentSnaps []*CurrentSnap, act
 
 	var snaps []*snap.Info
 	for _, res := range results.Results {
+		logger.Noticef("result: %+v", res)
 		if res.Result == "error" {
 			if installKeys[res.InstanceKey] {
 				if res.Name != "" {
@@ -2284,6 +2289,12 @@ func (s *Store) snapAction(ctx context.Context, currentSnaps []*CurrentSnap, act
 		snapInfo, err := infoFromStoreSnap(&res.Snap)
 		if err != nil {
 			return nil, fmt.Errorf("unexpected invalid install/refresh API result: %v", err)
+		}
+		if localName := localNames[res.InstanceKey]; localName != "" {
+			logger.Noticef("adjusting local name: %s", localName)
+			store, local := snap.SplitName(localName)
+			snapInfo.RealName = store
+			snapInfo.LocalKey = local
 		}
 		snapInfo.Channel = res.EffectiveChannel
 		if res.Result == "refresh" {

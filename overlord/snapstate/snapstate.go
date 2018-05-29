@@ -66,6 +66,7 @@ func needsMaybeCore(typ snap.Type) int {
 }
 
 func doInstall(st *state.State, snapst *SnapState, snapsup *SnapSetup, flags int) (*state.TaskSet, error) {
+	logger.Noticef("do install snap setup: %+v", snapsup)
 	if snapsup.Name() == "system" {
 		return nil, fmt.Errorf("cannot install reserved snap name 'system'")
 	}
@@ -655,6 +656,7 @@ func Install(st *state.State, name, channel string, revision snap.Revision, user
 	if err != nil {
 		return nil, err
 	}
+	logger.Noticef("got install info: %s, local key: %s", info.Name(), info.LocalKey)
 
 	if err := validateInfoAndFlags(info, &snapst, flags); err != nil {
 		return nil, err
@@ -673,6 +675,7 @@ func Install(st *state.State, name, channel string, revision snap.Revision, user
 		SideInfo:     &info.SideInfo,
 	}
 
+	logger.Noticef("snap setup name: %v", snapsup.Name())
 	return doInstall(st, &snapst, snapsup, needsMaybeCore(info.Type))
 }
 

@@ -64,9 +64,11 @@ func isValidName(name string) bool {
 
 // ValidateName checks if a string can be used as a snap name.
 func ValidateName(name string) error {
+	storeName := StoreName(name)
 	// NOTE: This function should be synchronized with the two other
 	// implementations: sc_snap_name_validate and validate_snap_name .
-	if len(name) > 40 || !isValidName(name) {
+	// TODO: validate local key
+	if len(storeName) > 40 || !isValidName(storeName) {
 		return fmt.Errorf("invalid snap name: %q", name)
 	}
 	return nil

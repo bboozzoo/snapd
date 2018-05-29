@@ -139,6 +139,7 @@ type SideInfo struct {
 	EditedDescription string   `yaml:"description,omitempty" json:"description,omitempty"`
 	Private           bool     `yaml:"private,omitempty" json:"private,omitempty"`
 	Paid              bool     `yaml:"paid,omitempty" json:"paid,omitempty"`
+	LocalKey          string   `yaml:"local-key,omitempty" json:"local-key,omitempty"`
 }
 
 // Info provides information about snaps.
@@ -255,6 +256,10 @@ type ChannelSnapInfo struct {
 
 // Name returns the blessed name for the snap.
 func (s *Info) Name() string {
+	return LocalName(s.StoreName(), s.LocalKey)
+}
+
+func (s *Info) StoreName() string {
 	if s.RealName != "" {
 		return s.RealName
 	}
@@ -986,4 +991,24 @@ func DropNick(nick string) string {
 		return "core"
 	}
 	return nick
+}
+
+func StoreName(name string) string {
+	return strings.SplitN(name, "_", 2)[0]
+}
+
+func SplitName(name string) (store string, localKey string) {
+	split := strings.SplitN(name, "_", 2)
+	store = split[0]
+	if len(split) > 1 {
+		localKey = split[1]
+	}
+	return store, localKey
+}
+
+func LocalName(storeName string, localKey string) string {
+	if localKey != "" {
+		return fmt.Sprintf("%s_%s", storeName, localKey)
+	}
+	return storeName
 }
