@@ -228,9 +228,13 @@ func readInfo(name string, si *snap.SideInfo, flags int) (*snap.Info, error) {
 		logger.Noticef("cannot read snap info of snap %q at revision %s: %s", name, si.Revision, err)
 	}
 	if bse, ok := err.(snap.BrokenSnapError); ok {
+		storeName, localKey := snap.SplitName(name)
 		info := &snap.Info{
-			SuggestedName: name,
+			SuggestedName: storeName,
 			Broken:        bse.Broken(),
+			SideInfo: snap.SideInfo{
+				LocalKey: localKey,
+			},
 		}
 		info.Apps = snap.GuessAppsForBroken(info)
 		if si != nil {
@@ -258,7 +262,7 @@ func (snapst *SnapState) CurrentInfo() (*snap.Info, error) {
 	if cur == nil {
 		return nil, ErrNoCurrent
 	}
-	return readInfo(cur.RealName, cur, 0)
+	return readInfo(snap.LocalName(cur.RealName, cur.LocalKey), cur, 0)
 }
 
 func revisionInSequence(snapst *SnapState, needle snap.Revision) bool {

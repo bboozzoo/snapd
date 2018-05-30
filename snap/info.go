@@ -872,6 +872,8 @@ func ReadInfo(name string, si *SideInfo) (*Info, error) {
 	if err != nil {
 		return nil, &invalidMetaError{Snap: name, Revision: si.Revision, Msg: err.Error()}
 	}
+	_, localKey := SplitName(name)
+	info.LocalKey = localKey
 
 	mountFile := MountFile(name, si.Revision)
 	st, err := os.Stat(mountFile)

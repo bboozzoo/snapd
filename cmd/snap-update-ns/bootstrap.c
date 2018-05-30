@@ -184,8 +184,7 @@ static int skip_one_char(const char** p, char c)
     return 0;
 }
 
-// validate_snap_name performs full validation of the given name.
-int validate_snap_name(const char* snap_name)
+static int validate_snap_name_part(const char* snap_name)
 {
     // NOTE: This function should be synchronized with the two other
     // implementations: sc_snap_name_validate and snap.ValidateName.
@@ -245,6 +244,29 @@ int validate_snap_name(const char* snap_name)
 
     bootstrap_msg = NULL;
     return 0;
+}
+
+// validate_snap_name performs full validation of the given name.
+int validate_snap_name(const char* snap_name)
+{
+  const char *pos = strchr(snap_name, '_');
+
+  if (pos == NULL) {
+    return validate_snap_name_part(snap_name);
+  }
+
+	char *name_part = calloc(1, (pos - snap_name)+1);
+  // TODO: error out early if name is longer than 40 characters
+  memcpy(name_part, snap_name, pos - snap_name);
+
+  int not_valid = validate_snap_name_part(name_part);
+  free(name_part);
+
+  if (not_valid) {
+    return not_valid;
+  }
+
+  return validate_snap_name_part(pos+1);
 }
 
 // process_arguments parses given a command line

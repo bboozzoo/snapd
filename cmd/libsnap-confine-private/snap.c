@@ -30,7 +30,7 @@
 bool verify_security_tag(const char *security_tag, const char *snap_name)
 {
 	const char *whitelist_re =
-	    "^snap\\.([a-z0-9](-?[a-z0-9])*)\\.([a-zA-Z0-9](-?[a-zA-Z0-9])*|hook\\.[a-z](-?[a-z])*)$";
+	    "^snap\\.([a-z0-9](-?[_a-z0-9])*)\\.([a-zA-Z0-9](-?[a-zA-Z0-9])*|hook\\.[a-z](-?[a-z])*)$";
 	regex_t re;
 	if (regcomp(&re, whitelist_re, REG_EXTENDED) != 0)
 		die("can not compile regex %s", whitelist_re);
@@ -97,7 +97,7 @@ static int skip_one_char(const char **p, char c)
 	return 0;
 }
 
-void sc_snap_name_validate(const char *snap_name, struct sc_error **errorp)
+static void name_part_validate(const char *snap_name, struct sc_error **errorp)
 {
 	// NOTE: This function should be synchronized with the two other
 	// implementations: validate_snap_name and snap.ValidateName.
@@ -167,6 +167,34 @@ void sc_snap_name_validate(const char *snap_name, struct sc_error **errorp)
 
  out:
 	sc_error_forward(errorp, err);
+}
+
+void sc_snap_name_validate(const char *snap_name, struct sc_error **errorp)
+{
+  const char *pos = strchr(snap_name, '_');
+
+  if (pos == NULL) {
+    debug("no local key");
+    name_part_validate(snap_name, errorp);
+    return;
+  }
+
+	struct sc_error *err = NULL;
+	char *name_part SC_CLEANUP(sc_cleanup_string) = calloc(1, (pos - snap_name)+1);
+
+  // TODO: error out early if name is longer than 40 characters
+  memcpy(name_part, snap_name, pos - snap_name);
+  debug("name part: %s", name_part);
+  name_part_validate(name_part, &err);
+  if (err != NULL) {
+    sc_error_forward(errorp, err);
+    return;
+  }
+
+  debug("local key part: %s", pos + 1);
+
+  name_part_validate(pos+1, errorp);
+  return;
 }
 
 void sc_snap_drop_instance_name(const char *snap_name, char *base,

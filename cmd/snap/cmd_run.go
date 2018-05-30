@@ -167,6 +167,8 @@ func (x *cmdRun) Execute(args []string) error {
 		return err
 	}
 
+	logger.Debugf("snap app: %v", snapApp)
+
 	// Now actually handle the dispatching
 	if x.HookName != "" {
 		return x.snapRunHook(snapApp)
@@ -348,6 +350,10 @@ func (x *cmdRun) snapRunApp(snapApp string, args []string) error {
 	if app == nil {
 		return fmt.Errorf(i18n.G("cannot find app %q in %q"), appName, snapName)
 	}
+
+	logger.Debugf("snap name: %s", snapName)
+	logger.Debugf("snap app: %s", app.Name)
+	logger.Debugf("security tag: %s", app.SecurityTag())
 
 	return x.runSnapConfine(info, app.SecurityTag(), snapApp, "", args)
 }
