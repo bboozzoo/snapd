@@ -99,16 +99,8 @@ static int skip_one_char(const char **p, char c)
 
 static void name_part_validate(const char *snap_name, struct sc_error **errorp)
 {
-	// NOTE: This function should be synchronized with the two other
-	// implementations: validate_snap_name and snap.ValidateName.
 	struct sc_error *err = NULL;
 
-	// Ensure that name is not NULL
-	if (snap_name == NULL) {
-		err = sc_error_init(SC_SNAP_DOMAIN, SC_SNAP_INVALID_NAME,
-				    "snap name cannot be NULL");
-		goto out;
-	}
 	// This is a regexp-free routine hand-codes the following pattern:
 	//
 	// "^([a-z0-9]+-?)*[a-z](-?[a-z0-9])*$"
@@ -171,30 +163,44 @@ static void name_part_validate(const char *snap_name, struct sc_error **errorp)
 
 void sc_snap_name_validate(const char *snap_name, struct sc_error **errorp)
 {
-  const char *pos = strchr(snap_name, '_');
-
-  if (pos == NULL) {
-    debug("no local key");
-    name_part_validate(snap_name, errorp);
-    return;
-  }
+	// NOTE: This function should be synchronized with the two other
+	// implementations: validate_snap_name and snap.ValidateName.
 
 	struct sc_error *err = NULL;
-	char *name_part SC_CLEANUP(sc_cleanup_string) = calloc(1, (pos - snap_name)+1);
 
-  // TODO: error out early if name is longer than 40 characters
-  memcpy(name_part, snap_name, pos - snap_name);
-  debug("name part: %s", name_part);
-  name_part_validate(name_part, &err);
-  if (err != NULL) {
-    sc_error_forward(errorp, err);
-    return;
-  }
+	if (snap_name == NULL) {
+		err = sc_error_init(SC_SNAP_DOMAIN, SC_SNAP_INVALID_NAME,
+				    "snap name cannot be NULL");
+		sc_error_forward(errorp, err);
+		return;
+	}
 
-  debug("local key part: %s", pos + 1);
+	const char *pos = strchr(snap_name, '_');
 
-  name_part_validate(pos+1, errorp);
-  return;
+	if (pos == NULL) {
+		debug("no local key");
+		name_part_validate(snap_name, errorp);
+		return;
+	}
+
+	char *name_part SC_CLEANUP(sc_cleanup_string) =
+	    calloc(1, (pos - snap_name) + 1);
+
+	// TODO: error out early if name is longer than 40 characters
+	memcpy(name_part, snap_name, pos - snap_name);
+	debug("name part: %s", name_part);
+	name_part_validate(name_part, &err);
+	if (err != NULL) {
+		sc_error_forward(errorp, err);
+		return;
+	}
+
+	debug("local key part: %s", pos + 1);
+
+	name_part_validate(pos + 1, errorp);
+	return;
+
+
 }
 
 void sc_snap_drop_instance_name(const char *snap_name, char *base,
