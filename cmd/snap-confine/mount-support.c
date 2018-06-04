@@ -210,6 +210,8 @@ struct sc_mount_config {
 	const struct sc_mount *mounts;
 	bool on_classic_distro;
 	bool uses_base_snap;
+	const char *snap_name;
+	const char *base_snap_name;
 };
 
 /**
@@ -408,9 +410,35 @@ static void sc_bootstrap_mount_namespace(const struct sc_mount_config *config)
 	// directory is always /snap. On the host it is a build-time configuration
 	// option stored in SNAP_MOUNT_DIR.
 	sc_must_snprintf(dst, sizeof dst, "%s/snap", scratch_dir);
-	sc_do_mount(SNAP_MOUNT_DIR, dst, NULL, MS_BIND | MS_REC | MS_SLAVE,
-		    NULL);
-	sc_do_mount("none", dst, NULL, MS_REC | MS_SLAVE, NULL);
+
+	/* parallel install */
+	sc_do_mount("none", dst, "tmpfs", 0, NULL);
+
+	sc_do_mount("none", dst, NULL, 0, NULL);
+
+	// Make the base snap available inside /snap
+	sc_must_snprintf(dst, sizeof dst, "%s/snap/%s", scratch_dir,
+			 config->base_snap_name);
+	sc_must_snprintf(src, sizeof src, "%s/%s", SNAP_MOUNT_DIR,
+			 config->base_snap_name);
+	if (mkdir(dst, 0755) != 0) {
+		die("cannot create base snap mount directory");
+	}
+	sc_do_mount(src, dst, NULL, MS_BIND, NULL);
+
+	// Make the snap available inside /snap
+	char base_name[40 + 1] = { 0 };
+	sc_snap_name_base(config->snap_name, base_name, sizeof base_name);
+	sc_must_snprintf(dst, sizeof dst, "%s/snap/%s", scratch_dir, base_name);
+	sc_must_snprintf(src, sizeof src, "%s/%s", SNAP_MOUNT_DIR,
+			 config->snap_name);
+	debug("bind mounting %s to %s", src, dst);
+
+	if (mkdir(dst, 0755) != 0) {
+		die("cannot create snap mount directory");
+	}
+	sc_do_mount(src, dst, NULL, MS_BIND, NULL);
+
 	// Create the hostfs directory if one is missing. This directory is a part
 	// of packaging now so perhaps this code can be removed later.
 	if (access(SC_HOSTFS_DIR, F_OK) != 0) {
@@ -657,6 +685,8 @@ void sc_populate_mount_ns(struct sc_apparmor *apparmor, int snap_update_ns_fd,
 			.mounts = mounts,
 			.on_classic_distro = true,
 			.uses_base_snap = !sc_streq(base_snap_name, "core"),
+			.snap_name = snap_name,
+			.base_snap_name = base_snap_name,
 		};
 		sc_bootstrap_mount_namespace(&classic_config);
 	} else {
@@ -674,6 +704,8 @@ void sc_populate_mount_ns(struct sc_apparmor *apparmor, int snap_update_ns_fd,
 			.rootfs_dir = "/",
 			.mounts = mounts,
 			.uses_base_snap = !sc_streq(base_snap_name, "core"),
+			.snap_name = snap_name,
+			.base_snap_name = base_snap_name,
 		};
 		sc_bootstrap_mount_namespace(&all_snap_config);
 	}
