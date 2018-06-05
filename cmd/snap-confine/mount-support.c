@@ -196,6 +196,117 @@ static void sc_setup_mount_profiles(struct sc_apparmor *apparmor,
 	debug("snap-update-ns finished successfully");
 }
 
+static void mkdir_chown_bind(const char *src, const char *dst)
+{
+  if (mkdir(dst, 0755) < 0 && errno != EEXIST) {
+    die("cannot create mount directory %s", dst);
+  }
+  if (chown(dst, 0, 0) < 0) {
+    die("cannot chown destination directory %s", dst);
+  }
+
+  sc_do_mount(src, dst, NULL, MS_BIND | MS_REC, NULL);
+}
+
+static void sc_mount_snaps(const char *scratch_dir, const char *snap_name)
+{
+	char src[PATH_MAX] = { 0 };
+	char dst[PATH_MAX] = { 0 };
+
+	char name[40 + 1] = { 0 };
+	sc_snap_drop_instance_name(snap_name, name, sizeof name);
+
+	debug("opening %s", SNAP_MOUNT_DIR);
+	int dir_fd =
+	    open(SNAP_MOUNT_DIR, O_DIRECTORY | O_PATH | O_CLOEXEC | O_NOFOLLOW);
+	debug("got dirfd: %d", dir_fd);
+	if (dir_fd < 0) {
+		die("failed to open %s", SNAP_MOUNT_DIR);
+	}
+
+	/* DIR *dir = fdopendir(dir_fd); */
+  DIR *dir = opendir(SNAP_MOUNT_DIR);
+	debug("got dir %p", dir);
+	if (dir == NULL) {
+		die("failed to open %s", SNAP_MOUNT_DIR);
+	}
+
+	while (1) {
+		errno = 0;
+		struct dirent *entry = readdir(dir);
+		if (entry == NULL) {
+			if (errno != 0) {
+				die("readdir failed");
+			} else {
+				// end of directory
+				break;
+			}
+		}
+
+		debug("entry: %s", entry->d_name);
+    if (sc_streq(entry->d_name, ".") || sc_streq(entry->d_name, "..")) {
+      continue;
+    }
+
+		bool isdir = false;
+		if (entry->d_type == DT_UNKNOWN) {
+			struct stat st;
+			if (fstatat
+			    (dir_fd, entry->d_name, &st,
+			     AT_SYMLINK_NOFOLLOW) < 0) {
+				die("fstatat failed for entry %s",
+				    entry->d_name);
+			}
+			if ((st.st_mode & S_IFMT) == S_IFDIR) {
+				isdir = true;
+			}
+		} else if (entry->d_type == DT_DIR) {
+			isdir = true;
+		}
+
+		if (!isdir) {
+			continue;
+		}
+
+		sc_must_snprintf(src, sizeof src, "%s/%s", SNAP_MOUNT_DIR,
+                     entry->d_name);
+
+		if (sc_streq(snap_name, entry->d_name)) {
+
+			// Make local instance of <snap>_<key> avaialble as <snap>
+			sc_must_snprintf(dst, sizeof dst, "%s/snap/%s",
+					 scratch_dir, name);
+      mkdir_chown_bind(src, dst);
+
+      // And as <snap>_<key>
+			sc_must_snprintf(dst, sizeof dst, "%s/snap/%s",
+                       scratch_dir, entry->d_name);
+      mkdir_chown_bind(src, dst);
+
+		} else {
+
+			char other_name[40 + 1] = { 0 };
+			sc_snap_drop_instance_name(entry->d_name, other_name,
+						   sizeof other_name);
+
+			if (sc_streq(other_name, name)) {
+				// another instance of the same snap, skip it
+				continue;
+			}
+
+			sc_must_snprintf(dst, sizeof dst, "%s/snap/%s",
+					 scratch_dir, entry->d_name);
+      mkdir_chown_bind(src, dst);
+		}
+
+	}
+
+	closedir(dir);
+  close(dir_fd);
+
+  //system("/bin/bash");
+}
+
 struct sc_mount {
 	const char *path;
 	bool is_bidirectional;
@@ -414,30 +525,9 @@ static void sc_bootstrap_mount_namespace(const struct sc_mount_config *config)
 	/* parallel install */
 	sc_do_mount("none", dst, "tmpfs", 0, NULL);
 
-	sc_do_mount("none", dst, NULL, 0, NULL);
+	//sc_do_mount("none", dst, NULL, 0, NULL);
 
-	// Make the base snap available inside /snap
-	sc_must_snprintf(dst, sizeof dst, "%s/snap/%s", scratch_dir,
-			 config->base_snap_name);
-	sc_must_snprintf(src, sizeof src, "%s/%s", SNAP_MOUNT_DIR,
-			 config->base_snap_name);
-	if (mkdir(dst, 0755) != 0) {
-		die("cannot create base snap mount directory");
-	}
-	sc_do_mount(src, dst, NULL, MS_BIND, NULL);
-
-	// Make the snap available inside /snap
-	char base_name[40 + 1] = { 0 };
-	sc_snap_name_base(config->snap_name, base_name, sizeof base_name);
-	sc_must_snprintf(dst, sizeof dst, "%s/snap/%s", scratch_dir, base_name);
-	sc_must_snprintf(src, sizeof src, "%s/%s", SNAP_MOUNT_DIR,
-			 config->snap_name);
-	debug("bind mounting %s to %s", src, dst);
-
-	if (mkdir(dst, 0755) != 0) {
-		die("cannot create snap mount directory");
-	}
-	sc_do_mount(src, dst, NULL, MS_BIND, NULL);
+	sc_mount_snaps(scratch_dir, config->snap_name);
 
 	// Create the hostfs directory if one is missing. This directory is a part
 	// of packaging now so perhaps this code can be removed later.
