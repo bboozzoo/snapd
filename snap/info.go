@@ -259,6 +259,10 @@ func (s *Info) Name() string {
 	return LocalName(s.StoreName(), s.LocalKey)
 }
 
+func (s.Info) LocalName() string {
+	return LocalName(s.StoreName(), s.LocalKey)
+}
+
 func (s *Info) StoreName() string {
 	if s.RealName != "" {
 		return s.RealName

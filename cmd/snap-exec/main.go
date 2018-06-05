@@ -49,6 +49,7 @@ func init() {
 }
 
 func main() {
+	fmt.Printf("hello snap-exec\n")
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "cannot snap-exec: %s\n", err)
 		os.Exit(1)
@@ -145,17 +146,18 @@ func execApp(snapApp, revision, command string, args []string) error {
 		return fmt.Errorf("cannot parse revision %q: %s", revision, err)
 	}
 
-	snapName, appName := snap.SplitSnapApp(snapApp)
-	info, err := snap.ReadInfo(snapName, &snap.SideInfo{
+	instanceName, appName := snap.SplitSnapApp(snapApp)
+
+	info, err := snap.ReadInfo(instanceName, &snap.SideInfo{
 		Revision: rev,
 	})
 	if err != nil {
-		return fmt.Errorf("cannot read info for %q: %s", snapName, err)
+		return fmt.Errorf("cannot read info for %q: %s", instanceName, err)
 	}
 
 	app := info.Apps[appName]
 	if app == nil {
-		return fmt.Errorf("cannot find app %q in %q", appName, snapName)
+		return fmt.Errorf("cannot find app %q in %q", appName, instanceName)
 	}
 
 	cmdAndArgs, err := findCommand(app, command)
@@ -207,13 +209,13 @@ func execApp(snapApp, revision, command string, args []string) error {
 	return nil
 }
 
-func execHook(snapName, revision, hookName string) error {
+func execHook(instanceName, revision, hookName string) error {
 	rev, err := snap.ParseRevision(revision)
 	if err != nil {
 		return err
 	}
 
-	info, err := snap.ReadInfo(snapName, &snap.SideInfo{
+	info, err := snap.ReadInfo(instanceName, &snap.SideInfo{
 		Revision: rev,
 	})
 	if err != nil {
@@ -222,7 +224,7 @@ func execHook(snapName, revision, hookName string) error {
 
 	hook := info.Hooks[hookName]
 	if hook == nil {
-		return fmt.Errorf("cannot find hook %q in %q", hookName, snapName)
+		return fmt.Errorf("cannot find hook %q in %q", hookName, instanceName)
 	}
 
 	// build the environment

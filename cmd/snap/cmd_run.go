@@ -340,17 +340,20 @@ func (x *cmdRun) straceOpts() (opts []string, raw bool, err error) {
 }
 
 func (x *cmdRun) snapRunApp(snapApp string, args []string) error {
-	snapName, appName := snap.SplitSnapApp(snapApp)
-	info, err := getSnapInfo(snapName, snap.R(0))
+	instanceName, appName := snap.SplitSnapApp(snapApp)
+	info, err := getSnapInfo(instanceName, snap.R(0))
 	if err != nil {
 		return err
 	}
+
+	snapName, _ := snap.SplitName(instanceName)
 
 	app := info.Apps[appName]
 	if app == nil {
 		return fmt.Errorf(i18n.G("cannot find app %q in %q"), appName, snapName)
 	}
 
+	logger.Debugf("snap instance name: %s", instanceName)
 	logger.Debugf("snap name: %s", snapName)
 	logger.Debugf("snap app: %s", app.Name)
 	logger.Debugf("security tag: %s", app.SecurityTag())
@@ -358,20 +361,22 @@ func (x *cmdRun) snapRunApp(snapApp string, args []string) error {
 	return x.runSnapConfine(info, app.SecurityTag(), snapApp, "", args)
 }
 
-func (x *cmdRun) snapRunHook(snapName string) error {
+func (x *cmdRun) snapRunHook(instanceName string) error {
 	revision, err := snap.ParseRevision(x.Revision)
 	if err != nil {
 		return err
 	}
 
-	info, err := getSnapInfo(snapName, revision)
+	info, err := getSnapInfo(instanceName, revision)
 	if err != nil {
 		return err
 	}
 
+	snapName, _ := snap.SplitName(instanceName)
+
 	hook := info.Hooks[x.HookName]
 	if hook == nil {
-		return fmt.Errorf(i18n.G("cannot find hook %q in %q"), x.HookName, snapName)
+		return fmt.Errorf(i18n.G("cannot find hook %q in %q"), x.HookName, instanceName)
 	}
 
 	return x.runSnapConfine(info, hook.SecurityTag(), snapName, hook.Name, nil)
