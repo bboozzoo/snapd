@@ -198,14 +198,14 @@ static void sc_setup_mount_profiles(struct sc_apparmor *apparmor,
 
 static void mkdir_chown_bind(const char *src, const char *dst)
 {
-  if (mkdir(dst, 0755) < 0 && errno != EEXIST) {
-    die("cannot create mount directory %s", dst);
-  }
-  if (chown(dst, 0, 0) < 0) {
-    die("cannot chown destination directory %s", dst);
-  }
+	if (mkdir(dst, 0755) < 0 && errno != EEXIST) {
+		die("cannot create mount directory %s", dst);
+	}
+	if (chown(dst, 0, 0) < 0) {
+		die("cannot chown destination directory %s", dst);
+	}
 
-  sc_do_mount(src, dst, NULL, MS_BIND | MS_REC, NULL);
+	sc_do_mount(src, dst, NULL, MS_BIND | MS_REC, NULL);
 }
 
 static void sc_mount_snaps(const char *scratch_dir, const char *snap_name)
@@ -225,7 +225,7 @@ static void sc_mount_snaps(const char *scratch_dir, const char *snap_name)
 	}
 
 	/* DIR *dir = fdopendir(dir_fd); */
-  DIR *dir = opendir(SNAP_MOUNT_DIR);
+	DIR *dir = opendir(SNAP_MOUNT_DIR);
 	debug("got dir %p", dir);
 	if (dir == NULL) {
 		die("failed to open %s", SNAP_MOUNT_DIR);
@@ -244,9 +244,10 @@ static void sc_mount_snaps(const char *scratch_dir, const char *snap_name)
 		}
 
 		debug("entry: %s", entry->d_name);
-    if (sc_streq(entry->d_name, ".") || sc_streq(entry->d_name, "..")) {
-      continue;
-    }
+		if (sc_streq(entry->d_name, ".")
+		    || sc_streq(entry->d_name, "..")) {
+			continue;
+		}
 
 		bool isdir = false;
 		if (entry->d_type == DT_UNKNOWN) {
@@ -269,19 +270,19 @@ static void sc_mount_snaps(const char *scratch_dir, const char *snap_name)
 		}
 
 		sc_must_snprintf(src, sizeof src, "%s/%s", SNAP_MOUNT_DIR,
-                     entry->d_name);
+				 entry->d_name);
 
 		if (sc_streq(snap_name, entry->d_name)) {
 
 			// Make local instance of <snap>_<key> avaialble as <snap>
 			sc_must_snprintf(dst, sizeof dst, "%s/snap/%s",
 					 scratch_dir, name);
-      mkdir_chown_bind(src, dst);
+			mkdir_chown_bind(src, dst);
 
-      // And as <snap>_<key>
+			// And as <snap>_<key>
 			sc_must_snprintf(dst, sizeof dst, "%s/snap/%s",
-                       scratch_dir, entry->d_name);
-      mkdir_chown_bind(src, dst);
+					 scratch_dir, entry->d_name);
+			mkdir_chown_bind(src, dst);
 
 		} else {
 
@@ -296,15 +297,15 @@ static void sc_mount_snaps(const char *scratch_dir, const char *snap_name)
 
 			sc_must_snprintf(dst, sizeof dst, "%s/snap/%s",
 					 scratch_dir, entry->d_name);
-      mkdir_chown_bind(src, dst);
+			mkdir_chown_bind(src, dst);
 		}
 
 	}
 
 	closedir(dir);
-  close(dir_fd);
+	close(dir_fd);
 
-  //system("/bin/bash");
+	//system("/bin/bash");
 }
 
 struct sc_mount {
