@@ -51,6 +51,9 @@ var validHookName = regexp.MustCompile("^[a-z](?:-?[a-z0-9])*$")
 //   validators.
 var almostValidName = regexp.MustCompile("^[a-z0-9-]*[a-z][a-z0-9-]*$")
 
+// validInstanceKey is a regular expression describing valid snap instance key
+var validInstanceKey = regexp.MustCompile("^[a-z0-9]{1,10}$")
+
 // isValidName checks snap and socket socket identifiers.
 func isValidName(name string) bool {
 	if !almostValidName.MatchString(name) {
@@ -66,8 +69,15 @@ func isValidName(name string) bool {
 func ValidateName(name string) error {
 	// NOTE: This function should be synchronized with the two other
 	// implementations: sc_snap_name_validate and validate_snap_name .
-	if len(name) > 40 || !isValidName(name) {
-		return fmt.Errorf("invalid snap name: %q", name)
+	storeName, instanceKey := SplitInstanceName(name)
+
+	if len(storeName) > 40 || !isValidName(storeName) {
+		return fmt.Errorf("invalid snap name: %q", storeName)
+	}
+	if strings.IndexRune(name, '_') != -1 {
+		if !validInstanceKey.MatchString(instanceKey) {
+			return fmt.Errorf("invalid snap instance key: %q", instanceKey)
+		}
 	}
 	return nil
 }

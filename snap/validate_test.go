@@ -76,6 +76,11 @@ func (s *ValidateSuite) TestValidateName(c *C) {
 		"01game", "1-or-2",
 		// a regexp stresser
 		"u-94903713687486543234157734673284536758",
+		// snap instance
+		"foo_bar",
+		"foo_0000000001",
+		"01game_0000000001",
+		"foo_1", "foo_1234abcd",
 	}
 	for _, name := range validNames {
 		err := ValidateName(name)
@@ -104,10 +109,12 @@ func (s *ValidateSuite) TestValidateName(c *C) {
 		"0", "123",
 		// identifier must be plain ASCII
 		"日本語", "한글", "ру́сский язы́к",
+		// bad instance name
+		"foo_", "foo_1-23", "foo_01234567890", "foo_123_456",
 	}
 	for _, name := range invalidNames {
 		err := ValidateName(name)
-		c.Assert(err, ErrorMatches, `invalid snap name: ".*"`)
+		c.Assert(err, ErrorMatches, `invalid snap (name|instance key): ".*"`)
 	}
 }
 
