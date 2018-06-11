@@ -2165,15 +2165,17 @@ func (s *Store) snapAction(ctx context.Context, currentSnaps []*CurrentSnap, act
 
 	curSnaps := make(map[string]*CurrentSnap, len(currentSnaps))
 	curSnapJSONs := make([]*currentSnapV2JSON, len(currentSnaps))
-	instanceKeyToName := make(map[string]string, len(currentSnaps))
 	instanceNameToKey := make(map[string]string, len(currentSnaps))
 	for i, curSnap := range currentSnaps {
 		if curSnap.SnapID == "" || curSnap.InstanceName == "" || curSnap.Revision.Unset() {
 			return nil, fmt.Errorf("internal error: invalid current snap information")
 		}
+		// due to privacy concerns, avoid sending the local names to the
+		// backend and instead just number current snaps, this requires
+		// extra translation helpers for instance key -> instance name
+		// and back
 		instanceKey := fmt.Sprintf("%s-%d", curSnap.SnapID, i)
 		curSnaps[instanceKey] = curSnap
-		instanceKeyToName[instanceKey] = curSnap.InstanceName
 		instanceNameToKey[curSnap.InstanceName] = instanceKey
 
 		channel := curSnap.TrackingChannel
@@ -2195,7 +2197,7 @@ func (s *Store) snapAction(ctx context.Context, currentSnaps []*CurrentSnap, act
 	}
 
 	installNum := 0
-	installKeys := make(map[string]bool, len(actions))
+	installKeys := make(map[string]string, len(actions))
 	actionJSONs := make([]*snapActionJSON, len(actions))
 	for i, a := range actions {
 		if a.InstanceName == "" {
@@ -2211,12 +2213,6 @@ func (s *Store) snapAction(ctx context.Context, currentSnaps []*CurrentSnap, act
 		}
 
 		instanceKey := instanceNameToKey[a.InstanceName]
-		if a.Action == "install" {
-			installNum++
-			instanceKey = fmt.Sprintf("install-%d", installNum)
-			installKeys[instanceKey] = true
-		}
-		instanceKeyToName[instanceKey] = a.InstanceName
 
 		aJSON := &snapActionJSON{
 			Action:           a.Action,
@@ -2228,6 +2224,11 @@ func (s *Store) snapAction(ctx context.Context, currentSnaps []*CurrentSnap, act
 			IgnoreValidation: ignoreValidation,
 		}
 		if a.Action == "install" {
+			installNum++
+			instanceKey = fmt.Sprintf("install-%d", installNum)
+			installKeys[instanceKey] = a.InstanceName
+
+			aJSON.InstanceKey = instanceKey
 			aJSON.Name = snap.StoreName(a.InstanceName)
 		}
 		actionJSONs[i] = aJSON
@@ -2279,7 +2280,7 @@ func (s *Store) snapAction(ctx context.Context, currentSnaps []*CurrentSnap, act
 	var snaps []*snap.Info
 	for _, res := range results.Results {
 		if res.Result == "error" {
-			if installKeys[res.InstanceKey] {
+			if installKeys[res.InstanceKey] != "" {
 				if res.Name != "" {
 					installErrors[res.Name] = translateSnapActionError("install", res.Error.Code, res.Error.Message)
 					continue
@@ -2297,18 +2298,10 @@ func (s *Store) snapAction(ctx context.Context, currentSnaps []*CurrentSnap, act
 		if err != nil {
 			return nil, fmt.Errorf("unexpected invalid install/refresh API result: %v", err)
 		}
-		instanceName := instanceKeyToName[res.InstanceKey]
 
-		if instanceName == "" {
-			return nil, fmt.Errorf("unexpected invalid install/refresh API result: unexpected instance-key %q", res.InstanceKey)
-		}
-
-		logger.Noticef("adjusting instance name: %s", instanceName)
-		store, instance := snap.SplitInstanceName(instanceName)
-		snapInfo.RealName = store
-		snapInfo.InstanceKey = instance
 		snapInfo.Channel = res.EffectiveChannel
 
+		var instanceName string
 		if res.Result == "refresh" {
 			cur := curSnaps[res.InstanceKey]
 			if cur == nil {
@@ -2319,7 +2312,20 @@ func (s *Store) snapAction(ctx context.Context, currentSnaps []*CurrentSnap, act
 				refreshErrors[cur.InstanceName] = ErrNoUpdateAvailable
 				continue
 			}
+			instanceName = cur.InstanceName
+		} else if res.Result == "install" {
+			instanceName = installKeys[res.InstanceKey]
 		}
+
+		if instanceName == "" {
+			return nil, fmt.Errorf("unexpected invalid install/refresh API result: unexpected instance-key %q", res.InstanceKey)
+		}
+
+		logger.Noticef("adjusting instance name: %s", instanceName)
+		store, instance := snap.SplitInstanceName(instanceName)
+		snapInfo.RealName = store
+		snapInfo.InstanceKey = instance
+
 		snaps = append(snaps, snapInfo)
 	}
 
