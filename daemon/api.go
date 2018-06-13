@@ -1573,6 +1573,19 @@ out:
 		sideInfo = &snap.SideInfo{RealName: info.StoreName()}
 	}
 
+	if len(form.Value["name"]) > 0 {
+		requestedInstanceName := form.Value["name"][0]
+		if err := snap.ValidateName(requestedInstanceName); err != nil {
+			return BadRequest(err.Error())
+		}
+		storeName, instanceKey := snap.SplitInstanceName(requestedInstanceName)
+		if storeName != snapName {
+			return BadRequest(fmt.Sprintf("passed snap instance name %q does not match snap name %q", requestedInstanceName, snapName))
+		}
+		sideInfo.InstanceKey = instanceKey
+		snapName = requestedInstanceName
+	}
+
 	msg := fmt.Sprintf(i18n.G("Install %q snap from file"), snapName)
 	if origPath != "" {
 		msg = fmt.Sprintf(i18n.G("Install %q snap from file %q"), snapName, origPath)
