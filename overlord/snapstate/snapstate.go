@@ -577,7 +577,7 @@ func validateFeatureFlags(st *state.State, info *snap.Info) error {
 // local revision and sideloading, or full metadata in which case it
 // the snap will appear as installed from the store.
 func InstallPath(st *state.State, si *snap.SideInfo, path, channel string, flags Flags) (*state.TaskSet, error) {
-	name := si.RealName
+	name := snap.InstanceName(si.RealName, si.InstanceKey)
 	if name == "" {
 		return nil, fmt.Errorf("internal error: snap name to install %q not provided", path)
 	}
