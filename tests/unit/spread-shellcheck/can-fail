@@ -145,7 +145,6 @@ tests/main/whoami/task.yaml
 tests/main/writable-areas/task.yaml
 tests/main/xauth-migration/task.yaml
 tests/main/xdg-open-compat/task.yaml
-tests/main/xdg-open/task.yaml
 tests/main/xdg-settings/task.yaml
 tests/nested/core-revert/task.yaml
 tests/nested/extra-snaps-assertions/task.yaml
