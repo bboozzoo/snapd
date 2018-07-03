@@ -89,9 +89,6 @@ static void setup_private_mount(const char *snap_name)
 	umask(old_mask);
 
 	// chdir to '/' since the mount won't apply to the current directory
-	char *pwd = get_current_dir_name();
-	if (pwd == NULL)
-		die("cannot get current working directory");
 	if (chdir("/") != 0)
 		die("cannot change directory to '/'");
 
@@ -103,10 +100,6 @@ static void setup_private_mount(const char *snap_name)
 	if (chown("/tmp/", uid, gid) < 0) {
 		die("cannot change ownership of /tmp");
 	}
-	// chdir to original directory
-	if (chdir(pwd) != 0)
-		die("cannot change current working directory to the original directory");
-	free(pwd);
 }
 
 // TODO: fold this into bootstrap
