@@ -1,5 +1,6 @@
 summary: Check snap remove operations.
-
+# we're using test-snapd-busybox-static which is published for amd64 only
+systems: [-ubuntu-16.04-32]
 restore: |
     rm -f basic_1.0_all.snap
     rm -f stderr.out
