@@ -32,6 +32,14 @@ func (b Backend) CopySnapData(newSnap, oldSnap *snap.Info, meter progress.Meter)
 	// deal with the old data or
 	// otherwise just create a empty data dir
 
+	// Make sure the base data directory exists for instance snaps
+	if newSnap.InstanceKey != "" {
+		err := os.MkdirAll(snap.BaseDataDir(newSnap.SnapName()), 0755)
+		if err != nil && !os.IsExist(err) {
+			return err
+		}
+	}
+
 	// Make sure the common data directory exists, even if this isn't a new
 	// install.
 	if err := os.MkdirAll(newSnap.CommonDataDir(), 0755); err != nil {
@@ -73,6 +81,15 @@ func (b Backend) UndoCopySnapData(newInfo *snap.Info, oldInfo *snap.Info, meter 
 		}
 	}
 
+	// Try to remove the base directory for non-instance-keyed snaps
+	if newInfo.InstanceKey != "" && oldInfo == nil {
+		if err := os.Remove(snap.BaseDataDir(newInfo.SnapName())); err != nil {
+			// Failure is ok, they may be more directories inside,
+			// instead of bailing out just log it
+			logger.Noticef("Cannot remove base data directory of snap %q: %v", newInfo.InstanceName(), err)
+		}
+	}
+
 	return firstErr(err1, err2)
 }
 
@@ -89,4 +106,14 @@ func (b Backend) ClearTrashedData(oldSnap *snap.Info) {
 			logger.Noticef("Cannot remove %s: %v", d, err)
 		}
 	}
+
+	// Try to remove the base directory for non-instance-keyed snaps
+	if oldSnap.InstanceKey != "" {
+		if err := os.Remove(snap.BaseDataDir(oldSnap.SnapName())); err != nil {
+			// Failure is ok, they may be more directories inside,
+			// instead of bailing out just log it
+			logger.Noticef("Cannot remove base data directory of snap %q: %v", oldSnap.InstanceName(), err)
+		}
+	}
+
 }

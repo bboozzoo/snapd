@@ -39,7 +39,7 @@ func (b Backend) RemoveSnapData(snap *snap.Info) error {
 		return err
 	}
 
-	return removeDirs(dirs)
+	return removeDirs(dirs, false)
 }
 
 // RemoveSnapCommonData removes the data common between versions of the given snap.
@@ -49,7 +49,26 @@ func (b Backend) RemoveSnapCommonData(snap *snap.Info) error {
 		return err
 	}
 
-	return removeDirs(dirs)
+	return removeDirs(dirs, true)
+}
+
+// RemoveSnapDataDir removes base snap data directory
+func (b Backend) RemoveSnapDataDir(info *snap.Info, otherInstances bool) error {
+	if info.InstanceKey != "" {
+		// data directories of snaps with instance key are never used by
+		// other instances
+		os.Remove(snap.BaseDataDir(info.InstanceName()))
+	}
+	if !otherInstances {
+		// remove the snap base directory only if there are no other
+		// snap instances using it
+		os.Remove(snap.BaseDataDir(info.SnapName()))
+	}
+
+	// TODO parallel-install: remove home data dirs without excessive
+	// blocking
+
+	return nil
 }
 
 func (b Backend) untrashData(snap *snap.Info) error {
@@ -67,14 +86,11 @@ func (b Backend) untrashData(snap *snap.Info) error {
 	return err
 }
 
-func removeDirs(dirs []string) error {
+func removeDirs(dirs []string, keepParent bool) error {
 	for _, dir := range dirs {
 		if err := os.RemoveAll(dir); err != nil {
 			return err
 		}
-
-		// Attempt to remove the parent directory as well (ignore any failure)
-		os.Remove(filepath.Dir(dir))
 	}
 
 	return nil
