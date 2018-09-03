@@ -30,6 +30,7 @@ import (
 	"github.com/snapcore/snapd/interfaces/mount"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
+	"github.com/snapcore/snapd/snap"
 )
 
 var opts struct {
@@ -88,29 +89,29 @@ func run() error {
 	return applyFstab(opts.Positionals.SnapName, opts.FromSnapConfine)
 }
 
-func applyFstab(snapName string, fromSnapConfine bool) error {
+func applyFstab(instanceName string, fromSnapConfine bool) error {
 	// Lock the mount namespace so that any concurrently attempted invocations
 	// of snap-confine are synchronized and will see consistent state.
-	lock, err := mount.OpenLock(snapName)
+	lock, err := mount.OpenLock(instanceName)
 	if err != nil {
-		return fmt.Errorf("cannot open lock file for mount namespace of snap %q: %s", snapName, err)
+		return fmt.Errorf("cannot open lock file for mount namespace of snap %q: %s", instanceName, err)
 	}
 	defer func() {
-		logger.Debugf("unlocking mount namespace of snap %q", snapName)
+		logger.Debugf("unlocking mount namespace of snap %q", instanceName)
 		lock.Close()
 	}()
 
-	logger.Debugf("locking mount namespace of snap %q", snapName)
+	logger.Debugf("locking mount namespace of snap %q", instanceName)
 	if fromSnapConfine {
 		// When --from-snap-confine is passed then we just ensure that the
 		// namespace is locked. This is used by snap-confine to use
 		// snap-update-ns to apply mount profiles.
 		if err := lock.TryLock(); err != osutil.ErrAlreadyLocked {
-			return fmt.Errorf("mount namespace of snap %q is not locked but --from-snap-confine was used", snapName)
+			return fmt.Errorf("mount namespace of snap %q is not locked but --from-snap-confine was used", instanceName)
 		}
 	} else {
 		if err := lock.Lock(); err != nil {
-			return fmt.Errorf("cannot lock mount namespace of snap %q: %s", snapName, err)
+			return fmt.Errorf("cannot lock mount namespace of snap %q: %s", instanceName, err)
 		}
 	}
 
@@ -119,12 +120,12 @@ func applyFstab(snapName string, fromSnapConfine bool) error {
 	// symlinks or perform other malicious activity (such as attempting to
 	// introduce a symlink that would cause us to mount something other
 	// than what we expected).
-	logger.Debugf("freezing processes of snap %q", snapName)
+	logger.Debugf("freezing processes of snap %q", instanceName)
 	if err := freezeSnapProcesses(opts.Positionals.SnapName); err != nil {
 		return err
 	}
 	defer func() {
-		logger.Debugf("thawing processes of snap %q", snapName)
+		logger.Debugf("thawing processes of snap %q", instanceName)
 		thawSnapProcesses(opts.Positionals.SnapName)
 	}()
 
@@ -149,8 +150,11 @@ func applyFstab(snapName string, fromSnapConfine bool) error {
 	// allow defining layout items that refer to SNAP_USER_DATA and
 	// SNAP_USER_COMMON.
 	sec := &Secure{}
-	sec.AddUnrestrictedPrefixes("/tmp", "/var/snap", "/snap/"+snapName)
-	return computeAndSaveChanges(snapName, sec)
+	sec.AddUnrestrictedPrefixes("/tmp", "/var/snap", "/snap/"+instanceName)
+	if snapName, instanceKey := snap.SplitInstanceName(instanceName); instanceKey != "" {
+		sec.AddUnrestrictedPrefixes("/snap/" + snapName)
+	}
+	return computeAndSaveChanges(instanceName, sec)
 }
 
 func computeAndSaveChanges(snapName string, sec *Secure) error {
