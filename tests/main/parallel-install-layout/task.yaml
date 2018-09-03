@@ -28,8 +28,6 @@ execute: |
     snap install --dangerous $devmode --name test-snapd-layout_foo "$path"
 
     for name in test-snapd-layout test-snapd-layout_foo; do
-        # workaround trespassing bug
-        rm -rf /etc/demo /etc/demo.conf /etc/demo.cfg
 
         echo "snap declaring layouts doesn't explode on startup"
         $name.sh -c "true"
@@ -92,8 +90,3 @@ execute: |
         MATCH "$name foo-4" < "/var/snap/$name/x1/var/lib/demo/writable"
         MATCH "$name foo-5" < "/var/snap/$name/x1/var/cache/demo/writable"
     done
-
-restore:
-    # cleanup after the trespassing bug, see: https://github.com/snapcore/snapd/pull/4889
-    # TODO: remove this once the problem is addressed
-    rm -rf /etc/demo /etc/demo.conf /etc/demo.cfg
