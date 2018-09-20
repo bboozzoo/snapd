@@ -144,6 +144,7 @@ func RefreshSnapDeclarations(s *state.State, userID int) error {
 		return nil
 	}
 	fetching := func(f asserts.Fetcher) error {
+		seenSnapIDs := make(map[string]bool, len(snapStates))
 		for _, snapst := range snapStates {
 			info, err := snapst.CurrentInfo()
 			if err != nil {
@@ -152,9 +153,13 @@ func RefreshSnapDeclarations(s *state.State, userID int) error {
 			if info.SnapID == "" {
 				continue
 			}
+			if seenSnapIDs[info.SnapID] {
+				continue
+			}
 			if err := snapasserts.FetchSnapDeclaration(f, info.SnapID); err != nil {
 				return fmt.Errorf("cannot refresh snap-declaration for %q: %v", info.InstanceName(), err)
 			}
+			seenSnapIDs[info.SnapID] = true
 		}
 		return nil
 	}
