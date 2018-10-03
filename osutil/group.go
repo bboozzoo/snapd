@@ -1,5 +1,7 @@
 // -*- Mode: Go; indent-tabs-mode: t -*-
 
+// +build cgo,!osutil
+
 /*
  * Copyright (C) 2017 Canonical Ltd
  *
