@@ -54,7 +54,7 @@ func (s *emptyStore) SnapAction(context.Context, []*store.CurrentSnap, []*store.
 	return nil, fmt.Errorf("cannot find snap")
 }
 
-func (s *emptyStore) Download(ctx context.Context, name, targetFn string, downloadInfo *snap.DownloadInfo, pbar progress.Meter, user *auth.UserState) error {
+func (s *emptyStore) Download(ctx context.Context, name, targetFn string, downloadInfo *snap.DownloadInfo, pbar progress.Meter, user *auth.UserState, dlOpts *store.DownloadOptions) error {
 	return fmt.Errorf("cannot download")
 }
 
@@ -202,7 +202,7 @@ func (s *imageSuite) SnapAction(_ context.Context, _ []*store.CurrentSnap, actio
 	return nil, fmt.Errorf("no %q in the fake store", actions[0].InstanceName)
 }
 
-func (s *imageSuite) Download(ctx context.Context, name, targetFn string, downloadInfo *snap.DownloadInfo, pbar progress.Meter, user *auth.UserState) error {
+func (s *imageSuite) Download(ctx context.Context, name, targetFn string, downloadInfo *snap.DownloadInfo, pbar progress.Meter, user *auth.UserState, dlOpts *store.DownloadOptions) error {
 	return osutil.CopyFile(s.downloadedSnaps[name], targetFn, 0)
 }
 
@@ -270,6 +270,16 @@ const snapReqOtherBase = `
 name: snap-req-other-base
 version: 1.0
 base: other-base
+`
+
+const snapReqContentProvider = `
+name: snap-req-content-provider
+version: 1.0
+plugs:
+ gtk-3-themes:
+  interface: content
+  default-provider: gtk-common-themes
+  target: $SNAP/data-dir/themes
 `
 
 func (s *imageSuite) TestMissingModelAssertions(c *C) {
@@ -579,6 +589,10 @@ func (s *imageSuite) setupSnaps(c *C, gadgetUnpackDir string, publishers map[str
 	s.downloadedSnaps["snap-req-other-base"] = snaptest.MakeTestSnapWithFiles(c, snapReqOtherBase, nil)
 	s.storeSnapInfo["snap-req-other-base"] = infoFromSnapYaml(c, snapReqOtherBase, snap.R(5))
 	s.addSystemSnapAssertions(c, "snap-req-other-base", "other")
+
+	s.downloadedSnaps["snap-req-content-provider"] = snaptest.MakeTestSnapWithFiles(c, snapReqContentProvider, nil)
+	s.storeSnapInfo["snap-req-content-provider"] = infoFromSnapYaml(c, snapReqContentProvider, snap.R(5))
+	s.addSystemSnapAssertions(c, "snap-req-content-provider", "other")
 }
 
 func (s *imageSuite) TestBootstrapToRootDir(c *C) {
@@ -1527,6 +1541,42 @@ func (s *imageSuite) TestBootstrapToRootDirSnapReqBaseFromLocal(c *C) {
 	c.Assert(err, IsNil)
 	err = image.BootstrapToRootDir(s.tsto, model, opts, local)
 	c.Assert(err, IsNil)
+}
+
+func (s *imageSuite) TestBootstrapToRootDirMissingContentProvider(c *C) {
+	restore := image.MockTrusted(s.storeSigning.Trusted)
+	defer restore()
+	rawmodel, err := s.brandSigning.Sign(asserts.ModelType, map[string]interface{}{
+		"series":         "16",
+		"authority-id":   "my-brand",
+		"brand-id":       "my-brand",
+		"model":          "my-model",
+		"architecture":   "amd64",
+		"gadget":         "pc",
+		"kernel":         "pc-kernel",
+		"required-snaps": []interface{}{"snap-req-content-provider"},
+		"timestamp":      time.Now().Format(time.RFC3339),
+	}, nil, "")
+	c.Assert(err, IsNil)
+	model := rawmodel.(*asserts.Model)
+	rootdir := filepath.Join(c.MkDir(), "imageroot")
+	gadgetUnpackDir := c.MkDir()
+	s.setupSnaps(c, gadgetUnpackDir, map[string]string{
+		"core":                  "canonical",
+		"pc":                    "canonical",
+		"pc-kernel":             "canonical",
+		"snap-req-content-snap": "canonical",
+	})
+	opts := &image.Options{
+		RootDir:         rootdir,
+		GadgetUnpackDir: gadgetUnpackDir,
+	}
+	local, err := image.LocalSnaps(s.tsto, opts)
+	c.Assert(err, IsNil)
+	err = image.BootstrapToRootDir(s.tsto, model, opts, local)
+	c.Assert(err, IsNil)
+
+	c.Check(s.stderr.String(), Equals, `WARNING: the default content provider "gtk-common-themes" requested by snap "snap-req-content-provider" is not getting installed.`)
 }
 
 type toolingAuthContextSuite struct {

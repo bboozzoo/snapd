@@ -32,6 +32,10 @@ var (
 	ConnectPriv                  = connect
 	GetConns                     = getConns
 	SetConns                     = setConns
+	MakeSlotName                 = makeSlotName
+	EnsureUniqueName             = ensureUniqueName
+	SuggestedSlotName            = suggestedSlotName
+	InSameChangeWaitChain        = inSameChangeWaitChain
 )
 
 func NewConnectOptsWithAutoSet() connectOpts {
