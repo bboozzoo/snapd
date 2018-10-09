@@ -236,24 +236,33 @@ func (s *servicesTestSuite) TestNoStartDisabledServices(c *C) {
 	info := snaptest.MockSnap(c, packageHello, &snap.SideInfo{Revision: snap.R(12)})
 	svcFile := filepath.Join(s.tempdir, "/etc/systemd/system/snap.hello-snap.svc1.service")
 
-	r := systemd.MockSystemctl(func(cmd ...string) ([]byte, error) {
-		s.sysdLog = append(s.sysdLog, cmd)
-		sdcmd := cmd[0]
-		if len(cmd) >= 2 {
-			sdcmd = cmd[len(cmd)-2]
-		}
-		if sdcmd == "is-enabled" {
-			return nil, systemd.NewError(1, cmd, []byte("disabled\n"))
-		}
-		panic("unexpected systemctl command " + sdcmd)
-	})
-	defer r()
+	r := testutil.MockCommand(c, "systemctl", `#!/bin/sh
+if [ "$1" = "--root" ]; then
+    shift 2
+fi
+
+case "$1" in
+    is-enabled)
+        if [ "$2" = "snap.hello-snap.svc1.service" ]; then
+            echo "disabled"
+            exit 1
+        else
+            echo "unexpected call $*"
+            exit 2
+        fi
+        ;;
+    *)
+        echo "unexpected call $*"
+        exit 2
+esac
+`)
+	defer r.Restore()
 
 	err := wrappers.StartServices(info.Services(), nil)
 	c.Assert(err, IsNil)
 
-	c.Assert(s.sysdLog, DeepEquals, [][]string{
-		{"--root", s.tempdir, "is-enabled", filepath.Base(svcFile)},
+	c.Assert(r.Calls(), DeepEquals, [][]string{
+		{"systemctl", "--root", s.tempdir, "is-enabled", filepath.Base(svcFile)},
 	})
 }
 
@@ -516,11 +525,15 @@ func (s *servicesTestSuite) TestStartSnapMultiServicesFailStartCleanupWithSocket
 	err := wrappers.StartServices(apps, nil)
 	c.Assert(err, ErrorMatches, "failed")
 	c.Logf("sysdlog: %v", sysdLog)
-	c.Assert(sysdLog, HasLen, 17, Commentf("len: %v calls: %v", len(sysdLog), sysdLog))
+	// c.Assert(sysdLog, HasLen, 17, Commentf("len: %v calls: %v", len(sysdLog), sysdLog))
 	c.Check(sysdLog, DeepEquals, [][]string{
 		{"--root", s.tempdir, "is-enabled", svc1Name},
+		{"--root", s.tempdir, "is-enabled", svc2Name},
+		{"--root", s.tempdir, "is-enabled", svc2SocketName},
 		{"--root", s.tempdir, "enable", svc2SocketName},
 		{"start", svc2SocketName},
+		{"--root", s.tempdir, "is-enabled", svc3Name},
+		{"--root", s.tempdir, "is-enabled", svc3SocketName},
 		{"--root", s.tempdir, "enable", svc3SocketName},
 		{"start", svc3SocketName}, // start failed, what follows is the cleanup
 		{"stop", svc3SocketName},
@@ -793,9 +806,11 @@ func (s *servicesTestSuite) TestStartSnapTimerCleanup(c *C) {
 	apps := []*snap.AppInfo{info.Apps["svc1"], info.Apps["svc2"]}
 	err := wrappers.StartServices(apps, nil)
 	c.Assert(err, ErrorMatches, "failed")
-	c.Assert(sysdLog, HasLen, 10, Commentf("len: %v calls: %v", len(sysdLog), sysdLog))
+	// c.Assert(sysdLog, HasLen, 10, Commentf("len: %v calls: %v", len(sysdLog), sysdLog))
 	c.Check(sysdLog, DeepEquals, [][]string{
 		{"--root", dirs.GlobalRootDir, "is-enabled", svc1Name},
+		{"--root", dirs.GlobalRootDir, "is-enabled", svc2Name},
+		{"--root", dirs.GlobalRootDir, "is-enabled", svc2Timer},
 		{"--root", dirs.GlobalRootDir, "enable", svc2Timer},
 		{"start", svc2Timer}, // this call fails
 		{"stop", svc2Timer},

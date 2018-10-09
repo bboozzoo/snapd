@@ -80,7 +80,12 @@ func Control(st *state.State, appInfos []*snap.AppInfo, inst *Instruction, conte
 	lastName := ""
 	names := make([]string, len(appInfos))
 	for i, svc := range appInfos {
-		svcs = append(svcs, svc.ServiceName())
+		if inst.Action == "start" && svc.Timer != nil && len(svc.Sockets) == 0 {
+			// only start the service if there are no timers or
+			// sockets to activate it
+			svcs = append(svcs, svc.ServiceName())
+		}
+
 		snapName := svc.Snap.InstanceName()
 		names[i] = snapName + "." + svc.Name
 		if snapName != lastName {

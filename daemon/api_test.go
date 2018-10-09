@@ -7187,7 +7187,7 @@ func (s *appSuite) TestPosetAppsEnableNow(c *check.C) {
 	inst := servicestate.Instruction{Action: "start", Names: []string{"snap-a.svc2"}}
 	inst.Enable = true
 	expected := [][]string{
-		{"systemctl", "--root", dirs.GlobalRootDir, "enable", "snap.snap-a.svc2.service"}, 
+		{"systemctl", "--root", dirs.GlobalRootDir, "enable", "snap.snap-a.svc2.service"},
 		{"systemctl", "--root", dirs.GlobalRootDir, "start", "snap.snap-a.svc2.service"},
 	}
 	s.testPostApps(c, inst, expected)
@@ -7198,7 +7198,7 @@ func (s *appSuite) TestPosetAppsDisableNow(c *check.C) {
 	inst.Disable = true
 	expected := [][]string{
 		{"systemctl", "--root", dirs.GlobalRootDir, "disable", "snap.snap-a.svc2.service"},
-		{"systemctl", "--root", dirs.GlobalRootDir, "stop", "snap.snap-a.svc2.service"}
+		{"systemctl", "--root", dirs.GlobalRootDir, "stop", "snap.snap-a.svc2.service"},
 	}
 	s.testPostApps(c, inst, expected)
 }

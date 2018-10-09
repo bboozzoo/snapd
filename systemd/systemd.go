@@ -53,7 +53,7 @@ var systemctlCmd = func(args ...string) ([]byte, error) {
 	bs, err := exec.Command("systemctl", args...).CombinedOutput()
 	if err != nil {
 		exitCode, _ := osutil.ExitCode(err)
-		return nil, NewError(exitCode, args, bs)
+		return nil, &Error{exitCode: exitCode, cmd: args, msg: bs}
 	}
 
 	return bs, nil
@@ -380,11 +380,6 @@ type Error struct {
 	cmd      []string
 	msg      []byte
 	exitCode int
-}
-
-// NewError creates a systemd.Error, exported for mocks during testing
-func NewError(exitCode int, cmd []string, msg []byte) *Error {
-	return &Error{exitCode: exitCode, cmd: cmd, msg: msg}
 }
 
 func (e *Error) Error() string {
