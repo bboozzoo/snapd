@@ -42,8 +42,10 @@ execute: |
     echo "And the snap is able to read a public key"
     test-snapd-sh.with-ssh-public-keys-plug -c "cat $TESTKEY.pub"
 
-    if [ "$(snap debug confinement)" = partial ]; then
-        exit 0
+    if [ "$(snap debug confinement)" = partial ] ; then
+        if ! snap debug sandbox-features | MATCH "apparmor:.*policy:default.*"; then
+            exit 0
+        fi
     fi
 
     echo "And then the snap is not able to access to private keys"
