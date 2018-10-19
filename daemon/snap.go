@@ -178,6 +178,16 @@ func (a bySnapApp) Less(i, j int) bool {
 	return iName < jName
 }
 
+type bySnapName []*snap.AppInfo
+
+func (a bySnapName) Len() int      { return len(a) }
+func (a bySnapName) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a bySnapName) Less(i, j int) bool {
+	iName := a[i].Snap.InstanceName()
+	jName := a[j].Snap.InstanceName()
+	return iName < jName
+}
+
 // this differs from snap.SplitSnapApp in the handling of the
 // snap-only case:
 //   snap.SplitSnapApp("foo") is ("foo", "foo"),
@@ -191,7 +201,8 @@ func splitAppName(s string) (snap, app string) {
 }
 
 type appInfoOptions struct {
-	service bool
+	service            bool
+	sortedByStartOrder bool
 }
 
 func (opts appInfoOptions) String() string {
@@ -242,6 +253,13 @@ func appInfosFor(st *state.State, names []string, opts appInfoOptions) ([]*snap.
 			}
 		}
 
+		if opts.service && opts.sortedByStartOrder {
+			apps, err = snap.SortServices(apps)
+			if err != nil {
+
+			}
+		}
+
 		if len(apps) == 0 && requested[snapName] {
 			return nil, AppNotFound("snap %q has no %ss", snapName, opts)
 		}
@@ -272,7 +290,14 @@ func appInfosFor(st *state.State, names []string, opts appInfoOptions) ([]*snap.
 		}
 	}
 
-	sort.Sort(bySnapApp(appInfos))
+	if opts.service && opts.sortedByStartOrder {
+		// services were already sorted by their startup order, sort by
+		// snap name, but keep the order of already sorted services
+		// unchanged
+		sort.Stable(bySnapName(appInfos))
+	} else {
+		sort.Sort(bySnapApp(appInfos))
+	}
 
 	return appInfos, nil
 }

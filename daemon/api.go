@@ -2871,7 +2871,7 @@ func postApps(c *Command, r *http.Request, user *auth.UserState) Response {
 	}
 
 	st := c.d.overlord.State()
-	appInfos, rsp := appInfosFor(st, inst.Names, appInfoOptions{service: true})
+	appInfos, rsp := appInfosFor(st, inst.Names, appInfoOptions{service: true, sortedByStartOrder: true})
 	if rsp != nil {
 		return rsp
 	}
