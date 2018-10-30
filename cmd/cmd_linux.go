@@ -20,11 +20,11 @@
 package cmd
 
 import (
+	"bytes"
 	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"syscall"
 
@@ -87,19 +87,28 @@ func coreSupportsReExec(corePath string) bool {
 		logger.Noticef("cannot read snapd info file %q: %s", fullInfo, err)
 		return false
 	}
-	ver := regexp.MustCompile("(?m)^VERSION=(.*)$").FindStringSubmatch(string(content))
-	if len(ver) != 2 {
-		logger.Noticef("cannot find snapd version information in %q", content)
-		return false
+	for !bytes.HasPrefix(content, []byte("VERSION=")) {
+		idx := bytes.IndexByte(content, '\n')
+		if idx < 0 {
+			logger.Noticef("cannot find snapd version information in %q", content)
+			return false
+		}
+		content = content[idx+1:]
 	}
+	content = content[8:]
+	idx := bytes.IndexByte(content, '\n')
+	if idx > -1 {
+		content = content[:idx]
+	}
+	ver := string(content)
 	// > 0 means our Version is bigger than the version of snapd in core
-	res, err := strutil.VersionCompare(Version, ver[1])
+	res, err := strutil.VersionCompare(Version, ver)
 	if err != nil {
-		logger.Debugf("cannot version compare %q and %q: %v", Version, ver[1], res)
+		logger.Debugf("cannot version compare %q and %q: %v", Version, ver, res)
 		return false
 	}
 	if res > 0 {
-		logger.Debugf("core snap (at %q) is older (%q) than distribution package (%q)", corePath, ver[1], Version)
+		logger.Debugf("core snap (at %q) is older (%q) than distribution package (%q)", corePath, ver, Version)
 		return false
 	}
 	return true
