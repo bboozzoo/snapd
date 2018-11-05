@@ -416,6 +416,62 @@ WantedBy=multi-user.target
 	}
 }
 
+func (s *servicesWrapperGenSuite) TestServiceCrossSnapAfterBefore(c *C) {
+	const expectedServiceFmt = `[Unit]
+# Auto-generated, DO NOT EDIT
+Description=Service for snap application snap.app
+Requires=%s-snap-44.mount
+Wants=network.target
+After=%s-snap-44.mount network.target snap.snap.bar.service snap.bar.one-more.service
+Before=snap.snap.foo.service snap.baz.other.service
+X-Snappy=yes
+
+[Service]
+ExecStart=/usr/bin/snap run snap.app
+SyslogIdentifier=snap.app
+Restart=%s
+WorkingDirectory=/var/snap/snap/44
+TimeoutStopSec=30
+Type=%s
+
+[Install]
+WantedBy=multi-user.target
+`
+
+	expectedService := fmt.Sprintf(expectedServiceFmt, mountUnitPrefix, mountUnitPrefix, "on-failure", "simple")
+	service := &snap.AppInfo{
+		Snap: &snap.Info{
+			SuggestedName: "snap",
+			Version:       "0.3.4",
+			SideInfo:      snap.SideInfo{Revision: snap.R(44)},
+			Apps: map[string]*snap.AppInfo{
+				"foo": {
+					Name:   "foo",
+					Snap:   &snap.Info{SuggestedName: "snap"},
+					Daemon: "forking",
+				},
+				"bar": {
+					Name:   "bar",
+					Snap:   &snap.Info{SuggestedName: "snap"},
+					Daemon: "forking",
+				},
+			},
+		},
+		Name:        "app",
+		Command:     "bin/foo start",
+		Daemon:      "simple",
+		Before:      []string{"foo", "snap.baz.other"},
+		After:       []string{"bar", "snap.bar.one-more"},
+		StopTimeout: timeout.DefaultTimeout,
+	}
+
+	generatedWrapper, err := wrappers.GenerateSnapServiceFile(service)
+	c.Assert(err, IsNil)
+
+	c.Logf("service: \n%v\n", string(generatedWrapper))
+	c.Assert(string(generatedWrapper), Equals, expectedService)
+}
+
 func (s *servicesWrapperGenSuite) TestServiceTimerUnit(c *C) {
 	const expectedServiceFmt = `[Unit]
 # Auto-generated, DO NOT EDIT

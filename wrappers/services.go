@@ -387,6 +387,9 @@ func genServiceNames(snap *snap.Info, appNames []string) []string {
 		if app := snap.Apps[name]; app != nil {
 			names = append(names, app.ServiceName())
 		}
+		if strings.HasPrefix(name, "snap.") {
+			names = append(names, name+".service")
+		}
 	}
 	return names
 }

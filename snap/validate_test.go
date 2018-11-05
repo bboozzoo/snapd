@@ -267,6 +267,7 @@ func (s *ValidateSuite) TestValidateAppName(c *C) {
 	invalidAppNames := []string{
 		"", "-", "--", "a--a", "a-", "a ", " a", "a a", "日本語", "한글",
 		"ру́сский язы́к", "ໄຂ່​ອີ​ສ​ເຕີ້", ":a", "a:", "a:a", "_a", "a_", "a_a",
+		"snap.foo.bar",
 	}
 	for _, name := range invalidAppNames {
 		err := ValidateApp(&AppInfo{Name: name})

@@ -507,6 +507,22 @@ func validateAppOrderCycles(apps []*AppInfo) error {
 	return nil
 }
 
+func validateExternalApp(name string) error {
+	if !strings.HasPrefix(name, "snap.") {
+		return errors.New("invalid external application name")
+	}
+
+	snapName, appName := SplitSnapApp(name[5:])
+	if err := ValidateInstanceName(snapName); err != nil {
+		return err
+	}
+	if !ValidAppName(appName) {
+		return errors.New("invalid external application name")
+	}
+
+	return nil
+}
+
 func validateAppOrderNames(app *AppInfo, dependencies []string) error {
 	// we must be a service to request ordering
 	if len(dependencies) > 0 && !app.IsService() {
@@ -514,6 +530,12 @@ func validateAppOrderNames(app *AppInfo, dependencies []string) error {
 	}
 
 	for _, dep := range dependencies {
+		if strings.HasPrefix(dep, "snap.") {
+			if err := validateExternalApp(dep); err != nil {
+				return fmt.Errorf("before/after references an invalid external service %q", dep)
+			}
+			continue
+		}
 		// dependency is not defined
 		other, ok := app.Snap.Apps[dep]
 		if !ok {
