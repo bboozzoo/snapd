@@ -44,8 +44,9 @@ execute: |
         echo "Expected permission error calling evtest with disconnected plug"
         exit 1
     fi
-    # AppArmor is 'Permission denied' which is expected with default policy
-    MATCH "Permission denied" < call.error
+    # 'Operation not permitted' comes from device cgroup, with blocks access to
+    # the device with the default policy
+    MATCH "Operation not permitted" < call.error
 
     echo "When the joystick plug is connected"
     snap connect test-snapd-event:joystick
