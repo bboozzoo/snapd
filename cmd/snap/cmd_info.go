@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -343,6 +344,9 @@ func displayChannels(w io.Writer, chantpl string, esc *escapes, remote *client.S
 			if ok {
 				version = ch.Version
 				revision = fmt.Sprintf("(%s)", ch.Revision)
+				if ch.CreatedAt != nil {
+					revision = fmt.Sprintf("(%s, published %s)", ch.Revision, ch.CreatedAt.Local().Format(time.RFC822))
+				}
 				size = strutil.SizeToStr(ch.Size)
 				notes = NotesFromChannelSnapInfo(ch).String()
 				trackHasOpenChannel = true

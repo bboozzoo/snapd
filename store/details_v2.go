@@ -22,8 +22,10 @@ package store
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/snapcore/snapd/jsonutil/safejson"
+	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/snap"
 )
 
@@ -127,7 +129,11 @@ func infoFromStoreInfo(si *storeInfo) (*snap.Info, error) {
 	info.Channels = make(map[string]*snap.ChannelSnapInfo, len(si.ChannelMap))
 	seen := make(map[string]bool, len(si.ChannelMap))
 	for _, s := range si.ChannelMap {
+		var createdAt *time.Time
 		ch := s.Channel
+		if t, err := time.Parse(time.RFC3339Nano, s.CreatedAt); err != nil {
+			createdAt = &t
+		}
 		info.Channels[ch.Track+"/"+ch.Risk] = &snap.ChannelSnapInfo{
 			Revision:    snap.R(s.Revision),
 			Confinement: snap.ConfinementType(s.Confinement),
@@ -135,6 +141,7 @@ func infoFromStoreInfo(si *storeInfo) (*snap.Info, error) {
 			Channel:     ch.Name,
 			Epoch:       s.Epoch,
 			Size:        s.Download.Size,
+			CreatedAt:   createdAt,
 		}
 		if !seen[ch.Track] {
 			seen[ch.Track] = true
