@@ -24,9 +24,12 @@ policy_module(snappy,0.0.14)
 # Declarations
 #
 
+attribute_role snappy_roles;
+
 type snappy_t;
 type snappy_exec_t;
 init_daemon_domain(snappy_t, snappy_exec_t)
+role snappy_roles types snappy_t;
 
 type snappy_config_t;
 files_config_file(snappy_config_t)
@@ -87,7 +90,6 @@ gen_require(` type sysfs_t; ')
 allow snappy_t sysfs_t:dir read;
 allow snappy_t sysfs_t:file { getattr setattr open read write };
 allow snappy_t sysfs_t:lnk_file { getattr read };
-
 
 # This silences a read AVC denial event on the lost+found directory.
 gen_require(` type lost_found_t; ')
@@ -166,8 +168,10 @@ allow snappy_t fuse_device_t:chr_file getattr;
 # Read l10n files?
 miscfiles_read_localization(snappy_t)
 
-# Allow snapd to manage its socket files
+# Allow snapd and snap-confine to manage its run files
 manage_files_pattern(snappy_t, snappy_var_run_t, snappy_var_run_t)
+manage_dirs_pattern(snappy_t, snappy_var_run_t, snappy_var_run_t)
+manage_sock_files_pattern(snappy_t, snappy_var_run_t, snappy_var_run_t)
 
 # Allow snapd to manage mounts
 gen_require(` type fs_t; type mount_var_run_t; ')
@@ -246,6 +250,8 @@ allow snappy_t self:tcp_socket create_stream_socket_perms;
 allow snappy_t self:udp_socket create_stream_socket_perms;
 allow snappy_t self:unix_dgram_socket create_socket_perms;
 allow snappy_t self:capability2 block_suspend;
+# Hotplug support
+allow snappy_t self:netlink_kobject_uevent_socket { create bind };
 
 # snapd needs to check for ipv6 support
 gen_require(` type node_t; ')
@@ -281,4 +287,9 @@ optional_policy(`
 optional_policy(`
   sssd_read_public_files(snappy_t)
   sssd_stream_connect(snappy_t)
+')
+
+# for sanity checks
+optional_policy(`
+  mount_run(snappy_t, snappy_roles)
 ')
