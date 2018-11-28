@@ -60,6 +60,9 @@ files_tmp_file(snappy_tmp_t)
 type snappy_snap_t;
 files_type(snappy_snap_t)
 
+type snappy_unconfined_snap_t;
+unconfined_domain(snappy_unconfined_snap_t)
+
 ########################################
 #
 # snappy local policy
@@ -111,6 +114,9 @@ manage_files_pattern(snappy_t, snappy_home_t, snappy_home_t)
 manage_lnk_files_pattern(snappy_t, snappy_home_t, snappy_home_t)
 userdom_search_user_home_dirs(snappy_t)
 userdom_user_home_dir_filetrans(snappy_t, snappy_home_t, dir, "snap")
+userdom_admin_home_dir_filetrans(snappy_t, snappy_home_t, dir, "snap")
+relabel_dirs_pattern(snappy_t, user_home_t, snappy_home_t)
+relabel_files_pattern(snappy_t, user_home_t, snappy_home_t)
 
 # Allow snapd to read DNS config
 sysnet_dns_name_resolve(snappy_t)
@@ -138,7 +144,7 @@ optional_policy(`
   udev_exec(snappy_t)
   udev_create_kobject_uevent_socket(snappy_t)
 ')
-allow snappy_t self:netlink_kobject_uevent_socket create_socket_perms;
+allow snappy_t self:netlink_kobject_uevent_socket { create_socket_perms read };
 
 # Allow snapd to read/write systemd units and use systemctl for managing snaps
 systemd_config_all_services(snappy_t)
@@ -169,6 +175,8 @@ manage_dirs_pattern(snappy_t, snappy_var_run_t, snappy_var_run_t)
 manage_sock_files_pattern(snappy_t, snappy_var_run_t, snappy_var_run_t)
 # /run/snapd should automatically end up as snappy_var_run_t
 filetrans_pattern(snappy_t, var_run_t, snappy_var_run_t, dir, "snapd")
+relabel_dirs_pattern(snappy_t, var_run_t, snappy_var_run_t)
+relabel_files_pattern(snappy_t, var_run_t, snappy_var_run_t)
 
 # Allow snapd to manage mounts
 gen_require(` type fs_t; type mount_var_run_t; ')
@@ -199,9 +207,14 @@ mmap_rw_files_pattern(snappy_t, snappy_var_cache_t, snappy_var_cache_t)
 manage_dirs_pattern(snappy_t, snappy_var_lib_t, snappy_var_lib_t)
 manage_files_pattern(snappy_t, snappy_var_lib_t, snappy_var_lib_t)
 manage_lnk_files_pattern(snappy_t, snappy_var_lib_t, snappy_var_lib_t)
+mmap_read_files_pattern(snappy_t, snappy_var_lib_t, snappy_var_lib_t)
 manage_dirs_pattern(snappy_t, snappy_var_t, snappy_var_t)
 manage_files_pattern(snappy_t, snappy_var_t, snappy_var_t)
 manage_lnk_files_pattern(snappy_t, snappy_var_t, snappy_var_t)
+# and snaps
+manage_dirs_pattern(snappy_t, snappy_snap_t, snappy_snap_t)
+manage_files_pattern(snappy_t, snappy_snap_t, snappy_snap_t)
+manage_lnk_files_pattern(snappy_t, snappy_snap_t, snappy_snap_t)
 
 # Grant snapd access to /tmp
 files_tmp_filetrans(snappy_t, snappy_tmp_t, { file dir })
@@ -230,9 +243,9 @@ allow snappy_t unconfined_t:file { getattr open read };
 
 logging_send_syslog_msg(snappy_t);
 
-allow snappy_t self:capability { sys_admin sys_chroot dac_override dac_read_search chown kill fowner fsetid mknod net_admin net_bind_service net_raw setfcap };
+allow snappy_t self:capability { sys_admin sys_chroot dac_override dac_read_search chown kill fowner fsetid mknod net_admin net_bind_service net_raw setfcap setuid setgid };
 allow snappy_t self:tun_socket relabelto;
-allow snappy_t self:process { getcap signal_perms setrlimit setfscreate };
+allow snappy_t self:process { getcap signal_perms setrlimit setfscreate setexec };
 
 # Various socket permissions
 allow snappy_t self:fifo_file rw_fifo_file_perms;
@@ -283,3 +296,28 @@ optional_policy(`
 optional_policy(`
   mount_run(snappy_t, snappy_roles)
 ')
+
+# snap-confine setup
+dev_getattr_fs(snappy_t)
+dev_getattr_sysfs_fs(snappy_t)
+fs_getattr_cgroup(snappy_t)
+fs_getattr_hugetlbfs(snappy_t)
+fs_getattr_tmpfs(snappy_t)
+fs_getattr_xattr_fs(snappy_t)
+fs_manage_cgroup_dirs(snappy_t)
+fs_write_cgroup_files(snappy_t)
+kernel_getattr_debugfs(snappy_t)
+term_getattr_pty_fs(snappy_t)
+
+# restoring file contexts
+seutil_exec_restorecon(snappy_t)
+seutil_read_default_contexts(snappy_t)
+
+# target domain for snap services
+role system_r types snappy_unconfined_snap_t;
+allow snappy_t snappy_unconfined_snap_t:process { transition dyntransition };
+can_exec(snappy_t, snappy_snap_t)
+can_exec(snappy_unconfined_t, snappy_snap_t)
+domain_entry_file(snappy_unconfined_snap_t, snappy_snap_t)
+
+logging_send_syslog_msg(snappy_t);
