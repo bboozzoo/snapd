@@ -27,9 +27,19 @@ import (
 	"github.com/snapcore/snapd/release"
 )
 
-type selinuxSuite struct{}
+type selinuxSuite struct {
+	restore func()
+}
 
 var _ = Suite(&selinuxSuite{})
+
+func (s *selinuxSuite) SetUpTest(_ *C) {
+	s.restore = release.MockSELinuxAssessAlways()
+}
+
+func (s *selinuxSuite) TearDownTest(_ *C) {
+	s.restore()
+}
 
 func (s *selinuxSuite) TestProbeNone(c *C) {
 	restore := release.MockSELinuxIsEnabled(func() (bool, error) { return false, nil })
@@ -49,6 +59,9 @@ func (s *selinuxSuite) TestProbeEnforcingHappy(c *C) {
 	level, status := release.ProbeSELinux()
 	c.Assert(level, Equals, release.SELinuxEnforcing)
 	c.Assert(status, Equals, "SELinux is enabled and in enforcing mode")
+
+	c.Assert(level, Equals, release.SELinuxLevel())
+	c.Assert(status, Equals, release.SELinuxSummary())
 }
 
 func (s *selinuxSuite) TestProbeEnabledError(c *C) {
@@ -58,6 +71,9 @@ func (s *selinuxSuite) TestProbeEnabledError(c *C) {
 	level, status := release.ProbeSELinux()
 	c.Assert(level, Equals, release.NoSELinux)
 	c.Assert(status, Equals, "so much fail")
+
+	c.Assert(level, Equals, release.SELinuxLevel())
+	c.Assert(status, Equals, release.SELinuxSummary())
 }
 
 func (s *selinuxSuite) TestProbeEnforcingError(c *C) {
@@ -69,6 +85,9 @@ func (s *selinuxSuite) TestProbeEnforcingError(c *C) {
 	level, status := release.ProbeSELinux()
 	c.Assert(level, Equals, release.NoSELinux)
 	c.Assert(status, Equals, "SELinux is enabled, but status cannot be determined: so much fail")
+
+	c.Assert(level, Equals, release.SELinuxLevel())
+	c.Assert(status, Equals, release.SELinuxSummary())
 }
 
 func (s *selinuxSuite) TestProbePermissive(c *C) {
@@ -80,4 +99,7 @@ func (s *selinuxSuite) TestProbePermissive(c *C) {
 	level, status := release.ProbeSELinux()
 	c.Assert(level, Equals, release.SELinuxPermissive)
 	c.Assert(status, Equals, "SELinux is enabled and in permissive mode")
+
+	c.Assert(level, Equals, release.SELinuxLevel())
+	c.Assert(status, Equals, release.SELinuxSummary())
 }

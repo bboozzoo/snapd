@@ -74,6 +74,14 @@ func MockSELinuxIsEnforcing(isEnforcing func() (bool, error)) (restore func()) {
 	}
 }
 
+func MockSELinuxAssessAlways() func() {
+	old := assessSELinux
+	assessSELinux = assessSELinuxAlways
+	return func() {
+		assessSELinux = old
+	}
+}
+
 // CurrentAppArmorLevel returns the internal cached apparmor level.
 func CurrentAppArmorLevel() AppArmorLevelType {
 	return appArmorLevel

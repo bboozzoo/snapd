@@ -21,6 +21,7 @@ package release
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/snapcore/snapd/selinux"
 )
@@ -43,20 +44,32 @@ var (
 
 	selinuxIsEnabled   = selinux.IsEnabled
 	selinuxIsEnforcing = selinux.IsEnforcing
-)
 
-func init() {
-	selinuxLevel, selinuxSummary = probeSELinux()
-}
+	selinuxOnce sync.Once
+
+	assessSELinux = assessSELinuxOnce
+)
 
 // SELinuxLevel tells what level of SELinux enforcement is currently used
 func SELinuxLevel() SELinuxLevelType {
+	assessSELinux()
 	return selinuxLevel
 }
 
 // SELinuxSummary describes SELinux status
 func SELinuxSummary() string {
+	assessSELinux()
 	return selinuxSummary
+}
+
+func assessSELinuxOnce() {
+	selinuxOnce.Do(func() {
+		assessSELinuxAlways()
+	})
+}
+
+func assessSELinuxAlways() {
+	selinuxLevel, selinuxSummary = probeSELinux()
 }
 
 func probeSELinux() (SELinuxLevelType, string) {
