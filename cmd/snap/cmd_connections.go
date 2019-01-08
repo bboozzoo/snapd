@@ -22,6 +22,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/snapcore/snapd/client"
 	"github.com/snapcore/snapd/i18n"
 
 	"github.com/jessevdk/go-flags"
@@ -80,14 +81,21 @@ func (x *cmdConnections) Execute(args []string) error {
 		return ErrExtraArgs
 	}
 
-	ifaces, err := x.client.Connections()
+	opts := client.ConnectionOptions{
+		All: x.All,
+	}
+	wanted := string(x.Positionals.Snap)
+	if wanted != "" {
+		opts.Snap = wanted
+	}
+
+	ifaces, err := x.client.Connections(&opts)
 	if err != nil {
 		return err
 	}
 	if len(ifaces.Plugs) == 0 && len(ifaces.Slots) == 0 {
 		return fmt.Errorf(i18n.G("no interfaces found"))
 	}
-	wanted := string(x.Positionals.Snap)
 
 	matched := false
 	w := tabWriter()
