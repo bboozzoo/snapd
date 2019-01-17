@@ -25,7 +25,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/snapcore/bolt"
+	"github.com/boltdb/bolt"
 
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/osutil"

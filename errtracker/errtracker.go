@@ -33,7 +33,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/snapcore/bolt"
+	"github.com/boltdb/bolt"
 	"gopkg.in/mgo.v2/bson"
 
 	"github.com/snapcore/snapd/arch"
