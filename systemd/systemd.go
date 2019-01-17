@@ -33,8 +33,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	_ "github.com/snapcore/squashfuse"
-
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/osutil/squashfs"
