@@ -23,8 +23,10 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -117,7 +119,7 @@ func maybePrintBase(w io.Writer, base string, verbose bool) {
 	}
 }
 
-func tryDirect(w io.Writer, path string, verbose bool) bool {
+func tryDirect(w io.Writer, path string, verbose bool, termWidth int) bool {
 	path = norm(path)
 
 	snapf, err := snap.Open(path)
@@ -140,7 +142,7 @@ func tryDirect(w io.Writer, path string, verbose bool) bool {
 	}
 	fmt.Fprintf(w, "path:\t%q\n", path)
 	fmt.Fprintf(w, "name:\t%s\n", info.InstanceName())
-	fmt.Fprintf(w, "summary:\t%s\n", formatSummary(info.Summary()))
+	printSummary(w, info.Summary(), termWidth)
 
 	var notes *Notes
 	if verbose {
@@ -194,9 +196,31 @@ func runesLastIndexSpace(text []rune) int {
 	return -1
 }
 
-// wrapLine wraps a line to fit into width, preserving the line's indent, and
+// wrapLine wraps a line, assumed to be part of a block-style yaml
+// string, to fit into termWidth, preserving the line's indent, and
 // writes it out prepending padding to each line.
-func wrapLine(out io.Writer, text []rune, pad string, width int) error {
+func wrapLine(out io.Writer, text []rune, pad string, termWidth int) error {
+	// discard any trailing whitespace
+	text = runesTrimRightSpace(text)
+	// establish the indent of the whole block
+	idx := 0
+	for idx < len(text) && unicode.IsSpace(text[idx]) {
+		idx++
+	}
+	indent := pad + string(text[:idx])
+	text = text[idx:]
+	return wrapGeneric(out, text, indent, indent, termWidth)
+}
+
+// wrapFlow wraps the text using yaml's flow style, allowing indent
+// characters for the first line.
+func wrapFlow(out io.Writer, text []rune, indent string, termWidth int) error {
+	return wrapGeneric(out, text, indent, "  ", termWidth)
+}
+
+// wrapGeneric wraps the given text to the given width, prefixing the
+// first line with indent and the remaining lines with indent2
+func wrapGeneric(out io.Writer, text []rune, indent, indent2 string, termWidth int) error {
 	// Note: this is _wrong_ for much of unicode (because the width of a rune on
 	//       the terminal is anything between 0 and 2, not always 1 as this code
 	//       assumes) but fixing that is Hard. Long story short, you can get close
@@ -209,16 +233,12 @@ func wrapLine(out io.Writer, text []rune, pad string, width int) error {
 	// This (and possibly printDescr below) should move to strutil once
 	// we're happy with it getting wider (heh heh) use.
 
-	// discard any trailing whitespace
-	text = runesTrimRightSpace(text)
+	indentWidth := utf8.RuneCountInString(indent)
+	delta := indentWidth - utf8.RuneCountInString(indent2)
+	width := termWidth - indentWidth
+
 	// establish the indent of the whole block
 	idx := 0
-	for idx < len(text) && unicode.IsSpace(text[idx]) {
-		idx++
-	}
-	indent := pad + string(text[:idx])
-	text = text[idx:]
-	width -= idx + utf8.RuneCountInString(pad)
 	var err error
 	for len(text) > width && err == nil {
 		// find a good place to chop the text
@@ -233,12 +253,30 @@ func wrapLine(out io.Writer, text []rune, pad string, width int) error {
 			idx++
 		}
 		text = text[idx:]
+		width += delta
+		indent = indent2
+		delta = 0
 	}
 	if err != nil {
 		return err
 	}
 	_, err = fmt.Fprint(out, indent, string(text), "\n")
 	return err
+}
+
+func printSummary(w io.Writer, raw string, termWidth int) error {
+	// simplest way of checking to see if it needs quoting is to try
+	raw = strings.TrimSpace(raw)
+	type T struct {
+		S string
+	}
+	if len(raw) == 0 {
+		raw = `""`
+	} else if err := yaml.UnmarshalStrict([]byte("s: "+raw), &T{}); err != nil {
+		raw = strconv.Quote(raw)
+	}
+
+	return wrapFlow(w, []rune(raw), "summary:\t", termWidth)
 }
 
 // printDescr formats a given string (typically a snap description)
@@ -248,11 +286,11 @@ func wrapLine(out io.Writer, text []rune, pad string, width int) error {
 // - trim trailing whitespace
 // - word wrap at "max" chars preserving line indent
 // - keep \n intact and break there
-func printDescr(w io.Writer, descr string, max int) error {
+func printDescr(w io.Writer, descr string, termWidth int) error {
 	var err error
 	descr = strings.TrimRightFunc(descr, unicode.IsSpace)
 	for _, line := range strings.Split(descr, "\n") {
-		err = wrapLine(w, []rune(line), "  ", max)
+		err = wrapLine(w, []rune(line), "  ", termWidth)
 		if err != nil {
 			break
 		}
@@ -321,8 +359,19 @@ func maybePrintServices(w io.Writer, snapName string, allApps []client.AppInfo, 
 var channelRisks = []string{"stable", "candidate", "beta", "edge"}
 
 // displayChannels displays channels and tracks in the right order
-func displayChannels(w io.Writer, chantpl string, esc *escapes, remote *client.Snap) {
-	fmt.Fprintf(w, "channels:"+strings.Repeat("\t", strings.Count(chantpl, "\t"))+"\n")
+func (x *infoCmd) displayChannels(w io.Writer, chantpl string, esc *escapes, remote *client.Snap, revLen, sizeLen int) (maxRevLen, maxSizeLen int) {
+	fmt.Fprintln(w, "channels:")
+
+	releasedfmt := "2006-01-02"
+	if x.AbsTime {
+		releasedfmt = time.RFC3339
+	}
+
+	type chInfoT struct {
+		name, version, released, revision, size, notes string
+	}
+	var chInfos []*chInfoT
+	maxRevLen, maxSizeLen = revLen, sizeLen
 
 	// order by tracks
 	for _, tr := range remote.Tracks {
@@ -333,31 +382,36 @@ func displayChannels(w io.Writer, chantpl string, esc *escapes, remote *client.S
 			if tr == "latest" {
 				chName = risk
 			}
-			var version, revision, size, notes string
+			chInfo := chInfoT{name: chName}
 			if ok {
-				version = ch.Version
-				revision = fmt.Sprintf("(%s)", ch.Revision)
-				size = strutil.SizeToStr(ch.Size)
-				notes = NotesFromChannelSnapInfo(ch).String()
+				chInfo.version = ch.Version
+				chInfo.revision = fmt.Sprintf("(%s)", ch.Revision)
+				if len(chInfo.revision) > maxRevLen {
+					maxRevLen = len(chInfo.revision)
+				}
+				chInfo.released = ch.ReleasedAt.Format(releasedfmt)
+				chInfo.size = strutil.SizeToStr(ch.Size)
+				if len(chInfo.size) > maxSizeLen {
+					maxSizeLen = len(chInfo.size)
+				}
+				chInfo.notes = NotesFromChannelSnapInfo(ch).String()
 				trackHasOpenChannel = true
 			} else {
 				if trackHasOpenChannel {
-					version = esc.uparrow
+					chInfo.version = esc.uparrow
 				} else {
-					version = esc.dash
+					chInfo.version = esc.dash
 				}
 			}
-			fmt.Fprintf(w, "  "+chantpl, chName, version, revision, size, notes)
+			chInfos = append(chInfos, &chInfo)
 		}
 	}
-}
 
-func formatSummary(raw string) string {
-	s, err := yaml.Marshal(raw)
-	if err != nil {
-		return fmt.Sprintf("cannot marshal summary: %s", err)
+	for _, chInfo := range chInfos {
+		fmt.Fprintf(w, "  "+chantpl, chInfo.name, chInfo.version, chInfo.released, maxRevLen, chInfo.revision, maxSizeLen, chInfo.size, chInfo.notes)
 	}
-	return strings.TrimSpace(string(s))
+
+	return maxRevLen, maxSizeLen
 }
 
 func (x *infoCmd) Execute([]string) error {
@@ -382,7 +436,7 @@ func (x *infoCmd) Execute([]string) error {
 			continue
 		}
 
-		if tryDirect(w, snapName, x.Verbose) {
+		if tryDirect(w, snapName, x.Verbose, termWidth) {
 			noneOK = false
 			continue
 		}
@@ -402,7 +456,7 @@ func (x *infoCmd) Execute([]string) error {
 		noneOK = false
 
 		fmt.Fprintf(w, "name:\t%s\n", both.Name)
-		fmt.Fprintf(w, "summary:\t%s\n", formatSummary(both.Summary))
+		printSummary(w, both.Summary, termWidth)
 		fmt.Fprintf(w, "publisher:\t%s\n", longPublisher(esc, both.Publisher))
 		if both.Contact != "" {
 			fmt.Fprintf(w, "contact:\t%s\n", strings.TrimPrefix(both.Contact, "mailto:"))
@@ -448,6 +502,8 @@ func (x *infoCmd) Execute([]string) error {
 		maybePrintType(w, both.Type)
 		maybePrintBase(w, both.Base, x.Verbose)
 		maybePrintID(w, both)
+		var localRev, localSize string
+		var revLen, sizeLen int
 		if local != nil {
 			if local.TrackingChannel != "" {
 				fmt.Fprintf(w, "tracking:\t%s\n", local.TrackingChannel)
@@ -455,19 +511,22 @@ func (x *infoCmd) Execute([]string) error {
 			if !local.InstallDate.IsZero() {
 				fmt.Fprintf(w, "refresh-date:\t%s\n", x.fmtTime(local.InstallDate))
 			}
+			localRev = fmt.Sprintf("(%s)", local.Revision)
+			revLen = len(localRev)
+			localSize = strutil.SizeToStr(local.InstalledSize)
+			sizeLen = len(localSize)
 		}
 
-		chantpl := "%s:\t%s %s %s %s\n"
+		chantpl := "%s:\t%s %s%*s %*s %s\n"
 		if remote != nil && remote.Channels != nil && remote.Tracks != nil {
-			chantpl = "%s:\t%s\t%s\t%s\t%s\n"
+			chantpl = "%s:\t%s\t%s\t%*s\t%*s\t%s\n"
 
 			w.Flush()
-			displayChannels(w, chantpl, esc, remote)
+			revLen, sizeLen = x.displayChannels(w, chantpl, esc, remote, revLen, sizeLen)
 		}
 		if local != nil {
-			revstr := fmt.Sprintf("(%s)", local.Revision)
 			fmt.Fprintf(w, chantpl,
-				"installed", local.Version, revstr, strutil.SizeToStr(local.InstalledSize), notes)
+				"installed", local.Version, "", revLen, localRev, sizeLen, localSize, notes)
 		}
 
 	}

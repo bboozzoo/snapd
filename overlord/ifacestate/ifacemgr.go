@@ -81,6 +81,7 @@ func Manager(s *state.State, hookManager *hookstate.HookManager, runner *state.T
 	addHandler("auto-connect", m.doAutoConnect, m.undoAutoConnect)
 	addHandler("gadget-connect", m.doGadgetConnect, nil)
 	addHandler("auto-disconnect", m.doAutoDisconnect, nil)
+	addHandler("hotplug-connect", m.doHotplugConnect, nil)
 	addHandler("hotplug-remove-slot", m.doHotplugRemoveSlot, nil)
 	addHandler("hotplug-disconnect", m.doHotplugDisconnect, nil)
 
@@ -162,8 +163,8 @@ type ConnectionState struct {
 	ByGadget bool
 	// Interface name of the connection
 	Interface string
-	// Undesired indicates whether the connection was explicitly
-	// disconnected
+	// Undesired indicates whether the connection, otherwise established
+	// automatically, was explicitly disconnected
 	Undesired bool
 }
 
