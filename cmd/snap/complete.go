@@ -479,7 +479,7 @@ func (s aliasOrSnap) Complete(match string) []flags.Completion {
 	return ret
 }
 
-type snapshotID string
+type snapshotID uint64
 
 func (snapshotID) Complete(match string) []flags.Completion {
 	shots, err := mkClient().SnapshotSets(0, nil)
@@ -497,10 +497,15 @@ func (snapshotID) Complete(match string) []flags.Completion {
 	return ret
 }
 
-func (s snapshotID) ToUint() (uint64, error) {
-	setID, err := strconv.ParseUint((string)(s), 10, 64)
+func (s *snapshotID) UnmarshalFlag(value string) error {
+	setID, err := strconv.ParseUint(value, 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf(i18n.G("invalid argument for set id: expected a non-negative integer argument"))
+		return fmt.Errorf(i18n.G("invalid argument for set id: expected a non-negative integer argument"))
 	}
-	return setID, nil
+	*s = snapshotID(setID)
+	return nil
+}
+
+func (s *snapshotID) String() string {
+	return strconv.FormatUint(uint64(*s), 10)
 }

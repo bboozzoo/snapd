@@ -21,7 +21,6 @@ package main
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/jessevdk/go-flags"
 
@@ -100,16 +99,16 @@ restriction may be lifted in the future.
 type savedCmd struct {
 	clientMixin
 	durationMixin
-	ID         snapshotID `long:"id"`
+	ID         *snapshotID `long:"id"`
 	Positional struct {
 		Snaps []installedSnapName `positional-arg-name:"<snap>"`
 	} `positional-args:"yes"`
 }
 
 func (x *savedCmd) Execute([]string) error {
-	setID, err := x.ID.ToUint()
-	if err != nil {
-		return err
+	setID := uint64(0)
+	if x.ID != nil {
+		setID = uint64(*x.ID)
 	}
 	snaps := installedSnapNames(x.Positional.Snaps)
 	list, err := x.client.SnapshotSets(setID, snaps)
@@ -171,10 +170,11 @@ func (x *saveCmd) Execute([]string) error {
 		return err
 	}
 
+	id := snapshotID(setID)
 	y := &savedCmd{
 		clientMixin:   x.clientMixin,
 		durationMixin: x.durationMixin,
-		ID:            snapshotID(strconv.FormatUint(setID, 10)),
+		ID:            &id,
 	}
 	return y.Execute(nil)
 }
@@ -182,18 +182,15 @@ func (x *saveCmd) Execute([]string) error {
 type forgetCmd struct {
 	waitMixin
 	Positional struct {
-		ID    snapshotID          `positional-arg-name:"<id>"`
+		ID    *snapshotID         `positional-arg-name:"<id>"`
 		Snaps []installedSnapName `positional-arg-name:"<snap>"`
 	} `positional-args:"yes" required:"yes"`
 }
 
 func (x *forgetCmd) Execute([]string) error {
-	setID, err := x.Positional.ID.ToUint()
-	if err != nil {
-		return err
-	}
+	setID := *x.Positional.ID
 	snaps := installedSnapNames(x.Positional.Snaps)
-	changeID, err := x.client.ForgetSnapshots(setID, snaps)
+	changeID, err := x.client.ForgetSnapshots(uint64(setID), snaps)
 	if err != nil {
 		return err
 	}
@@ -218,16 +215,13 @@ type checkSnapshotCmd struct {
 	waitMixin
 	Users      string `long:"users"`
 	Positional struct {
-		ID    snapshotID          `positional-arg-name:"<id>"`
+		ID    *snapshotID         `positional-arg-name:"<id>"`
 		Snaps []installedSnapName `positional-arg-name:"<snap>"`
 	} `positional-args:"yes" required:"yes"`
 }
 
 func (x *checkSnapshotCmd) Execute([]string) error {
-	setID, err := x.Positional.ID.ToUint()
-	if err != nil {
-		return err
-	}
+	setID := uint64(*x.Positional.ID)
 	snaps := installedSnapNames(x.Positional.Snaps)
 	users := strutil.CommaSeparatedList(x.Users)
 	changeID, err := x.client.CheckSnapshots(setID, snaps, users)
@@ -257,16 +251,13 @@ type restoreCmd struct {
 	waitMixin
 	Users      string `long:"users"`
 	Positional struct {
-		ID    snapshotID          `positional-arg-name:"<id>"`
+		ID    *snapshotID         `positional-arg-name:"<id>"`
 		Snaps []installedSnapName `positional-arg-name:"<snap>"`
 	} `positional-args:"yes" required:"yes"`
 }
 
 func (x *restoreCmd) Execute([]string) error {
-	setID, err := x.Positional.ID.ToUint()
-	if err != nil {
-		return err
-	}
+	setID := uint64(*x.Positional.ID)
 	snaps := installedSnapNames(x.Positional.Snaps)
 	users := strutil.CommaSeparatedList(x.Users)
 	changeID, err := x.client.RestoreSnapshots(setID, snaps, users)
@@ -285,7 +276,7 @@ func (x *restoreCmd) Execute([]string) error {
 	if len(snaps) > 0 {
 		// TRANSLATORS: the %s is a comma-separated list of quoted snap names
 		fmt.Fprintf(Stdout, i18n.G("Restored snapshot #%s of snaps %s.\n"),
-			x.Positional.ID, strutil.Quoted(snaps))
+			*x.Positional.ID, strutil.Quoted(snaps))
 	} else {
 		fmt.Fprintf(Stdout, i18n.G("Restored snapshot #%s.\n"), x.Positional.ID)
 	}

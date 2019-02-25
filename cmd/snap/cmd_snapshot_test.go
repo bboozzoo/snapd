@@ -38,7 +38,7 @@ var snapshotsTests = []getCmdArgs{{
 	error: "invalid argument for set id: expected a non-negative integer argument",
 }, {
 	args:  "saved --id=x",
-	error: "invalid argument for set id: expected a non-negative integer argument",
+	error: "invalid argument for flag `--id' \\(expected \\*main.snapshotID\\): invalid argument for set id: expected a non-negative integer argument",
 }, {
 	args:  "forget x",
 	error: "invalid argument for set id: expected a non-negative integer argument",
