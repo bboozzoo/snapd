@@ -54,20 +54,9 @@ check-unit-tests:
 	echo "unit tests are disabled (rebuild with --enable-unit-tests)"
 endif
 
-new_format = \
-	 libsnap-confine-private/cgroup-pids-support.c \
-	 libsnap-confine-private/cgroup-pids-support.h \
-	 libsnap-confine-private/cgroup-support.c \
-	 libsnap-confine-private/cgroup-support.h \
-	 snap-confine/seccomp-support-ext.c \
-	 snap-confine/seccomp-support-ext.h \
-	 snap-discard-ns/snap-discard-ns.c
 .PHONY: fmt
-fmt:: $(filter     $(addprefix %,$(new_format)),$(foreach dir,$(subdirs),$(wildcard $(srcdir)/$(dir)/*.[ch])))
+fmt:: $(foreach dir,$(subdirs),$(wildcard $(srcdir)/$(dir)/*.[ch]))
 	clang-format -style='{BasedOnStyle: Google, IndentWidth: 4, ColumnLimit: 120}' -i $^
-
-fmt:: $(filter-out $(addprefix %,$(new_format)),$(foreach dir,$(subdirs),$(wildcard $(srcdir)/$(dir)/*.[ch])))
-	HOME=$(srcdir) indent $^
 
 # The hack target helps devlopers work on snap-confine on their live system by
 # installing a fresh copy of snap confine and the appropriate apparmor profile.

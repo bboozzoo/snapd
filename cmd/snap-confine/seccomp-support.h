@@ -20,7 +20,7 @@
 #include <seccomp.h>
 #include <stdbool.h>
 
-/** 
+/**
  * sc_apply_seccomp_profile_for_security_tag applies a seccomp profile to the
  * current process. The filter is loaded from a pre-compiled bpf bytecode
  * stored in "/var/lib/snap/seccomp/bpf" using the security tag and the

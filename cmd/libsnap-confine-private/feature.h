@@ -21,8 +21,8 @@
 #include <stdbool.h>
 
 typedef enum sc_feature_flag {
-	SC_PER_USER_MOUNT_NAMESPACE,
-	SC_FEATURE_REFRESH_APP_AWARENESS,
+    SC_PER_USER_MOUNT_NAMESPACE,
+    SC_FEATURE_REFRESH_APP_AWARENESS,
 } sc_feature_flag;
 
 /**
@@ -30,7 +30,7 @@ typedef enum sc_feature_flag {
  * by the user via "snap set core experimental.xxx=true". This is determined by
  * testing the presence of a file in /var/lib/snapd/features/ that is named
  * after the flag name.
-**/
+ **/
 bool sc_feature_enabled(sc_feature_flag flag);
 
 #endif

@@ -25,11 +25,11 @@
 #define MAX_BUF 1000
 
 struct snappy_udev {
-	struct udev *udev;
-	struct udev_enumerate *devices;
-	struct udev_list_entry *assigned;
-	char tagname[MAX_BUF];
-	size_t tagname_len;
+    struct udev *udev;
+    struct udev_enumerate *devices;
+    struct udev_list_entry *assigned;
+    char tagname[MAX_BUF];
+    size_t tagname_len;
 };
 
 void run_snappy_app_dev_add(struct snappy_udev *udev_s, const char *path);

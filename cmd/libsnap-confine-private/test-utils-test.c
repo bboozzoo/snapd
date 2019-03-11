@@ -23,23 +23,18 @@
 #include <glib.h>
 
 // Check that rm_rf_tmp doesn't remove things outside of /tmp
-static void test_rm_rf_tmp(void)
-{
-	if (access("/nonexistent", F_OK) == 0) {
-		g_test_message
-		    ("/nonexistent exists but this test doesn't want it to");
-		g_test_fail();
-		return;
-	}
-	if (g_test_subprocess()) {
-		rm_rf_tmp("/nonexistent");
-		return;
-	}
-	g_test_trap_subprocess(NULL, 0, 0);
-	g_test_trap_assert_failed();
+static void test_rm_rf_tmp(void) {
+    if (access("/nonexistent", F_OK) == 0) {
+        g_test_message("/nonexistent exists but this test doesn't want it to");
+        g_test_fail();
+        return;
+    }
+    if (g_test_subprocess()) {
+        rm_rf_tmp("/nonexistent");
+        return;
+    }
+    g_test_trap_subprocess(NULL, 0, 0);
+    g_test_trap_assert_failed();
 }
 
-static void __attribute__ ((constructor)) init(void)
-{
-	g_test_add_func("/test-utils/rm_rf_tmp", test_rm_rf_tmp);
-}
+static void __attribute__((constructor)) init(void) { g_test_add_func("/test-utils/rm_rf_tmp", test_rm_rf_tmp); }

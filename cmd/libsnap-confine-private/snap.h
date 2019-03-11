@@ -29,12 +29,12 @@
 #define SC_SNAP_DOMAIN "snap"
 
 enum {
-	/** The name of the snap is not valid. */
-	SC_SNAP_INVALID_NAME = 1,
-	/** The instance key of the snap is not valid. */
-	SC_SNAP_INVALID_INSTANCE_KEY = 2,
-	/** The instance of the snap is not valid. */
-	SC_SNAP_INVALID_INSTANCE_NAME = 3,
+    /** The name of the snap is not valid. */
+    SC_SNAP_INVALID_NAME = 1,
+    /** The instance key of the snap is not valid. */
+    SC_SNAP_INVALID_INSTANCE_KEY = 2,
+    /** The instance of the snap is not valid. */
+    SC_SNAP_INVALID_INSTANCE_NAME = 3,
 };
 
 /**
@@ -58,8 +58,7 @@ void sc_snap_name_validate(const char *snap_name, struct sc_error **errorp);
  * The error protocol is observed so if the caller doesn't provide an outgoing
  * error pointer the function will die on any error.
  **/
-void sc_instance_key_validate(const char *instance_key,
-			      struct sc_error **errorp);
+void sc_instance_key_validate(const char *instance_key, struct sc_error **errorp);
 
 /**
  * Validate the given snap instance name.
@@ -70,8 +69,7 @@ void sc_instance_key_validate(const char *instance_key,
  * The error protocol is observed so if the caller doesn't provide an outgoing
  * error pointer the function will die on any error.
  **/
-void sc_instance_name_validate(const char *instance_name,
-			       struct sc_error **errorp);
+void sc_instance_name_validate(const char *instance_name, struct sc_error **errorp);
 
 /**
  * Validate security tag against strict naming requirements and snap name.
@@ -97,8 +95,7 @@ bool sc_is_hook_security_tag(const char *security_tag);
  *
  * For example: snap_instance => snap, just-snap => just-snap
  **/
-void sc_snap_drop_instance_key(const char *instance_name, char *snap_name,
-			       size_t snap_name_size);
+void sc_snap_drop_instance_key(const char *instance_name, char *snap_name, size_t snap_name_size);
 
 /**
  * Extract snap name and instance key out of an instance name.
@@ -112,8 +109,7 @@ void sc_snap_drop_instance_key(const char *instance_name, char *snap_name,
  *   just-name     => "just-name" & ""
  *
  **/
-void sc_snap_split_instance_name(const char *instance_name, char *snap_name,
-				 size_t snap_name_size, char *instance_key,
-				 size_t instance_key_size);
+void sc_snap_split_instance_name(const char *instance_name, char *snap_name, size_t snap_name_size, char *instance_key,
+                                 size_t instance_key_size);
 
 #endif

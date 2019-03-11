@@ -20,12 +20,12 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#endif				// HAVE_CONFIG_H
+#endif  // HAVE_CONFIG_H
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <sys/types.h>
 #include <dirent.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
 
 // SC_CLEANUP will run the given cleanup function when the variable next
 // to it goes out of scope.
@@ -45,7 +45,7 @@ void sc_cleanup_string(char **ptr);
  * This function is designed to be used with
  * __attribute__((cleanup(sc_cleanup_file))).
  **/
-void sc_cleanup_file(FILE ** ptr);
+void sc_cleanup_file(FILE **ptr);
 
 /**
  * Close an open file with endmntent(3)
@@ -53,7 +53,7 @@ void sc_cleanup_file(FILE ** ptr);
  * This function is designed to be used with
  * __attribute__((cleanup(sc_cleanup_endmntent))).
  **/
-void sc_cleanup_endmntent(FILE ** ptr);
+void sc_cleanup_endmntent(FILE **ptr);
 
 /**
  * Close an open directory with closedir(3)
@@ -61,7 +61,7 @@ void sc_cleanup_endmntent(FILE ** ptr);
  * This function is designed to be used with
  * __attribute__((cleanup(sc_cleanup_closedir))).
  **/
-void sc_cleanup_closedir(DIR ** ptr);
+void sc_cleanup_closedir(DIR **ptr);
 
 /**
  * Close an open file descriptor with close(2)

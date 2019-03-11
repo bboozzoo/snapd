@@ -90,10 +90,8 @@ void sc_close_mount_ns(struct sc_mount_ns *group);
  * was discarded and returns ESRCH. If the mount namespace was joined the
  * function returns zero.
  **/
-int sc_join_preserved_ns(struct sc_mount_ns *group, struct sc_apparmor
-			 *apparmor, const char *base_snap_name,
-			 const char *snap_name, int snap_discard_ns_fd,
-			 bool is_normal_mode);
+int sc_join_preserved_ns(struct sc_mount_ns *group, struct sc_apparmor *apparmor, const char *base_snap_name,
+                         const char *snap_name, int snap_discard_ns_fd, bool is_normal_mode);
 
 /**
  * Join a preserved, per-user, mount namespace if one exists.
@@ -103,9 +101,8 @@ int sc_join_preserved_ns(struct sc_mount_ns *group, struct sc_apparmor
  *
  * The return is ESRCH if a preserved per-user mount namespace does not exist
  * and cannot be joined or zero otherwise.
-**/
-int sc_join_preserved_per_user_ns(struct sc_mount_ns *group,
-				  const char *snap_name);
+ **/
+int sc_join_preserved_per_user_ns(struct sc_mount_ns *group, const char *snap_name);
 
 /**
  * Fork off a helper process for mount namespace capture.

@@ -17,18 +17,14 @@
 #ifndef CORE_LAUNCHER_UTILS_H
 #define CORE_LAUNCHER_UTILS_H
 
-#include <stdlib.h>
 #include <stdbool.h>
+#include <stdlib.h>
 
-__attribute__ ((noreturn))
-    __attribute__ ((format(printf, 1, 2)))
-void die(const char *fmt, ...);
+__attribute__((noreturn)) __attribute__((format(printf, 1, 2))) void die(const char *fmt, ...);
 
-__attribute__ ((format(printf, 1, 2)))
-bool error(const char *fmt, ...);
+__attribute__((format(printf, 1, 2))) bool error(const char *fmt, ...);
 
-__attribute__ ((format(printf, 1, 2)))
-void debug(const char *fmt, ...);
+__attribute__((format(printf, 1, 2))) void debug(const char *fmt, ...);
 
 /**
  * Return true if debugging is enabled.
@@ -58,6 +54,5 @@ void write_string_to_file(const char *filepath, const char *buf);
  *
  * The function returns -1 in case of any error.
  **/
-__attribute__ ((warn_unused_result))
-int sc_nonfatal_mkpath(const char *const path, mode_t mode);
+__attribute__((warn_unused_result)) int sc_nonfatal_mkpath(const char *const path, mode_t mode);
 #endif

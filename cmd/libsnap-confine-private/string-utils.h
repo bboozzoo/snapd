@@ -33,7 +33,7 @@ bool sc_endswith(const char *str, const char *suffix);
 
 /**
  * Allocate and return a copy of a string.
-**/
+ **/
 char *sc_strdup(const char *str);
 
 /**
@@ -41,8 +41,7 @@ char *sc_strdup(const char *str);
  *
  * This version dies on any error condition.
  **/
-__attribute__ ((format(printf, 3, 4)))
-int sc_must_snprintf(char *str, size_t size, const char *format, ...);
+__attribute__((format(printf, 3, 4))) int sc_must_snprintf(char *str, size_t size, const char *format, ...);
 
 /**
  * Append a string to a buffer containing a string.
