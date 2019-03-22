@@ -251,7 +251,7 @@ func (s *gadgetYamlTestSuite) TestReadGadgetYamlOnClassicOnylDefaultsIsValid(c *
 	c.Assert(err, IsNil)
 	c.Assert(ginfo, DeepEquals, &snap.GadgetInfo{
 		Defaults: map[string]map[string]interface{}{
-			"system": {"something": true},
+			"system":                           {"something": true},
 			"otheridididididididididididididi": {"foo": map[string]interface{}{"bar": "baz"}},
 		},
 	})
@@ -710,7 +710,7 @@ func (s *gadgetYamlTestSuite) TestValidateFilesystem(c *C) {
 	} {
 		c.Logf("tc: %v %+v", i, tc.s)
 
-		err := snap.ValidateVolumeStructure(&snap.VolumeStructure{Filesystem: tc.s, Type: "21686148-6449-6E6F-744E-656564454649"}, &snap.GadgetVolume{})
+		err := snap.ValidateVolumeStructure(&snap.VolumeStructure{Filesystem: tc.s, Size: 123, Type: "21686148-6449-6E6F-744E-656564454649"}, &snap.GadgetVolume{})
 		if tc.err != "" {
 			c.Check(err, ErrorMatches, tc.err)
 		} else {
@@ -773,11 +773,13 @@ func (s *gadgetYamlTestSuite) TestValidateVolumeName(c *C) {
 func (s *gadgetYamlTestSuite) TestValidateStructureContent(c *C) {
 	bareOnlyOk := `
 type: bare
+size: 1M
 content:
   - image: foo.img
 `
 	bareMixed := `
 type: bare
+size: 1M
 content:
   - image: foo.img
   - source: foo
@@ -785,12 +787,14 @@ content:
 `
 	bareMissing := `
 type: bare
+size: 1M
 content:
   - offset: 123
 `
 	fsOk := `
 type: 21686148-6449-6E6F-744E-656564454649
 filesystem: ext4
+size: 123M
 content:
   - source: foo
     target: bar
@@ -798,6 +802,7 @@ content:
 	fsMixed := `
 type: 21686148-6449-6E6F-744E-656564454649
 filesystem: ext4
+size: 123M
 content:
   - source: foo
     target: bar
@@ -806,6 +811,7 @@ content:
 	fsMissing := `
 type: 21686148-6449-6E6F-744E-656564454649
 filesystem: ext4
+size: 123M
 content:
   - source: foo
 `
@@ -864,6 +870,15 @@ volumes:
           - image: pc-core.img
             offset-write: bad-name+123
 `
+	gadgetYamlBadOffsetWriteCrossingSize := gadgetYamlHeader + `
+      - name: other-name
+        type: DA,21686148-6449-6E6F-744E-656564454649
+        size: 1M
+        offset: 1M
+        offset-write: my-name-is+438
+        content:
+          - image: pc-core.img
+`
 	info := snaptest.MockSnap(c, mockGadgetSnapYaml, &snap.SideInfo{Revision: snap.R(42)})
 	err := ioutil.WriteFile(filepath.Join(info.MountDir(), "meta", "gadget.yaml"), []byte(gadgetYamlBadStructureName), 0644)
 	c.Assert(err, IsNil)
@@ -877,6 +892,13 @@ volumes:
 
 	_, err = snap.ReadGadgetInfo(info, false)
 	c.Check(err, ErrorMatches, `invalid volume "pc": structure #1 \("other-name"\), content #0 \("pc-core.img"\) refers to an unknown structure "bad-name"`)
+
+	info = snaptest.MockSnap(c, mockGadgetSnapYaml, &snap.SideInfo{Revision: snap.R(42)})
+	err = ioutil.WriteFile(filepath.Join(info.MountDir(), "meta", "gadget.yaml"), []byte(gadgetYamlBadOffsetWriteCrossingSize), 0644)
+	c.Assert(err, IsNil)
+
+	_, err = snap.ReadGadgetInfo(info, false)
+	c.Check(err, ErrorMatches, `invalid volume "pc": structure #1 \("other-name"\) offset-write crosses structure #0 \("my-name-is"\) size`)
 }
 
 func (s *gadgetYamlTestSuite) TestValidateStructureUpdatePreserveOnlyForFs(c *C) {
@@ -885,12 +907,14 @@ func (s *gadgetYamlTestSuite) TestValidateStructureUpdatePreserveOnlyForFs(c *C)
 
 	err := snap.ValidateVolumeStructure(&snap.VolumeStructure{
 		Type:   "bare",
+		Size:   512,
 		Update: snap.VolumeUpdate{Preserve: []string{"foo"}},
 	}, gv)
 	c.Check(err, ErrorMatches, "preserving files during update is not supported for non-filesystem structures")
 
 	err = snap.ValidateVolumeStructure(&snap.VolumeStructure{
 		Type:   "21686148-6449-6E6F-744E-656564454649",
+		Size:   512,
 		Update: snap.VolumeUpdate{Preserve: []string{"foo"}},
 	}, gv)
 	c.Check(err, ErrorMatches, "preserving files during update is not supported for non-filesystem structures")
@@ -898,6 +922,7 @@ func (s *gadgetYamlTestSuite) TestValidateStructureUpdatePreserveOnlyForFs(c *C)
 	err = snap.ValidateVolumeStructure(&snap.VolumeStructure{
 		Type:       "21686148-6449-6E6F-744E-656564454649",
 		Filesystem: "vfat",
+		Size:       mustParseGadgetSize(c, "123M"),
 		Update:     snap.VolumeUpdate{Preserve: []string{"foo"}},
 	}, gv)
 	c.Check(err, IsNil)
@@ -910,6 +935,7 @@ func (s *gadgetYamlTestSuite) TestValidateStructureUpdatePreserveDuplicates(c *C
 	err := snap.ValidateVolumeStructure(&snap.VolumeStructure{
 		Type:       "21686148-6449-6E6F-744E-656564454649",
 		Filesystem: "vfat",
+		Size:       mustParseGadgetSize(c, "123M"),
 		Update:     snap.VolumeUpdate{Edition: 1, Preserve: []string{"foo", "bar"}},
 	}, gv)
 	c.Check(err, IsNil)
@@ -917,7 +943,89 @@ func (s *gadgetYamlTestSuite) TestValidateStructureUpdatePreserveDuplicates(c *C
 	err = snap.ValidateVolumeStructure(&snap.VolumeStructure{
 		Type:       "21686148-6449-6E6F-744E-656564454649",
 		Filesystem: "vfat",
+		Size:       mustParseGadgetSize(c, "123M"),
 		Update:     snap.VolumeUpdate{Edition: 1, Preserve: []string{"foo", "bar", "foo"}},
 	}, gv)
 	c.Check(err, ErrorMatches, `duplicate preserve entry "foo"`)
+}
+
+func (s *gadgetYamlTestSuite) TestValidateStructureSizeRequired(c *C) {
+
+	gv := &snap.GadgetVolume{}
+
+	err := snap.ValidateVolumeStructure(&snap.VolumeStructure{
+		Type:   "bare",
+		Update: snap.VolumeUpdate{Preserve: []string{"foo"}},
+	}, gv)
+	c.Check(err, ErrorMatches, "missing size")
+
+	err = snap.ValidateVolumeStructure(&snap.VolumeStructure{
+		Type:       "21686148-6449-6E6F-744E-656564454649",
+		Filesystem: "vfat",
+		Update:     snap.VolumeUpdate{Preserve: []string{"foo"}},
+	}, gv)
+	c.Check(err, ErrorMatches, "missing size")
+
+	err = snap.ValidateVolumeStructure(&snap.VolumeStructure{
+		Type:       "21686148-6449-6E6F-744E-656564454649",
+		Filesystem: "vfat",
+		Size:       mustParseGadgetSize(c, "123M"),
+		Update:     snap.VolumeUpdate{Preserve: []string{"foo"}},
+	}, gv)
+	c.Check(err, IsNil)
+}
+
+func (s *gadgetYamlTestSuite) TestValidatePositioningOverlapPreceding(c *C) {
+	overlappingGadgetYaml := `
+volumes:
+  pc:
+    bootloader: grub
+    structure:
+      - name: mbr
+        type: mbr
+        size: 440
+        offset: 0
+        content:
+          - image: pc-boot.img
+      - name: other-name
+        type: DA,21686148-6449-6E6F-744E-656564454649
+        size: 1M
+        offset: 200
+        content:
+          - image: pc-core.img
+`
+	info := snaptest.MockSnap(c, mockGadgetSnapYaml, &snap.SideInfo{Revision: snap.R(42)})
+	err := ioutil.WriteFile(filepath.Join(info.MountDir(), "meta", "gadget.yaml"), []byte(overlappingGadgetYaml), 0644)
+	c.Assert(err, IsNil)
+
+	_, err = snap.ReadGadgetInfo(info, false)
+	c.Check(err, ErrorMatches, `invalid volume "pc": structure #1 \("other-name"\) overlaps with the preceding structure #0 \("mbr"\)`)
+
+}
+
+func (s *gadgetYamlTestSuite) TestValidatePositioningOverlapOutOfOrder(c *C) {
+	outOfOrderGadgetYaml := `
+volumes:
+  pc:
+    bootloader: grub
+    structure:
+      - name: overlaps-with-foo
+        type: DA,21686148-6449-6E6F-744E-656564454649
+        size: 1M
+        offset: 200
+        content:
+          - image: pc-core.img
+      - name: foo
+        type: DA,21686148-6449-6E6F-744E-656564454648
+        size: 1M
+        offset: 100
+        filesystem: vfat
+`
+	info := snaptest.MockSnap(c, mockGadgetSnapYaml, &snap.SideInfo{Revision: snap.R(42)})
+	err := ioutil.WriteFile(filepath.Join(info.MountDir(), "meta", "gadget.yaml"), []byte(outOfOrderGadgetYaml), 0644)
+	c.Assert(err, IsNil)
+
+	_, err = snap.ReadGadgetInfo(info, false)
+	c.Check(err, ErrorMatches, `invalid volume "pc": structure #0 \("overlaps-with-foo"\) overlaps with the preceding structure #1 \("foo"\)`)
+
 }
