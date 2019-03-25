@@ -264,18 +264,18 @@ func indexAndName(idx int, name string) string {
 	return fmt.Sprintf("#%v", idx)
 }
 
-// positionedStructure describes position of given structure within a volume
-type positionedStructure struct {
+// PositionedStructure describes position of given structure within a volume
+type PositionedStructure struct {
 	*VolumeStructure
 	StartOffset GadgetSize
 	index       int
 }
 
-type byStartOffset []positionedStructure
+type ByStartOffset []PositionedStructure
 
-func (b byStartOffset) Len() int           { return len(b) }
-func (b byStartOffset) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }
-func (b byStartOffset) Less(i, j int) bool { return b[i].StartOffset < b[j].StartOffset }
+func (b ByStartOffset) Len() int           { return len(b) }
+func (b ByStartOffset) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }
+func (b ByStartOffset) Less(i, j int) bool { return b[i].StartOffset < b[j].StartOffset }
 
 func validateVolume(name string, vol *GadgetVolume) error {
 	if !validVolumeName.MatchString(name) {
@@ -286,9 +286,9 @@ func validateVolume(name string, vol *GadgetVolume) error {
 	}
 
 	// named structures, for cross-referencing relative offset-write names
-	knownStructures := make(map[string]*positionedStructure, len(vol.Structure))
+	knownStructures := make(map[string]*PositionedStructure, len(vol.Structure))
 	// for validating structure overlap
-	structures := make([]positionedStructure, len(vol.Structure))
+	structures := make([]PositionedStructure, len(vol.Structure))
 
 	lastOffset := GadgetSize(0)
 	farthestEnd := GadgetSize(0)
@@ -301,7 +301,7 @@ func validateVolume(name string, vol *GadgetVolume) error {
 			start = lastOffset
 		}
 		end := start + s.Size
-		ps := positionedStructure{
+		ps := PositionedStructure{
 			VolumeStructure: &vol.Structure[idx],
 			StartOffset:     start,
 			index:           idx,
@@ -319,7 +319,7 @@ func validateVolume(name string, vol *GadgetVolume) error {
 	}
 
 	// sort by starting offset
-	sort.Sort(byStartOffset(structures))
+	sort.Sort(ByStartOffset(structures))
 
 	lastEnd := GadgetSize(0)
 	// cross structure validation:
