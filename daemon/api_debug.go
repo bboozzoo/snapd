@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/snapcore/snapd/asserts"
+	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/overlord/assertstate"
 	"github.com/snapcore/snapd/overlord/auth"
 	"github.com/snapcore/snapd/overlord/devicestate"
@@ -120,6 +121,10 @@ func postDebug(c *Command, r *http.Request, user *auth.UserState) Response {
 	defer st.Unlock()
 
 	switch a.Action {
+	case "prune":
+		logger.Noticef("prune")
+		st.Prune(0, 0, 0)
+		return SyncResponse(true, nil)
 	case "add-warning":
 		st.Warnf("%v", a.Message)
 		return SyncResponse(true, nil)
