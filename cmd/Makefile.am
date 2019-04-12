@@ -323,6 +323,8 @@ snap_confine_unit_tests_SOURCES = \
 	snap-confine/mount-support-test.c \
 	snap-confine/ns-support-test.c \
 	snap-confine/snap-confine-args-test.c \
+	snap-confine/snap-confine-invocation.c \
+	snap-confine/snap-confine-invocation.h \
 	snap-confine/snap-device-helper-test.c
 snap_confine_unit_tests_CFLAGS = $(snap_confine_snap_confine_CFLAGS) $(GLIB_CFLAGS)
 snap_confine_unit_tests_LDADD = $(snap_confine_snap_confine_LDADD) $(GLIB_LIBS)
@@ -357,9 +359,9 @@ if APPARMOR
 endif
 	install -d -m 755 $(DESTDIR)/var/lib/snapd/apparmor/snap-confine/
 
-# NOTE: The 'void' directory *has to* be chmod 000
+# NOTE: The 'void' directory *has to* be chmod 111
 install-data-local::
-	install -d -m 000 $(DESTDIR)/var/lib/snapd/void
+	install -d -m 111 $(DESTDIR)/var/lib/snapd/void
 
 install-exec-hook::
 if CAPS_OVER_SETUID
