@@ -7,25 +7,20 @@ description: |
 # Systems with SELinux enabled out of the box.
 systems: [fedora-*, centos-*]
 
-# lxd downloads can be quite slow
-kill-timeout: 25m
-
-# Start before anything else as it can take a really long time.
-priority: 1000
-
 prepare: |
+    getenforce > enforcing.mode
     # Enable enforcing mode, our policy is already marked as permissive, so we
     # will get audit entries but the program will not be stopped by SELinux
     setenforce 1
     ausearch --checkpoint stamp -m AVC || true
 
 restore: |
-    rm -f stamp
-    setenforce 0
+    setenforce "$(cat enforcing.mode)"
+    rm -f stamp enforcing.mode
 
 execute: |
     snap install lxd
-    ausearch --checkpoint stamp --start checkpoint -m AVC 2>&1 | MATCH 'no matches'
+    ausearch -i --checkpoint stamp --start checkpoint -m AVC 2>&1 | MATCH 'no matches'
 
     echo "Create a trivial container using the lxd snap"
     snap set lxd waitready.timeout=240
@@ -45,8 +40,9 @@ execute: |
     echo "Ensure we can run things inside"
     lxd.lxc exec my-ubuntu echo hello | MATCH hello
 
-    echo "Stop the container"
+    echo "Stop and remove the container"
     lxd.lxc stop --force my-ubuntu
+    lxd.lxc delete --force my-ubuntu
 
     snap remove lxd
 
