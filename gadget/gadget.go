@@ -161,6 +161,11 @@ func (vs *VolumeStructure) EffectiveRole() string {
 		// for gadgets that only specify a filesystem-label, eg. pc
 		return SystemBoot
 	}
+
+	if vs.Label == SystemBoot || vs.Label == SystemData {
+		return vs.Label
+	}
+
 	return ""
 }
 
