@@ -230,7 +230,11 @@ func applyUpdates(new UpdateData, updates []updatePair, rollbackDir string) erro
 	updaters := make([]Updater, 0, len(updates))
 
 	for _, one := range updates {
-		updaters = append(updaters, updaterForStructure(one.to, new.RootDir, rollbackDir))
+		up, err := updaterForStructure(one.to, new.RootDir, rollbackDir)
+		if err != nil {
+			return fmt.Errorf("cannot prepare updater: %v", err)
+		}
+		updaters = append(updaters, up)
 	}
 
 	for _, one := range updaters {
@@ -269,12 +273,13 @@ func applyUpdates(new UpdateData, updates []updatePair, rollbackDir string) erro
 
 var updaterForStructure = updaterForStructureImpl
 
-func updaterForStructureImpl(ps *PositionedStructure, newRootDir, rollbackDir string) Updater {
+func updaterForStructureImpl(ps *PositionedStructure, newRootDir, rollbackDir string) (Updater, error) {
 	var updater Updater
+	var err error
 	if ps.IsBare() {
-		updater = NewRawStructureUpdater(newRootDir, ps, rollbackDir, FindDeviceForStructure)
+		updater, err = NewRawStructureUpdater(newRootDir, ps, rollbackDir, FindDeviceForStructure)
 	} else {
-		updater = NewMountedFilesystemUpdater(newRootDir, ps, rollbackDir, FindMountPointForStructure)
+		updater, err = NewMountedFilesystemUpdater(newRootDir, ps, rollbackDir, FindMountPointForStructure)
 	}
-	return updater
+	return updater, err
 }
