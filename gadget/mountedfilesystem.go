@@ -215,12 +215,17 @@ type MountedFilesystemUpdater struct {
 
 // NewMountedFilesystemUpdater returns an updater for given filesystem
 // structure, with structure content coming from provided root directory
-func NewMountedFilesystemUpdater(rootDir string, ps *PositionedStructure, backupDir string, mountLookup locationLookupFunc) *MountedFilesystemUpdater {
-	return &MountedFilesystemUpdater{
-		MountedFilesystemWriter: NewMountedFilesystemWriter(rootDir, ps),
+func NewMountedFilesystemUpdater(rootDir string, ps *PositionedStructure, backupDir string, mountLookup locationLookupFunc) (*MountedFilesystemUpdater, error) {
+	fw, err := NewMountedFilesystemWriter(rootDir, ps)
+	if err != nil {
+		return nil, err
+	}
+	fu := &MountedFilesystemUpdater{
+		MountedFilesystemWriter: fw,
 		backupDir:               backupDir,
 		mountLookup:             mountLookup,
 	}
+	return fu, nil
 }
 
 func fsStructBackupPath(backupDir string, ps *PositionedStructure) string {
