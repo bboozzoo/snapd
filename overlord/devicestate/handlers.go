@@ -803,7 +803,7 @@ func makeRollbackDir(name string) (string, error) {
 	return rollbackDir, nil
 }
 
-func currentGadgetInfo(snapst *snapstate.SnapState) (*gadget.UpdateData, error) {
+func currentGadgetInfo(snapst *snapstate.SnapState) (*gadget.GadgetData, error) {
 	currentInfo, err := snapst.CurrentInfo()
 	if err != nil && err != snapstate.ErrNoCurrent {
 		return nil, err
@@ -817,10 +817,10 @@ func currentGadgetInfo(snapst *snapstate.SnapState) (*gadget.UpdateData, error) 
 	if err != nil {
 		return nil, err
 	}
-	return &gadget.UpdateData{Info: gi, RootDir: currentInfo.MountDir()}, nil
+	return &gadget.GadgetData{Info: gi, RootDir: currentInfo.MountDir()}, nil
 }
 
-func pendingGadgetInfo(snapsup *snapstate.SnapSetup) (*gadget.UpdateData, error) {
+func pendingGadgetInfo(snapsup *snapstate.SnapSetup) (*gadget.GadgetData, error) {
 	info, err := snap.ReadInfo(snapsup.InstanceName(), snapsup.SideInfo)
 	if err != nil {
 		return nil, err
@@ -830,10 +830,10 @@ func pendingGadgetInfo(snapsup *snapstate.SnapSetup) (*gadget.UpdateData, error)
 	if err != nil {
 		return nil, err
 	}
-	return &gadget.UpdateData{Info: update, RootDir: info.MountDir()}, nil
+	return &gadget.GadgetData{Info: update, RootDir: info.MountDir()}, nil
 }
 
-func gadgetCurrentAndUpdate(st *state.State, snapsup *snapstate.SnapSetup) (current *gadget.UpdateData, update *gadget.UpdateData, err error) {
+func gadgetCurrentAndUpdate(st *state.State, snapsup *snapstate.SnapSetup) (current *gadget.GadgetData, update *gadget.GadgetData, err error) {
 	snapst, err := snapState(st, snapsup.InstanceName())
 	if err != nil {
 		return nil, nil, err
