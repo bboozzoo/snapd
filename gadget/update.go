@@ -282,7 +282,7 @@ func updaterForStructureImpl(ps *PositionedStructure, newRootDir, rollbackDir st
 	var updater Updater
 	var err error
 	if ps.IsBare() {
-		updater, err = NewRawStructureUpdater(newRootDir, ps, rollbackDir, FindDeviceForStructure)
+		updater, err = NewRawStructureUpdater(newRootDir, ps, rollbackDir, FindDeviceForStructureWithFallback)
 	} else {
 		updater, err = NewMountedFilesystemUpdater(newRootDir, ps, rollbackDir, FindMountPointForStructure)
 	}
