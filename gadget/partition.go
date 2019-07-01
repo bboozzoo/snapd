@@ -45,6 +45,9 @@ func splitType(maybeHybridType string) (mbrTypeID, gptTypeID string) {
 	return maybeHybridType[:idx], maybeHybridType[idx+1:]
 }
 
+// Partition attempts to create a new partition table and partitions in an image
+// file, corresponding to the schema and structure definition of the provided
+// positioned volume.
 func Partition(image string, pv *PositionedVolume) error {
 	if image == "" {
 		return fmt.Errorf("internal error: image path is unset")
