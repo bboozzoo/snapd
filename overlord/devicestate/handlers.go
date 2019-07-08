@@ -961,15 +961,18 @@ func (m *DeviceManager) doUpdateGadgetAssets(t *state.Task, _ *tomb.Tomb) error 
 		return fmt.Errorf("cannot prepare update rollback directory: %v", err)
 	}
 
+	logger.Noticef("attempt gadget update")
 	st.Unlock()
 	err = gadgetUpdate(*currentData, *updateData, snapRollbackDir)
 	st.Lock()
 	if err != nil {
 		if err == gadget.ErrNoUpdate {
+			logger.Noticef("no gadget update needed")
 			// no update needed
 			t.Logf("No gadget assets update needed")
 			return nil
 		}
+		logger.Noticef("gadget update failed: %v", err)
 		return err
 	}
 
