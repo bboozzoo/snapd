@@ -45,14 +45,6 @@ func MockEvalSymlinks(mock func(path string) (string, error)) (restore func()) {
 	}
 }
 
-func MockMkfsHandlers(mock map[string]MkfsFunc) (restore func()) {
-	old := mkfsHandlers
-	mkfsHandlers = mock
-	return func() {
-		mkfsHandlers = old
-	}
-}
-
 func MockUpdaterForStructure(mock func(ps *PositionedStructure, rootDir, rollbackDir string) (Updater, error)) (restore func()) {
 	old := updaterForStructure
 	updaterForStructure = mock
