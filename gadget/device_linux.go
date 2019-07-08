@@ -27,6 +27,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/snapcore/snapd/dirs"
+	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
 )
 
@@ -56,6 +57,7 @@ func FindDeviceForStructure(ps *PositionedStructure) (string, error) {
 	var found string
 	var match string
 	for _, candidate := range candidates {
+		logger.Noticef("trying candidate: %q %v", candidate, candidate)
 		if !osutil.FileExists(candidate) {
 			continue
 		}
@@ -68,6 +70,7 @@ func FindDeviceForStructure(ps *PositionedStructure) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("cannot read device link: %v", err)
 		}
+		logger.Noticef("target %v", target)
 		if found != "" && target != found {
 			// partition and filesystem label links point to
 			// different devices
@@ -81,6 +84,8 @@ func FindDeviceForStructure(ps *PositionedStructure) (string, error) {
 	if found == "" {
 		return "", ErrDeviceNotFound
 	}
+
+	logger.Noticef("device for structure %v: %v", ps, found)
 
 	return found, nil
 }
