@@ -50,7 +50,7 @@ snap_mount_dir = /snap
 endif
 
 # The list of go binaries we are expected to build.
-go_binaries = snap snapctl snap-seccomp snap-update-ns snap-exec snapd
+go_binaries = snap snap-image snapctl snap-seccomp snap-update-ns snap-exec snapd
 
 # NOTE: This *depends* on building out of tree. Some of the built binaries
 # conflict with directory names in the tree.
@@ -58,7 +58,7 @@ go_binaries = snap snapctl snap-seccomp snap-update-ns snap-exec snapd
 all: $(go_binaries) 
 
 snap: GO_TAGS += nomanagers
-snap snap-seccomp:
+snap snap-seccomp snap-image:
 	go build $(if $(GO_TAGS),-tags $(GO_TAGS)) -buildmode=pie $(import_path)/cmd/$@
 
 # Those three need to be built as static binaries. They run on the inside of a
@@ -85,7 +85,7 @@ $(addprefix $(DESTDIR),$(libexecdir)/snapd $(bindir) $(mandir)/man8 /$(sharedsta
 .PHONY: install
 
 # Install snap into /usr/bin/.
-install:: snap | $(DESTDIR)$(bindir)
+install:: snap snap-image | $(DESTDIR)$(bindir)
 	install -m 755 $^ $|
 
 # Install snapctl snapd, snap-{exec,update-ns,seccomp} into /usr/lib/snapd/

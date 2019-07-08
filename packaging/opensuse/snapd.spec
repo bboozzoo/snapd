@@ -409,6 +409,7 @@ fi
 %verify(not user group mode) %attr(04755,root,root) %{_libexecdir}/snapd/snap-confine
 %{_bindir}/snap
 %{_bindir}/snapctl
+%{_bindir}/snap-image
 %{_datadir}/applications/snap-handle-link.desktop
 %{_datadir}/bash-completion/completions/snap
 %{_datadir}/zsh/site-functions/_snap
