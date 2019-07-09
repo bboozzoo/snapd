@@ -725,6 +725,18 @@ func complainAction() seccomp.ScmpAction {
 	return seccomp.ActAllow
 }
 
+func fixupSyscallPriority(filter *seccomp.ScmpFilter) {
+	for i, name := range []string{"lseek", "read", "munmap", "fstat", "mmap", "openat", "stat"} {
+		sc, err := seccomp.GetSyscallFromName(name)
+		if err != nil {
+			panic(fmt.Errorf("cannot resolve syscall: %v", err))
+		}
+		if err := filter.SetSyscallPriority(sc, 255-uint8(i)); err != nil {
+			panic(fmt.Errorf("cannot set syscall priority: %v", err))
+		}
+	}
+}
+
 func compile(content []byte, out string) error {
 	var err error
 	var secFilter *seccomp.ScmpFilter
@@ -765,6 +777,8 @@ func compile(content []byte, out string) error {
 	}
 
 	if !unrestricted {
+		fixupSyscallPriority(secFilter)
+
 		scanner := bufio.NewScanner(bytes.NewBuffer(content))
 		for scanner.Scan() {
 			if err := parseLine(scanner.Text(), secFilter); err != nil {
