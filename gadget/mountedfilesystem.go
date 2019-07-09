@@ -19,6 +19,7 @@
 package gadget
 
 import (
+	"archive/zip"
 	"bytes"
 	"crypto"
 	_ "crypto/sha1"
@@ -278,7 +279,23 @@ func NewMountedFilesystemUpdater(rootDir string, ps *PositionedStructure, backup
 }
 
 func fsStructBackupPath(backupDir string, ps *PositionedStructure) string {
-	return filepath.Join(backupDir, fmt.Sprintf("struct-%v", ps.Index))
+	return filepath.Join(backupDir, fmt.Sprintf("struct-%v.zip", ps.Index))
+}
+
+func openFsStructBackup(backupDir string, ps *PositionedStructure) (*zip.Reader, error) {
+	backup, err := os.Open(fsStructBackupPath(backupDir, ps))
+	if err != nil {
+		return nil, err
+	}
+	return tar.NewReader(backup), nil
+}
+
+func newFsStructBackup(backupDir string, ps *PositionedStructure) (*zip.Writer, error) {
+	backup, err := os.Create(fsStructBackupPath(backupDir, ps))
+	if err != nil {
+		return nil, err
+	}
+	return tar.NewWriter(backup), nil
 }
 
 // entryDestPaths resolves destination and backup paths for given
@@ -303,10 +320,10 @@ func (f *MountedFilesystemUpdater) entryDestPaths(dstRoot, source, target, backu
 // source/target combination. The source location is always within the root
 // directory passed during initialization. Backup location is within provided
 // backup directory or empty if directory was not provided.
-func (f *MountedFilesystemUpdater) entryPaths(dstRoot, source, target, backupDir string) (srcPath, dstPath, backupPath string) {
+func (f *MountedFilesystemUpdater) entryPaths(dstRoot, source, target string) (srcPath, dstPath, backupPath string) {
 	srcPath = f.entrySourcePath(source)
 
-	dstPath, backupPath = f.entryDestPaths(dstRoot, source, target, backupDir)
+	dstPath, backupPath = f.entryDestPaths(dstRoot, source, target)
 
 	return srcPath, dstPath, backupPath
 }
@@ -332,10 +349,10 @@ func (f *MountedFilesystemUpdater) Update() error {
 	}
 
 	preserveInDst := prefixPreserve(mount, f.ps.Update.Preserve)
-	backupRoot := fsStructBackupPath(f.backupDir, f.ps)
+	backup := openFsStructBackup(f.backupDir, f.ps)
 
 	for _, c := range f.ps.Content {
-		if err := f.updateVolumeContent(mount, &c, preserveInDst, backupRoot); err != nil {
+		if err := f.updateVolumeContent(mount, &c, preserveInDst, backup); err != nil {
 			return fmt.Errorf("cannot update content: %v", err)
 		}
 	}
@@ -366,7 +383,7 @@ func targetForSourceDir(source, target string) string {
 	return filepath.Join(target, filepath.Base(source))
 }
 
-func (f *MountedFilesystemUpdater) updateDirectory(dstRoot, source, target string, preserveInDst []string, backupDir string) error {
+func (f *MountedFilesystemUpdater) updateDirectory(dstRoot, source, target string, preserveInDst []string, backup *zip.Reader) error {
 	fis, err := f.sourceDirectoryEntries(source)
 	if err != nil {
 		return fmt.Errorf("cannot list source directory %q: %v", source, err)
@@ -389,7 +406,7 @@ func (f *MountedFilesystemUpdater) updateDirectory(dstRoot, source, target strin
 			pSrc += "/"
 			update = f.updateDirectory
 		}
-		if err := update(dstRoot, pSrc, pDst, preserveInDst, backupDir); err != nil {
+		if err := update(dstRoot, pSrc, pDst, preserveInDst, backup); err != nil {
 			return err
 		}
 	}
@@ -397,29 +414,29 @@ func (f *MountedFilesystemUpdater) updateDirectory(dstRoot, source, target strin
 	return nil
 }
 
-func (f *MountedFilesystemUpdater) updateOrSkipFile(dstRoot, source, target string, preserveInDst []string, backupDir string) error {
-	srcName, dstName, backupName := f.entryPaths(dstRoot, source, target, backupDir)
+func (f *MountedFilesystemUpdater) updateOrSkipFile(dstRoot, source, target string, preserveInDst []string, backup *zip.Reader) error {
+	srcName, dstName, backupName := f.entryPaths(dstRoot, source, target)
 
 	if osutil.FileExists(dstName) {
 		if strutil.SortedListContains(preserveInDst, dstName) {
 			// file is to be preserved
 			return nil
 		}
-		if osutil.FileExists(backupName + ".same") {
-			// file is the same as current copy
-			return nil
-		}
-		if !osutil.FileExists(backupName + ".backup") {
-			// not preserved & different than the update, error out
-			// as there is no backup
-			return fmt.Errorf("missing backup file for %v", dstName)
-		}
+		// if osutil.FileExists(backupName + ".same") {
+		// 	// file is the same as current copy
+		// 	return nil
+		// }
+		// if !osutil.FileExists(backupName + ".backup") {
+		// 	// not preserved & different than the update, error out
+		// 	// as there is no backup
+		// 	return fmt.Errorf("missing backup file for %v", dstName)
+		// }
 	}
 
 	return writeFile(srcName, dstName, preserveInDst)
 }
 
-func (f *MountedFilesystemUpdater) updateVolumeContent(volumeRoot string, content *VolumeContent, preserveInDst []string, backupDir string) error {
+func (f *MountedFilesystemUpdater) updateVolumeContent(volumeRoot string, content *VolumeContent, preserveInDst []string, backup *zip.Reader) error {
 	if err := checkContent(content); err != nil {
 		return err
 	}
@@ -427,9 +444,9 @@ func (f *MountedFilesystemUpdater) updateVolumeContent(volumeRoot string, conten
 	srcName := f.entrySourcePath(content.Source)
 
 	if osutil.IsDirectory(srcName) || strings.HasSuffix(content.Source, "/") {
-		return f.updateDirectory(volumeRoot, content.Source, content.Target, preserveInDst, backupDir)
+		return f.updateDirectory(volumeRoot, content.Source, content.Target, preserveInDst, backup)
 	} else {
-		return f.updateOrSkipFile(volumeRoot, content.Source, content.Target, preserveInDst, backupDir)
+		return f.updateOrSkipFile(volumeRoot, content.Source, content.Target, preserveInDst, backup)
 	}
 }
 
