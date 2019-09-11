@@ -26,9 +26,11 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/snapcore/snapd/sandbox/cgroup"
 )
 
-var freezerCgroupDir = "/sys/fs/cgroup/freezer"
+var freezerCgroupDir = cgroup.ControllerPathV1("freezer")
 
 var (
 	freezeSnapProcesses = freezeSnapProcessesImpl
