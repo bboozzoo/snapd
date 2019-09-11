@@ -47,6 +47,7 @@ import (
 	"github.com/snapcore/snapd/overlord/standby"
 	"github.com/snapcore/snapd/overlord/state"
 	"github.com/snapcore/snapd/polkit"
+	"github.com/snapcore/snapd/sandbox/cgroup"
 	"github.com/snapcore/snapd/store"
 	"github.com/snapcore/snapd/systemd"
 )
@@ -344,6 +345,10 @@ func (d *Daemon) Init() error {
 	d.addRoutes()
 
 	logger.Noticef("started %v.", httputil.UserAgent())
+
+	if cgroup.IsUnified() {
+		logger.Noticef("WARNING: cgroup v2 is not fully supported yet")
+	}
 
 	return nil
 }
