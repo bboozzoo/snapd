@@ -52,6 +52,7 @@ import (
 	"github.com/snapcore/snapd/httputil"
 	"github.com/snapcore/snapd/i18n"
 	"github.com/snapcore/snapd/interfaces"
+	"github.com/snapcore/snapd/interfaces/security"
 	"github.com/snapcore/snapd/jsonutil"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
@@ -304,26 +305,29 @@ func sysInfo(c *Command, r *http.Request, user *auth.UserState) Response {
 		m["virtualization"] = systemdVirt
 	}
 
+	securityBackends := c.d.overlord.InterfaceManager().Repository().Backends()
+	features, fullBackendSupport := sandboxFeatures(securityBackends)
+
 	// NOTE: Right now we don't have a good way to differentiate if we
 	// only have partial confinement (ala AppArmor disabled and Seccomp
 	// enabled) or no confinement at all. Once we have a better system
 	// in place how we can dynamically retrieve these information from
 	// snapd we will use this here.
-	if release.ReleaseInfo.ForceDevMode() {
+	if release.ReleaseInfo.ForceDevMode() || !fullBackendSupport {
 		m["confinement"] = "partial"
 	} else {
 		m["confinement"] = "strict"
 	}
 
 	// Convey richer information about features of available security backends.
-	if features := sandboxFeatures(c.d.overlord.InterfaceManager().Repository().Backends()); features != nil {
+	if features != nil {
 		m["sandbox-features"] = features
 	}
 
 	return SyncResponse(m, nil)
 }
 
-func sandboxFeatures(backends []interfaces.SecurityBackend) map[string][]string {
+func sandboxFeatures(backends []interfaces.SecurityBackend) (features map[string][]string, full bool) {
 	result := make(map[string][]string, len(backends)+1)
 	for _, backend := range backends {
 		features := backend.SandboxFeatures()
@@ -336,7 +340,7 @@ func sandboxFeatures(backends []interfaces.SecurityBackend) map[string][]string 
 	// Add information about supported confinement types as a fake backend
 	features := make([]string, 1, 3)
 	features[0] = "devmode"
-	if !release.ReleaseInfo.ForceDevMode() {
+	if !release.ReleaseInfo.ForceDevMode() && security.IsFull(backends) {
 		features = append(features, "strict")
 	}
 	if dirs.SupportsClassicConfinement() {

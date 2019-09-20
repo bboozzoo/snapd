@@ -95,4 +95,8 @@ type SecurityBackend interface {
 
 	// SandboxFeatures returns a list of tags that identify sandbox features.
 	SandboxFeatures() []string
+
+	// FullSecuritySupport returns true when all security related features
+	// are fully supported by the host system
+	FullSecuritySupport() bool
 }
