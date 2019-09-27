@@ -195,7 +195,6 @@ distro_install_local_package() {
 
 distro_install_package() {
     orig_xtrace=$(set -o | awk '/xtrace / { print $2 }')
-    set +x
     echo "distro_install_package $*"
     # Parse additional arguments; once we find the first unknown
     # part we break argument parsing and process all further
@@ -251,6 +250,11 @@ distro_install_package() {
         ;;
     esac
 
+    if [[ "$SPREAD_SYSTEM" == centos-* ]]; then
+        YUM_FLAGS="$YUM_FLAGS --enablerepo=fasttrack"
+    fi
+
+    set +x
     # shellcheck disable=SC2207
     pkg_names=($(
         for pkg in "$@" ; do
@@ -263,6 +267,7 @@ distro_install_package() {
             echo "$package_name"
         done
     ))
+    set -x
 
     case "$SPREAD_SYSTEM" in
         ubuntu-*|debian-*)

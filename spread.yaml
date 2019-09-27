@@ -597,6 +597,10 @@ prepare: |
         rm -f /etc/profile.d/go.sh
     fi
 
+    if [[ "$SPREAD_SYSTEM" == centos-* ]]; then
+      yum update --enablerepo=fasttrack systemd -y
+    fi
+
     # NOTE: At this stage the source tree is available and no more special
     # considerations apply.
     "$TESTSLIB"/prepare-restore.sh --prepare-project
