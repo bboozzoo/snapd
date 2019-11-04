@@ -184,18 +184,28 @@ func downloadSnapFromStreamWithProgress(downloadPath string, stream io.ReadClose
 	defer pbar.Finished()
 
 	// Intercept sigint
-	c := make(chan os.Signal, 3)
+	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT)
+	done := make(chan struct{}, 1)
+	canceled := false
 	go func() {
-		<-c
-		pbar.Finished()
-		stream.Close()
+		select {
+		case <-c:
+			canceled = true
+			pbar.Finished()
+			stream.Close()
+		case <-done:
+		}
 	}()
+	defer close(done)
 	defer signal.Reset(syscall.SIGINT)
 
 	h := crypto.SHA3_384.New()
 	mw := io.MultiWriter(f, h, pbar)
 	if _, err := io.Copy(mw, stream); err != nil {
+		if canceled {
+			return fmt.Errorf("download canceled")
+		}
 		return err
 	}
 
