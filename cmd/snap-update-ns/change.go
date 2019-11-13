@@ -278,6 +278,33 @@ func (c *Change) Perform(as *Assumptions) ([]*Change, error) {
 	return changePerform(c, as)
 }
 
+type mntFlags int
+
+func (m mntFlags) String() string {
+	flags := []int{
+		syscall.MS_SHARED, syscall.MS_SLAVE, syscall.MS_PRIVATE,
+		syscall.MS_UNBINDABLE, syscall.MS_REC, syscall.MS_BIND,
+		syscall.MNT_DETACH,
+	}
+	asStr := map[int]string{
+		syscall.MS_SHARED:     "shared",
+		syscall.MS_SLAVE:      "slave",
+		syscall.MS_PRIVATE:    "private",
+		syscall.MS_UNBINDABLE: "unbindable",
+		syscall.MS_REC:        "rec",
+		syscall.MS_BIND:       "bind",
+		syscall.MNT_DETACH:    "detach",
+	}
+	out := make([]string, 0, 3)
+	for _, flag := range flags {
+		if int(m)&flag == 0 {
+			continue
+		}
+		out = append(out, asStr[flag])
+	}
+	return strings.Join(out, ",")
+}
+
 // lowLevelPerform is simple bridge from Change to mount / unmount syscall.
 func (c *Change) lowLevelPerform(as *Assumptions) error {
 	var err error
@@ -306,13 +333,13 @@ func (c *Change) lowLevelPerform(as *Assumptions) error {
 				flagsForMount = uintptr(maskedFlagsNotPropagationNotRecursive)
 				err = sysMount(c.Entry.Name, c.Entry.Dir, c.Entry.Type, uintptr(flagsForMount), strings.Join(unparsed, ","))
 			}
-			logger.Debugf("mount %q %q %q %d %q (error: %v)", c.Entry.Name, c.Entry.Dir, c.Entry.Type, flagsForMount, strings.Join(unparsed, ","), err)
+			logger.Debugf("mount %q %q %q %d (%s) %q (error: %v)", c.Entry.Name, c.Entry.Dir, c.Entry.Type, flagsForMount, mntFlags(flagsForMount), strings.Join(unparsed, ","), err)
 			if err == nil && maskedFlagsPropagation != 0 {
 				// now change mount propagation (shared/rshared, private/rprivate,
 				// slave/rslave, unbindable/runbindable).
 				flagsForMount := uintptr(maskedFlagsPropagation | maskedFlagsRecursive)
 				err = sysMount("none", c.Entry.Dir, "", flagsForMount, "")
-				logger.Debugf("mount %q %q %q %d %q (error: %v)", "none", c.Entry.Dir, "", flagsForMount, "", err)
+				logger.Debugf("mount %q %q %q %d (%s) %q (error: %v)", "none", c.Entry.Dir, "", flagsForMount, mntFlags(flagsForMount), "", err)
 			}
 			if err == nil {
 				as.AddChange(c)
@@ -338,13 +365,13 @@ func (c *Change) lowLevelPerform(as *Assumptions) error {
 				// propagate in a way that conflicts with itself. This is also documented
 				// in umount(2).
 				err = sysMount("none", c.Entry.Dir, "", syscall.MS_REC|syscall.MS_PRIVATE, "")
-				logger.Debugf("mount --make-rprivate %q (error: %v)", c.Entry.Dir, err)
+				logger.Debugf("mount --make-rprivate %q (%s) (error: %v)", c.Entry.Dir, mntFlags(syscall.MS_REC|syscall.MS_PRIVATE), err)
 			}
 
 			// Perform the raw unmount operation.
 			if err == nil {
 				err = sysUnmount(c.Entry.Dir, flags)
-				logger.Debugf("umount %q (error: %v)", c.Entry.Dir, err)
+				logger.Debugf("umount %q (%s) (error: %v)", c.Entry.Dir, mntFlags(flags), err)
 			}
 			if err != nil {
 				return err

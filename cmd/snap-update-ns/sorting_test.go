@@ -49,6 +49,20 @@ func (s *sortSuite) TestTrailingSlashesComparison(c *C) {
 	})
 }
 
+func (s *sortSuite) TestTrailingSlashesRealLife(c *C) {
+	// Naively sorted entries.
+	entries := []osutil.MountEntry{
+		{Dir: "/usr/libexec/wpe-webkit-1.0"},
+		{Dir: "/usr/lib/x86_64-linux-gnu/wpe-webkit-1.0"},
+	}
+	sort.Sort(byOriginAndMagicDir(entries))
+	// Entries sorted as if they had a trailing slash.
+	c.Assert(entries, DeepEquals, []osutil.MountEntry{
+		{Dir: "/usr/lib/x86_64-linux-gnu/wpe-webkit-1.0"},
+		{Dir: "/usr/libexec/wpe-webkit-1.0"},
+	})
+}
+
 func (s *sortSuite) TestParallelInstancesAndSimple(c *C) {
 	// Naively sorted entries.
 	entries := []osutil.MountEntry{
