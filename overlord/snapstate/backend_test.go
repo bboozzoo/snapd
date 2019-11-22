@@ -1039,3 +1039,11 @@ func (f *fakeSnappyBackend) appendOp(op *fakeOp) {
 	defer f.mu.Unlock()
 	f.ops = append(f.ops, *op)
 }
+
+func (f *fakeSnappyBackend) UnlinkSnapdSnap(info *snap.Info, meter progress.Meter) error {
+	f.appendOp(&fakeOp{
+		op:   "unlink-snapd-snap",
+		path: info.MountDir(),
+	})
+	return nil
+}

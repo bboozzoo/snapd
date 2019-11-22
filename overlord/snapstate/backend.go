@@ -92,4 +92,7 @@ type managerBackend interface {
 	// testing helpers
 	CurrentInfo(cur *snap.Info)
 	Candidate(sideInfo *snap.SideInfo)
+
+	// special case of the snapd snap
+	UnlinkSnapdSnap(info *snap.Info, meter progress.Meter) error
 }

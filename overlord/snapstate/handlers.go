@@ -1204,7 +1204,12 @@ func (m *SnapManager) doLinkSnap(t *state.Task, _ *tomb.Tomb) (err error) {
 		}
 		// err is not nil, we need to try and unlink the snap to cleanup after
 		// ourselves
-		unlinkErr := m.backend.UnlinkSnap(newInfo, pb)
+		var unlinkErr error
+		if newInfo.GetType() == snap.TypeSnapd && oldCurrent.Unset() {
+			unlinkErr = m.backend.UnlinkSnapdSnap(newInfo, pb)
+		} else {
+			unlinkErr = m.backend.UnlinkSnap(newInfo, pb)
+		}
 		if unlinkErr != nil {
 			t.Errorf("cannot cleanup failed attempt at making snap %q available to the system: %v", snapsup.InstanceName(), unlinkErr)
 		}
@@ -1434,6 +1439,17 @@ func maybeUndoRemodelBootChanges(t *state.Task) error {
 	return nil
 }
 
+func maybeUndoSnapdFirstInstall(t *state.Task) {
+	if release.OnClassic {
+		// nothing to do on classic
+		return
+	}
+	st := t.State()
+
+	t.Logf("Requested system restart due to undoing first installation of the snapd snap.")
+	st.RequestRestart(state.RestartSystem)
+}
+
 func (m *SnapManager) undoLinkSnap(t *state.Task, _ *tomb.Tomb) error {
 	st := t.State()
 	st.Lock()
@@ -1591,13 +1607,31 @@ func (m *SnapManager) undoLinkSnap(t *state.Task, _ *tomb.Tomb) error {
 		}
 	}
 
-	err = m.backend.UnlinkSnap(newInfo, NewTaskProgressAdapterLocked(t))
+	pb := NewTaskProgressAdapterLocked(t)
+	isFirstSnapdInstall := newInfo.GetType() == snap.TypeSnapd && oldCurrent.Unset()
+	if isFirstSnapdInstall {
+		// fresh install of the snapd snap gets special treatment
+		// TODO: explicit check for remodel?
+		err = m.backend.UnlinkSnapdSnap(newInfo, pb)
+	} else {
+		err = m.backend.UnlinkSnap(newInfo, pb)
+	}
 	if err != nil {
 		return err
 	}
 
 	if err := maybeUndoRemodelBootChanges(t); err != nil {
 		return err
+	}
+
+	if newInfo.GetType() == snap.TypeSnapd {
+		// only way to get
+		deviceCtx, err := DeviceCtx(st, t, nil)
+		if err != nil {
+			return err
+		}
+		const noReboot = false
+		maybeRestart(t, newInfo, noReboot, deviceCtx)
 	}
 
 	// mark as inactive
