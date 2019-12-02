@@ -22,9 +22,13 @@ package seccomp_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
+	"sync"
 
 	. "gopkg.in/check.v1"
 
@@ -867,4 +871,35 @@ fi
 		smbdProfile + ".src": true,
 	})
 
+}
+
+type mockedSyncedCompiler struct {
+	lock     sync.Mutex
+	profiles []string
+}
+
+func (m *mockedSyncedCompiler) Compile(in, _ string) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.profiles = append(m.profiles, filepath.Base(in))
+	return nil
+}
+
+func (m *mockedSyncedCompiler) VersionInfo() (seccomp_sandbox.VersionInfo, error) {
+	return "", nil
+}
+
+func (s *backendSuite) TestParallelCompileAsManyAcCPUs(c *C) {
+	cpus := runtime.NumCPU()
+
+	m := mockedSyncedCompiler{}
+	profiles := make([]string, cpus*2)
+	for i := range profiles {
+		profiles[i] = fmt.Sprintf("profile-%03d", i)
+	}
+	err := seccomp.ParallelCompile(&m, profiles)
+	c.Assert(err, IsNil)
+
+	sort.Strings(m.profiles)
+	c.Assert(m.profiles, DeepEquals, profiles)
 }
