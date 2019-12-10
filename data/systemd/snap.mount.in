@@ -9,7 +9,7 @@ Where=@SNAP_MOUNT_DIR@
 # rbind so that currently mounted snaps remain visible
 # slave so that events do not propagate to the parent namespace
 # shared so that mounts events inside are propagated to further slave namespaces
-Options=rbind,slave,shared
+Options=bind,slave,shared
 LazyUnmount=yes
 
 [Install]

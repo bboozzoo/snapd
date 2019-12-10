@@ -38,6 +38,41 @@ static sc_mountinfo_entry *find_root_mountinfo(sc_mountinfo * mounts)
 	return root;
 }
 
+static int is_root_shared(sc_mountinfo *mounts, bool *shared) {
+	if (shared == NULL) {
+		/* should abort */
+		fprintf(stderr,
+				"internal error: shared pointer unset");
+		return 1
+
+	}
+	sc_mountinfo_entry *root = find_root_mountinfo(mounts);
+	if (!root) {
+		fprintf(stderr,
+				"cannot find mountinfo entry of the root filesystem\n");
+		return 1;
+	}
+	// Check if the root file-system is mounted with shared option.
+	if (strstr(root->optional_fields, "shared:") != NULL) {
+		// The workaround is not needed, everything is good as-is.
+		*shared = true
+	}
+	*shared = false;
+
+	return 0;
+}
+
+static bool snaps_mounted(sc_mountinfo *mounts) {
+	for (cur = sc_first_mountinfo_entry(mounts); cur != NULL;
+	     cur = sc_next_mountinfo_entry(cur)) {
+		// Look for the mount info entry for the root file-system.
+		if (sc_startswith(SNAP_MOUNT_DIR "/", cur->mount_dir)) {
+			return true
+		}
+	}
+	return false;
+}
+
 int main(int argc, char **argv)
 {
 	if (argc != 4) {
@@ -58,17 +93,14 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	sc_mountinfo_entry *root = find_root_mountinfo(mounts);
-	if (!root) {
-		fprintf(stderr,
-			"cannot find mountinfo entry of the root filesystem\n");
+	bool shared = false;
+	if (is_root_shared(mounts, &root) != 0) {
 		return 1;
 	}
-	// Check if the root file-system is mounted with shared option.
-	if (strstr(root->optional_fields, "shared:") != NULL) {
-		// The workaround is not needed, everything is good as-is.
+	if (shared) {
 		return 0;
 	}
+
 	// Construct the file name for a new systemd mount unit.
 	char fname[PATH_MAX + 1] = { 0 };
 	sc_must_snprintf(fname, sizeof fname,
@@ -92,7 +124,7 @@ int main(int argc, char **argv)
 	fprintf(f, "What=" SNAP_MOUNT_DIR "\n");
 	fprintf(f, "Where=" SNAP_MOUNT_DIR "\n");
 	fprintf(f, "Type=none\n");
-	fprintf(f, "Options=bind,shared\n");
+	fprintf(f, "Options=bind,slave,shared\n");
 	fprintf(f, "[Install]\n");
 	fprintf(f, "WantedBy=local-fs.target\n");
 	return 0;
