@@ -21,15 +21,33 @@
 package xdgopenproxy
 
 import (
+	"fmt"
 	"net/url"
 	"syscall"
+	"time"
 
 	"github.com/godbus/dbus"
+	"golang.org/x/xerrors"
 )
 
 type bus interface {
 	Object(name string, objectPath dbus.ObjectPath) dbus.BusObject
+	AddMatchSignal(options ...dbus.MatchOption) error
+	RemoveMatchSignal(options ...dbus.MatchOption) error
+	Signal(ch chan<- *dbus.Signal)
+	RemoveSignal(ch chan<- *dbus.Signal)
 	Close() error
+}
+
+type userDeclinedError struct {
+	msg string
+}
+
+func (u *userDeclinedError) Error() string { return u.msg }
+
+func (u *userDeclinedError) Is(err error) bool {
+	_, ok := err.(*userDeclinedError)
+	return ok
 }
 
 var sessionBus = func() (bus, error) { return dbus.SessionBus() }
@@ -40,6 +58,7 @@ type desktopLauncher interface {
 }
 
 type portalLauncher struct {
+	bus     bus
 	service dbus.BusObject
 }
 
@@ -50,24 +69,75 @@ func (p *portalLauncher) openFile(filename string) error {
 	}
 	defer syscall.Close(fd)
 
-	return p.service.Call("org.freedesktop.portal.OpenURI.OpenFile", 0, "", dbus.UnixFD(fd),
-		map[string]dbus.Variant{}).Err
+	return p.checkedCall("org.freedesktop.portal.OpenURI.OpenFile", 0, "", dbus.UnixFD(fd),
+		map[string]dbus.Variant{})
 }
 
 func (p *portalLauncher) openURL(path string) error {
-	return p.service.Call("org.freedesktop.portal.OpenURI.OpenURI", 0, "", path,
-		map[string]dbus.Variant{}).Err
+	return p.checkedCall("org.freedesktop.portal.OpenURI.OpenURI", 0, "", path,
+		map[string]dbus.Variant{})
 }
 
-func newPortalLauncher(bus bus) (desktopLauncher, error) {
-	obj := bus.Object("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop")
-
-	err := obj.Call("org.freedesktop.DBus.Peer.Ping", 0).Err
-	if err != nil {
-		return nil, err
+func (p *portalLauncher) checkedCall(member string, flags dbus.Flags, args ...interface{}) error {
+	signals := make(chan *dbus.Signal)
+	match := []dbus.MatchOption{
+		dbus.WithMatchSender("org.freedesktop.portal.Desktop"),
+		dbus.WithMatchInterface("org.freedesktop.portal.Request"),
+		dbus.WithMatchMember("Response"),
 	}
 
-	return &portalLauncher{service: obj}, nil
+	p.bus.Signal(signals)
+	p.bus.AddMatchSignal(match...)
+
+	defer func() {
+		p.bus.RemoveMatchSignal(match...)
+		p.bus.RemoveSignal(signals)
+		close(signals)
+	}()
+
+	var handle dbus.ObjectPath
+	if err := p.service.Call(member, flags, args...).Store(&handle); err != nil {
+		return err
+	}
+
+	responseObject := p.bus.Object("org.freedesktop.portal.Desktop", handle)
+	fmt.Printf("response object: %v\n", responseObject.Path())
+
+	timeout := time.NewTicker(5 * time.Minute)
+	defer timeout.Stop()
+Loop:
+	for {
+		select {
+		case <-timeout.C:
+			if err := responseObject.Call("org.freedesktop.portal.Request.Close", 0); err != nil {
+				return &userDeclinedError{msg: "timeout waiting for response"}
+			}
+			break Loop
+		case signal := <-signals:
+			fmt.Printf("got signal: %+v\n", signal)
+			if signal.Path != responseObject.Path() {
+				continue
+			}
+
+			var response uint
+			var results map[string]interface{} // don't care
+			if err := dbus.Store(signal.Body, &response, &results); err != nil {
+				return &userDeclinedError{msg: fmt.Sprintf("cannot unpack response: %v", err)}
+			}
+			if response == 0 {
+				return nil
+			}
+			return &userDeclinedError{msg: fmt.Sprintf("request declined by the user (code %v)", response)}
+		}
+	}
+
+	return nil
+}
+
+func newPortalLauncher(bus bus) desktopLauncher {
+	obj := bus.Object("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop")
+
+	return &portalLauncher{service: obj, bus: bus}
 }
 
 type snapcraftLauncher struct {
@@ -100,16 +170,13 @@ func Run(urlOrFile string) error {
 		return err
 	}
 
-	launcher, err := newPortalLauncher(sbus)
-	if err != nil {
-		launcher = newSnapcraftLauncher(sbus)
-	}
+	launchers := []desktopLauncher{newPortalLauncher(sbus), newSnapcraftLauncher(sbus)}
 
 	defer sbus.Close()
-	return launch(launcher, urlOrFile)
+	return launch(launchers, urlOrFile)
 }
 
-func launch(l desktopLauncher, urlOrFile string) error {
+func launchWithOne(l desktopLauncher, urlOrFile string) error {
 	if u, err := url.Parse(urlOrFile); err == nil {
 		if u.Scheme == "file" {
 			return l.openFile(u.Path)
@@ -118,4 +185,19 @@ func launch(l desktopLauncher, urlOrFile string) error {
 		}
 	}
 	return l.openFile(urlOrFile)
+}
+
+func launch(launchers []desktopLauncher, urlOrFile string) error {
+	var err error
+	for _, l := range launchers {
+		err = launchWithOne(l, urlOrFile)
+		fmt.Printf("launch error: %v\n", err)
+		if err == nil {
+			break
+		}
+		if xerrors.Is(err, &userDeclinedError{}) {
+			break
+		}
+	}
+	return err
 }
