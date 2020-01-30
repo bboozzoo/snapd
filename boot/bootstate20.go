@@ -148,6 +148,11 @@ func (s20 *bootState20Kernel) markSuccessful(update bootStateUpdate) (bootStateU
 	// update the boot var
 	u20.toCommit["kernel_status"] = ""
 
+	u20.addComponent(&bootStateUpdate20SuccessfulKernel{
+		triedKernel: sn,
+		ebl:         u20.ebl,
+	})
+
 	return u20, nil
 }
 
@@ -187,16 +192,27 @@ func (s20 *bootState20Kernel) setNext(nextKernel snap.PlaceInfo) (rebootRequired
 
 	u20.toCommit["kernel_status"] = kernelStatus
 
-	return rebootRequired, u20, nil
+	u20.addComponent(&bootStateUpdate20CandidateKernel{
+		tryKernel: nextKernel,
+		ebl:       u20.ebl,
+	})
+	return true, u20, nil
+}
+
+type envCommitterFunc func(map[string]string) error
+
+type bootStateUpdate20Component interface {
+	commit(env map[string]string, envCommitter envCommitterFunc) error
 }
 
 type bootStateUpdate20 struct {
-	typ       snap.Type
-	ebl       bootloader.ExtractedRunKernelImageBootloader
-	env       map[string]string
-	toCommit  map[string]string
-	snapToTry snap.PlaceInfo
-	snapTried snap.PlaceInfo
+	typ        snap.Type
+	ebl        bootloader.ExtractedRunKernelImageBootloader
+	env        map[string]string
+	toCommit   map[string]string
+	snapToTry  snap.PlaceInfo
+	snapTried  snap.PlaceInfo
+	components []bootStateUpdate20Component
 }
 
 func newBootStateUpdate20(u bootStateUpdate, typ snap.Type) (*bootStateUpdate20, error) {
@@ -230,23 +246,37 @@ func newBootStateUpdate20(u bootStateUpdate, typ snap.Type) (*bootStateUpdate20,
 	}, nil
 }
 
-func (u20 *bootStateUpdate20) commit() error {
-	// TODO:UC20: handle base_status from modeenv as well
-	if len(u20.toCommit) == 0 {
-		// nothing to do
-		return nil
-	}
+func (u20 *bootStateUpdate20) addComponent(c bootStateUpdate20Component) {
+	u20.components = append(u20.components, c)
+}
 
-	// make a copy of the env map, because we specifically need to check
-	// later on what the original value of kernel_status was that we entered in
-	// with was
+func (u20 *bootStateUpdate20) copyEnv() map[string]string {
 	envCopy := make(map[string]string, len(u20.env))
 	for k, v := range u20.env {
 		envCopy[k] = v
 	}
-	// The ordering of this is very important for boot safety/reliability!!!
+	return envCopy
+}
 
-	// If we are about to try an update, and need to add the try-kernel symlink,
+func (u20 *bootStateUpdate20) commit() error {
+	for _, component := range u20.components {
+		if err := componment.commit(envCopy); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type bootStateUpdate20CleanCandidate struct {
+}
+
+type bootStateUpdate20CandidateKernel struct {
+	tryKernel snap.PlaceInfo
+	ebl       bootloader.ExtractedRunKernelImageBootloader
+}
+
+func (u20 *bootStateUpdate20CandidateKernel) commit(env map[string]string, envCommitter envCommitterFunc) error {
+	// We are about to try an update, and need to add the try-kernel symlink,
 	// we need to do things in this order:
 	// 1. Add try-kernel symlink
 	// 2. Update kernel_status to "try"
@@ -259,7 +289,30 @@ func (u20 *bootStateUpdate20) commit() error {
 	// symlink, so the bootloader would try to boot from the non-existent
 	// try-kernel symlink and become broken.
 
-	// However, if we have successfully just booted from a try-kernel and are
+	if u20tk.tryKernel == nil {
+		return fmt.Errorf("internal error: snap to try is unset")
+
+	}
+
+	// enable snaps that need to be enabled
+	// * step 1 for about to try an update
+	if err := u20tk.ebl.EnableTryKernel(u20.snapToTry); err != nil {
+		return err
+	}
+
+	// update the bootloader env variables
+	// * step 2 for about to try an update
+	env["kernel_status"] = u20tk.kernelStatus
+	return envCommitter(env)
+}
+
+type bootStateUpdate20SuccessfulKernel struct {
+	triedKernel snap.PlaceInfo
+	ebl         bootloader.ExtractedRunKernelImageBootloader
+}
+
+func (u20 *bootStateUpdate20SuccessfulKernel) commit(env map[string]string, envCommitter envCommitterFunc) error {
+	// We have successfully just booted from a try-kernel and are
 	// marking it successful (this implies that snap_kernel=="trying"), we need
 	// to do the following order (since we have the added complexity of moving
 	// the kernel symlink):
@@ -284,54 +337,29 @@ func (u20 *bootStateUpdate20) commit() error {
 	// kernel_status to "", the bootloader will think that the try kernel failed
 	// to boot and fall back to booting the old kernel which is safe.
 
-	// enable snaps that need to be enabled
-	// * step 1 for about to try an update
-	// * NOP for successful boot after an update
-	if u20.snapToTry != nil {
-		switch u20.typ {
-		case snap.TypeKernel:
-			err := u20.ebl.EnableTryKernel(u20.snapToTry)
-			if err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("boot base update not implemented yet")
-		}
-	}
+	if u20sk.triedKernel == nil {
+		return fmt.Errorf("internal error: tried kernel is unset")
 
-	// update the bootloader env variables
-	// * step 2 for about to try an update
-	// * step 1 for successful boot after an update
-	for k, v := range u20.toCommit {
-		// TODO:UC20: handle writing base_status in the modeenv as well
-		switch k {
-		case "kernel_status":
-			envCopy[k] = v
-		}
 	}
-	err := u20.ebl.SetBootVars(envCopy)
-	if err != nil {
+	// update the bootloader env variables
+	// * step 1 for successful boot after an update
+	env["kernel_status"] = ""
+	if err := envCommitter(env); err != nil {
 		return err
 	}
 
 	// move kernel symlink
 	// * step 2 for successful boot after an update
-	// * NOP for about to try an update
-	if u20.env["kernel_status"] == "trying" && u20.snapTried != nil {
-		// we did try a kernel, move the symlink
-		err := u20.ebl.EnableKernel(u20.snapTried)
-		if err != nil {
-			return err
-		}
-
-		// remove try kernel symlink
-		// * step 3 for successful boot after an update
-		// * NOP for about to try an update
-		err = u20.ebl.DisableTryKernel()
-		if err != nil {
-			return err
-		}
+	err := u20sk.ebl.EnableKernel(u20sk.triedKernel)
+	if err != nil {
+		return err
 	}
 
+	// remove try kernel symlink
+	// * step 3 for successful boot after an update
+	err = u20sk.ebl.DisableTryKernel()
+	if err != nil {
+		return err
+	}
 	return nil
 }
