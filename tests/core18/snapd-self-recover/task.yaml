@@ -1,0 +1,52 @@
+summary: Check that recovery from missing snapd units works
+
+debug: |
+    # dump failure data
+    journalctl -u snapd.failure.service
+    journalctl -u snapd.socket || true
+    ls -l /snap/snapd/
+
+restore: |
+    # Stop snapd.failure.service in case it is active
+    if systemctl is-active snapd.failure.service | MATCH active; then
+        systemctl stop snapd.failure.service
+    fi
+
+execute: |
+    if [[ "$SPREAD_REBOOT" = "0" ]]; then
+        current=$(readlink /snap/snapd/current)
+        SNAPD_SNAP=$(ls /var/lib/snapd/snaps/snapd_"$current".snap)
+
+        # for debugging
+        snap list --all
+
+        echo "Break snapd"
+        unsquashfs -d ./snapd-broken "$SNAPD_SNAP"
+        # snapd.seeded.service is started after snapd.service when linking the snap
+        sed -i -e 's#ExecStart=.*#ExecStart=/bin/sh -c "if test -e /tmp/kill-snapd; then /bin/systemctl kill --signal=SIGKILL snapd.service; fi"#' \
+            ./snapd-broken/lib/systemd/system/snapd.seeded.service
+        (cd ./snapd-broken && snap pack .)
+        echo "Now install the broken snapd"
+
+        # place a marker for snapd to be killed
+        touch /tmp/kill-snapd
+
+        if snap install --dangerous ./snapd-broken/snapd_*.snap; then
+            echo "installing a broken snapd should not work, test broken"
+            exit 1
+        fi
+        # snapd should be inactive now
+        not systemctl is-active snapd
+        # but the snapd.service is deployed
+        test -e /etc/systemd/system/snapd.service
+        rm -f /etc/systemd/system/snapd.service
+        REBOOT
+    fi
+
+    if [[ "$SPREAD_REBOOT" = "1" ]]; then
+        # should have recovered
+        systemctl is-active snapd
+        current=$(readlink /snap/snapd/current)
+
+        snap list | MATCH "^snapd .* $current .*"
+    fi
