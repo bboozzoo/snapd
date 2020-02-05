@@ -434,6 +434,12 @@ EOF
 
 
 uc20_build_initramfs_kernel_snap() {
+    # snap that repacks the kernel and carries ubuntu-core-initramfs
+    snap install test-snapd-ubuntu-core-initramfs --edge
+    local ucisnap=/snap/test-snapd-ubuntu-core-initramfs/current/
+
+    # on 20.04 we should be able to use ubuntu-core-initramfs directly
+
     local TARGET="$1"
     # kernel snap is huge, unpacking to current dir
     unsquashfs -d repacked-kernel pc-kernel_*.snap
@@ -445,6 +451,7 @@ uc20_build_initramfs_kernel_snap() {
     # assumptions: initrd is compressed with LZ4, cpio block size 512, microcode
     # at the beginning of initrd image
     (
+
         apt install liblz4-tool -y
 
         cd repacked-kernel
@@ -453,25 +460,42 @@ uc20_build_initramfs_kernel_snap() {
         # this may be flaky, we're assuming 512 block size
         blocks=$(cpio -t < initrd 2>&1 >/dev/null| tail -1 | cut -f1 -d' ')
 
-        # this works on 20.04 but not on 18.04
-        # $ unmkinitramfs initrd unpacked-initrd
-        # on 18.04 perform each step manually
+        # 20.04 we could use unmkinitramfs, but it fails on 18.04 so perform
+        # each step manually
         mkdir unpacked-initrd
         (
             cd unpacked-initrd
             # extract to current dir
             dd if=../initrd skip="$blocks" | unlz4 | cpio -iv
         )
+
         # replace snap-boostrap
         cp -a "$SNAPD_UNPACK_DIR/usr/lib/snapd/snap-bootstrap" unpacked-initrd/usr/lib/snapd/snap-bootstrap
-        # see mkinitramfs for reference
+
+        # see ubuntu-core-initramfs for reference on building the initrd and
+        # updating kernel.efi and signing it
+
         compress="lz4 -l -9"
         (cd "unpacked-initrd/" && \
              find . | LC_ALL=C sort | cpio --quiet -R 0:0 -o -H newc | $compress ) > repacked-initrd-main
         # extract the early part
         dd if=initrd bs=512 count="$blocks" > repacked-initrd
         cat repacked-initrd-main >> repacked-initrd
-        objcopy --update-section .initrd="repacked-initrd" kernel.efi
+        # objcopy --update-section corrupted the initrd
+        objcopy --remove-section .initrd kernel.efi
+        objcopy --add-section .initrd="repacked-initrd" \
+                --change-section-vma .initrd=0x3000000 \
+                kernel.efi
+        # sign the binary
+        sbsign \
+            --key $ucisnap/usr/lib/ubuntu-core-initramfs/snakeoil/PkKek-1-snakeoil.key \
+            --cert $ucisnap/usr/lib/ubuntu-core-initramfs/snakeoil/PkKek-1-snakeoil.pem \
+            --output kernel.efi-signed kernel.efi
+
+        mv kernel.efi-signed kernel.efi
+        # XXX: needed?
+        chmod +x kernel.efi
+
         # clean up
         rm -f repacked-initrd repacked-initrd-main initrd
         rm -rf unpacked-initrd
