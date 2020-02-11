@@ -321,6 +321,13 @@ func (s *RunSuite) TestSnapRunAppWithCommandIntegration(c *check.C) {
 	c.Check(execEnv, testutil.Contains, "SNAP_REVISION=42")
 }
 
+func symlinkPointsTo(c *check.C, symlink, target string) {
+	c.Check(osutil.IsSymlink(symlink), check.Equals, true, check.Commentf("%q is not a symlink but should be", symlink))
+	target, err := os.Readlink(symlink)
+	c.Assert(err, check.IsNil)
+	c.Check(target, check.Equals, target, check.Commentf("symlink target is incorrect"))
+}
+
 func (s *RunSuite) TestSnapRunCreateDataDirs(c *check.C) {
 	info, err := snap.InfoFromSnapYaml(mockYaml)
 	c.Assert(err, check.IsNil)
@@ -330,6 +337,39 @@ func (s *RunSuite) TestSnapRunCreateDataDirs(c *check.C) {
 	c.Assert(err, check.IsNil)
 	c.Check(osutil.FileExists(filepath.Join(s.fakeHome, "/snap/snapname/42")), check.Equals, true)
 	c.Check(osutil.FileExists(filepath.Join(s.fakeHome, "/snap/snapname/common")), check.Equals, true)
+	symlinkPointsTo(c, filepath.Join(s.fakeHome, "/snap/snapname/current"),
+		filepath.Join(s.fakeHome, "/snap/snapname/42"))
+}
+
+func (s *RunSuite) TestSnapRunUpdateCurrentSymlink(c *check.C) {
+	info, err := snap.InfoFromSnapYaml(mockYaml)
+	c.Assert(err, check.IsNil)
+	info.SideInfo.Revision = snap.R(41)
+
+	err = os.MkdirAll(filepath.Join(s.fakeHome, "/snap/snapname"), 0755)
+	c.Assert(err, check.IsNil)
+
+	// revision 1 does not exist
+	err = os.Symlink("1", filepath.Join(s.fakeHome, "/snap/snapname/current"))
+	c.Assert(err, check.IsNil)
+
+	err = snaprun.CreateUserDataDirs(info)
+	c.Assert(err, check.IsNil)
+	c.Check(osutil.FileExists(filepath.Join(s.fakeHome, "/snap/snapname/41")), check.Equals, true)
+	c.Check(osutil.IsSymlink(filepath.Join(s.fakeHome, "/snap/snapname/current")), check.Equals, true)
+	symlinkPointsTo(c, filepath.Join(s.fakeHome, "/snap/snapname/current"),
+		filepath.Join(s.fakeHome, "/snap/snapname/41"))
+
+	// pretend we have an update
+	info.SideInfo.Revision = snap.R(42)
+	err = snaprun.CreateUserDataDirs(info)
+	c.Assert(err, check.IsNil)
+	c.Check(osutil.FileExists(filepath.Join(s.fakeHome, "/snap/snapname/41")), check.Equals, true)
+	c.Check(osutil.FileExists(filepath.Join(s.fakeHome, "/snap/snapname/42")), check.Equals, true)
+	c.Check(osutil.IsSymlink(filepath.Join(s.fakeHome, "/snap/snapname/current")), check.Equals, true)
+	// points to updated revision now
+	symlinkPointsTo(c, filepath.Join(s.fakeHome, "/snap/snapname/current"),
+		filepath.Join(s.fakeHome, "/snap/snapname/42"))
 }
 
 func (s *RunSuite) TestParallelInstanceSnapRunCreateDataDirs(c *check.C) {
@@ -745,11 +785,11 @@ func (s *RunSuite) TestAntialiasHappy(c *check.C) {
 	app, outArgs = snaprun.Antialias("alias", inArgs)
 	c.Check(app, check.Equals, "an-app")
 	c.Check(outArgs, check.DeepEquals, []string{
-		"99", // COMP_TYPE (no change)
-		"99", // COMP_KEY (no change)
-		"11", // COMP_POINT (+1 because "an-app" is one longer than "alias")
-		"2",  // COMP_CWORD (no change)
-		" ",  // COMP_WORDBREAKS (no change)
+		"99",                    // COMP_TYPE (no change)
+		"99",                    // COMP_KEY (no change)
+		"11",                    // COMP_POINT (+1 because "an-app" is one longer than "alias")
+		"2",                     // COMP_CWORD (no change)
+		" ",                     // COMP_WORDBREAKS (no change)
 		"an-app alias bo-alias", // COMP_LINE (argv[0] changed)
 		"an-app",                // argv (arv[0] changed)
 		"alias",
@@ -770,12 +810,12 @@ func (s *RunSuite) TestAntialiasBailsIfUnhappy(c *check.C) {
 	weird2[5] = "alias "
 
 	for desc, inArgs := range map[string][]string{
-		"nil args":                                               nil,
-		"too-short args":                                         {"alias"},
-		"COMP_POINT not a number":                                mkCompArgs("hello", "alias"),
-		"COMP_POINT is inside argv[0]":                           mkCompArgs("2", "alias", ""),
-		"COMP_POINT is outside argv":                             mkCompArgs("99", "alias", ""),
-		"COMP_WORDS[0] is not argv[0]":                           mkCompArgs("10", "not-alias", ""),
+		"nil args":                     nil,
+		"too-short args":               {"alias"},
+		"COMP_POINT not a number":      mkCompArgs("hello", "alias"),
+		"COMP_POINT is inside argv[0]": mkCompArgs("2", "alias", ""),
+		"COMP_POINT is outside argv":   mkCompArgs("99", "alias", ""),
+		"COMP_WORDS[0] is not argv[0]": mkCompArgs("10", "not-alias", ""),
 		"mismatch between argv[0], COMP_LINE and COMP_WORDS, #1": weird1,
 		"mismatch between argv[0], COMP_LINE and COMP_WORDS, #2": weird2,
 	} {
