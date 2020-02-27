@@ -98,6 +98,8 @@ func (v *view) draw() {
 
 	curr, currIdx := st.CurrentMenuAndEntry()
 
+	termbox.Sync()
+
 	termbox.Clear(bg, bg)
 
 	if len(st.stack) != 0 {
