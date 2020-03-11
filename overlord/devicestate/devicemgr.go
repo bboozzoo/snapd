@@ -723,6 +723,14 @@ func (m *DeviceManager) Serial() (*asserts.Serial, error) {
 	return findSerial(m.state, nil)
 }
 
+func (m *DeviceManager) RecoverySystems() ([]string, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *DeviceManager) RecoverFromSystem(label string) error {
+	return fmt.Errorf("not implemented")
+}
+
 // implement storecontext.Backend
 
 type storeContextBackend struct {
