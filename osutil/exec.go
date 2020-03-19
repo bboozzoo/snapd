@@ -49,6 +49,16 @@ func KillProcessGroup(cmd *exec.Cmd) error {
 	return syscallKill(-pgid, syscall.SIGKILL)
 }
 
+// WithNewProcessGroup sets up the given command to run in a new process group.
+func WithNewProcessGroup(cmd *exec.Cmd) *exec.Cmd {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setpgid = true
+	cmd.SysProcAttr.Pgid = 0
+	return cmd
+}
+
 // RunAndWait runs a command for the given argv with the given environ added to
 // os.Environ, killing it if it reaches timeout, or if the tomb is dying.
 func RunAndWait(argv []string, env []string, timeout time.Duration, tomb *tomb.Tomb) ([]byte, error) {
