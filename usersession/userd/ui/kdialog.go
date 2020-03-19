@@ -24,6 +24,8 @@ import (
 	"html"
 	"os/exec"
 	"time"
+
+	"github.com/snapcore/snapd/osutil"
 )
 
 // KDialog provides a kdialog based UI interface
@@ -40,6 +42,7 @@ func (*KDialog) YesNo(primary, secondary string, options *DialogOptions) bool {
 		txt += fmt.Sprintf(`<p><small>%s</small></p>`, html.EscapeString(options.Footer))
 	}
 	cmd := exec.Command("kdialog", "--yesno="+txt)
+	cmd = osutil.WithNewProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		return false
 	}
@@ -54,7 +57,7 @@ func (*KDialog) YesNo(primary, secondary string, options *DialogOptions) bool {
 		case <-time.After(options.Timeout):
 			// timeout do nothing, the other side will have timed
 			// out as well, no need to send a reply.
-			cmd.Process.Kill()
+			osutil.KillProcessGroup(cmd)
 			return false
 		}
 	} else {
