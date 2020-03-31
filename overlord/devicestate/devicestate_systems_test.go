@@ -275,7 +275,7 @@ func (s *deviceMgrSystemsSuite) TestRequestModeHappy(c *C) {
 		"snapd_recovery_system": "20191119",
 		"snapd_recovery_mode":   "install",
 	})
-	c.Check(s.restartRequests, DeepEquals, []state.RestartType{state.RestartSystem})
+	c.Check(s.restartRequests, DeepEquals, []state.RestartType{state.RestartSystemImmediate})
 }
 
 func (s *deviceMgrSystemsSuite) TestRequestModeErrInBoot(c *C) {

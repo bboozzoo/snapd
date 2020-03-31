@@ -863,7 +863,7 @@ func (m *DeviceManager) RequestSystemAction(systemLabel string, action SystemAct
 	}
 
 	logger.Noticef("restarting into system %q for action %q", systemLabel, sysAction.Title)
-	m.state.RequestRestart(state.RestartSystem)
+	m.state.RequestRestart(state.RestartSystemImmediate)
 	return nil
 }
 
