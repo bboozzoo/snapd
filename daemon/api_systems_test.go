@@ -35,6 +35,7 @@ import (
 	"github.com/snapcore/snapd/overlord/assertstate/assertstatetest"
 	"github.com/snapcore/snapd/overlord/devicestate"
 	"github.com/snapcore/snapd/overlord/hookstate"
+	"github.com/snapcore/snapd/overlord/state"
 	"github.com/snapcore/snapd/seed"
 	"github.com/snapcore/snapd/seed/seedtest"
 	"github.com/snapcore/snapd/snap"
@@ -293,7 +294,7 @@ func (s *apiSuite) TestSystemActionRequestHappy(c *check.C) {
 	// daemon is not started, only check whether reboot was scheduled as expected
 
 	// reboot flag
-	c.Check(d.restartSystem, check.Equals, true)
+	c.Check(d.restartSystem, check.Equals, state.RestartSystemImmediate)
 	// slow reboot schedule
 	c.Check(cmd.Calls(), check.DeepEquals, [][]string{
 		{"shutdown", "-r", "+10", "reboot scheduled to update the system"},
