@@ -293,6 +293,17 @@ func makeBootable20RunMode(model *asserts.Model, rootdir string, bootWith *Boota
 		return err
 	}
 
+	// install the boot config assets
+	// TODO:UC20: handle updates to this in some manager on overlord startup?
+	rbl, ok := bl.(bootloader.RecoveryAwareBootloader)
+	if !ok {
+		return fmt.Errorf("cannot use %s bootloader: does not support recovery aware systems", bl.Name())
+	}
+	err = rbl.InstallSystemBootAssets()
+	if err != nil {
+		return err
+	}
+
 	// LAST step: update recovery grub's grubenv to indicate that
 	// we transition to run mode now
 	opts = &bootloader.Options{

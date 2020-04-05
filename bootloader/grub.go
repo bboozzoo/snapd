@@ -21,6 +21,7 @@ package bootloader
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -36,6 +37,52 @@ var (
 	_ RecoveryAwareBootloader           = (*grub)(nil)
 	_ ExtractedRunKernelImageBootloader = (*grub)(nil)
 )
+
+// this originally lived in pc gadget, see git repo in pc-amd64-gadget for more
+// history
+const systemBootGrubCfg = `
+set default=0
+set timeout=3
+
+# load only kernel_status from the bootenv
+load_env --file /EFI/ubuntu/grubenv kernel_status
+
+set cmdline="console=ttyS0 console=tty1 panic=-1 systemd.gpt_auto=0 init=/sbin/init snapd_recovery_mode=run"
+
+set kernel=kernel.efi
+
+if [ "$kernel_status" = "try" ]; then
+    # a new kernel got installed
+    set kernel_status="trying"
+    save_env kernel_status
+
+    # use try-kernel.efi
+    set kernel=try-kernel.efi
+elif [ "$kernel_status" = "trying" ]; then
+    # nothing cleared the "trying snap" so the boot failed
+    # we clear the mode and boot normally
+    set kernel_status=""
+    save_env kernel_status
+elif [ -n "$kernel_status" ]; then
+    # ERROR invalid kernel_status state, reset to empty
+    echo "invalid kernel_status!!!"
+    echo "resetting to empty"
+    set kernel_status=""
+    save_env kernel_status
+fi
+
+if [ -e $prefix/$kernel ]; then
+menuentry "Run Ubuntu Core 20" {
+    # use $prefix because the symlink manipulation at runtime for kernel snap 
+    # upgrades, etc. should only need the /boot/grub/ directory, not the 
+    # /EFI/ubuntu/ directory
+    chainloader $prefix/$kernel $cmdline
+}
+else
+    # nothing to boot :-/
+    echo "missing kernel at $prefix/$kernel!"
+fi
+`
 
 type grub struct {
 	rootdir string
@@ -79,11 +126,13 @@ func (g *grub) dir() string {
 }
 
 func (g *grub) InstallBootConfig(gadgetDir string, opts *Options) (bool, error) {
-	if opts != nil && opts.Recovery {
-		recoveryGrubCfg := filepath.Join(gadgetDir, g.Name()+"-recovery.conf")
-		systemFile := filepath.Join(g.rootdir, "/EFI/ubuntu/grub.cfg")
-		return genericInstallBootConfig(recoveryGrubCfg, systemFile)
-	}
+	// TODO:UC20: do we still need to care about Recovery for grub? it comes
+	//            from snapd now
+	// if opts != nil && opts.Recovery {
+	// 	recoveryGrubCfg := filepath.Join(gadgetDir, g.Name()+"-recovery.conf")
+	// 	systemFile := filepath.Join(g.rootdir, "/EFI/ubuntu/grub.cfg")
+	// 	return genericInstallBootConfig(recoveryGrubCfg, systemFile)
+	// }
 	gadgetFile := filepath.Join(gadgetDir, g.Name()+".conf")
 	systemFile := filepath.Join(g.rootdir, "/boot/grub/grub.cfg")
 	return genericInstallBootConfig(gadgetFile, systemFile)
@@ -102,6 +151,11 @@ func (g *grub) SetRecoverySystemEnv(recoverySystemDir string, values map[string]
 		genv.Set(k, v)
 	}
 	return genv.Save()
+}
+
+func (g *grub) InstallSystemBootAssets() error {
+	systemFile := filepath.Join(g.rootdir, "/EFI/ubuntu/grub.cfg")
+	return ioutil.WriteFile(systemFile, []byte(systemBootGrubCfg), 0644)
 }
 
 func (g *grub) ConfigFile() string {

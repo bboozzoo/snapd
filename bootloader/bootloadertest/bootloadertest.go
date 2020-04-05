@@ -178,6 +178,12 @@ func (b *MockRecoveryAwareBootloader) SetRecoverySystemEnv(recoverySystemDir str
 	return nil
 }
 
+// InstallSystemBootAssets does things
+func (b *MockRecoveryAwareBootloader) InstallSystemBootAssets() error {
+	// TODO:UC20: do something with this method
+	return nil
+}
+
 // MockExtractedRunKernelImageBootloader mocks a bootloader
 // implementing the ExtractedRunKernelImageBootloader interface.
 type MockExtractedRunKernelImageBootloader struct {

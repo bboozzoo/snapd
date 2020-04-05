@@ -93,6 +93,11 @@ type installableBootloader interface {
 type RecoveryAwareBootloader interface {
 	Bootloader
 	SetRecoverySystemEnv(recoverySystemDir string, values map[string]string) error
+
+	// InstallSystemBootAssets installs boot assets from in memory to the
+	// bootloader. This is like InstallBootConfig, but doesn't use the gadget as
+	// the source.
+	InstallSystemBootAssets() error
 }
 
 type ExtractedRecoveryKernelImageBootloader interface {
