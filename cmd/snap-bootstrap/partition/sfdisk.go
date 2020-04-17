@@ -23,7 +23,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -85,19 +87,28 @@ type sfdiskPartition struct {
 	Name  string `json:"name"`
 }
 
-func (p *sfdiskPartition) isCreated() bool {
-	// TODO:UC20: also provide a mechanism for MBR (RPi)
-	if !creationSupported(p.Type) {
-		return false
-	}
-	for _, a := range strings.Fields(p.Attrs) {
-		if !strings.HasPrefix(a, "GUID:") {
-			continue
+func (p *sfdiskPartition) isCreated(schema string) bool {
+	switch schema {
+	case "gpt":
+		// the created partitions use specific GPT GUID types and set a
+		// specific bit in partition attributes
+		if !creationSupported(p.Type) {
+			return false
 		}
-		attrs := strings.Split(a[5:], ",")
-		if strutil.ListContains(attrs, createdPartitionAttr) {
-			return true
+		for _, a := range strings.Fields(p.Attrs) {
+			if !strings.HasPrefix(a, "GUID:") {
+				continue
+			}
+			attrs := strings.Split(a[5:], ",")
+			if strutil.ListContains(attrs, createdPartitionAttr) {
+				return true
+			}
 		}
+	case "dos":
+		// we have no similar type/bit attribute setting for MBR, fall
+		// back to reasonable assumption that every non "ubuntu-seed"
+		// and "ubuntu-boot" was created
+		// TODO:UC20 find out disk label
 	}
 	return false
 }
@@ -247,6 +258,39 @@ func ensureNodesExistImpl(ds []DeviceStructure, timeout time.Duration) error {
 	return nil
 }
 
+func fromSfdiskPartitionType(st string, schema string) (string, error) {
+	switch schema {
+	case "dos":
+		// sometimes sfdisk reports what is "0C" in gadget.yaml as "c",
+		// normalize the values
+		v, err := strconv.ParseUint(st, 16, 8)
+		if err != nil {
+			return "", fmt.Errorf("cannot convert MBR partition type %q", st)
+		}
+		return fmt.Sprintf("%02X", v), nil
+	case "gpt":
+		return st, nil
+	default:
+		return "", fmt.Errorf("unsupported partitioning schema %q", schema)
+	}
+}
+
+func blockDeviceSizeInSectors(devpath string) (gadget.Size, error) {
+	// use /sys/block/<devname>/size directly, the size is reported in
+	// 512-byte sectors
+	dev := filepath.Base(devpath)
+	out, err := ioutil.ReadFile(filepath.Join("/sys/block", dev, "size"))
+	if err != nil {
+		return 0, err
+	}
+	nospace := strings.TrimSpace(string(out))
+	sz, err := strconv.Atoi(nospace)
+	if err != nil {
+		return 0, fmt.Errorf("cannot parse device size %q: %v", nospace, err)
+	}
+	return gadget.Size(sz), nil
+}
+
 // deviceLayoutFromPartitionTable takes an sfdisk dump partition table and returns
 // the partitioning information as a device layout.
 func deviceLayoutFromPartitionTable(ptable sfdiskPartitionTable) (*DeviceLayout, error) {
@@ -270,26 +314,17 @@ func deviceLayoutFromPartitionTable(ptable sfdiskPartitionTable) (*DeviceLayout,
 		}
 		bd := info.BlockDevices[0]
 
+		vsType, err := fromSfdiskPartitionType(p.Type, ptable.Label)
+		if err != nil {
+			return nil, fmt.Errorf("cannot convert sfdisk partition type %q: %v", p.Type, err)
+		}
+
 		structure[i] = gadget.VolumeStructure{
 			Name:       p.Name,
 			Size:       gadget.Size(p.Size) * sectorSize,
 			Label:      bd.Label,
-			Type:       p.Type,
+			Type:       vsType,
 			Filesystem: bd.FSType,
-		}
-
-		// sometimes sfdisk reports what is "0C" in gadget.yaml as "c", so fix
-		// that up now
-		// TODO:UC20: what's a better way?
-		if structure[i].Type == "c" {
-			structure[i].Type = "0C"
-		}
-
-		// sometimes sfdisk reports no "Name" for partitions, so in this case
-		// if we also have a label for the partition from lsblk, we should
-		// fallback to that instead
-		if structure[i].Name == "" && structure[i].Label != "" {
-			structure[i].Name = structure[i].Label
 		}
 
 		ds[i] = DeviceStructure{
@@ -299,7 +334,7 @@ func deviceLayoutFromPartitionTable(ptable sfdiskPartitionTable) (*DeviceLayout,
 				Index:           i + 1,
 			},
 			Node:    p.Node,
-			Created: p.isCreated(),
+			Created: p.isCreated(ptable.Label),
 		}
 	}
 
@@ -310,16 +345,13 @@ func deviceLayoutFromPartitionTable(ptable sfdiskPartitionTable) (*DeviceLayout,
 	if ptable.LastLBA != 0 {
 		numSectors = gadget.Size(ptable.LastLBA + 1)
 	} else {
-		out, err := exec.Command("blockdev", "--getsz", ptable.Device).CombinedOutput()
+		// sfdisk reports last-lba for GPT partition tables, but not for
+		// MBR, find out the size the hard way
+		sz, err := blockDeviceSizeInSectors(ptable.Device)
 		if err != nil {
-			return nil, fmt.Errorf("couldn't get size of non-gpt disk: %v", osutil.OutputErr(out, err))
+			return fmt.Errorf("cannot obtain the size of device %q: %v", ptable.Device, err)
 		}
-		num, err := strconv.Atoi(strings.TrimSpace(string(out)))
-		if err != nil {
-			return nil, fmt.Errorf("couldn't get size of non-gpt disk: %v", err)
-		}
-
-		numSectors = gadget.Size(num)
+		numSectors = sz
 	}
 
 	dl := &DeviceLayout{
@@ -432,7 +464,7 @@ func buildPartitionList(dl *DeviceLayout, pv *gadget.LaidOutVolume) (sfdiskInput
 func listCreatedPartitions(ptable *sfdiskPartitionTable) []string {
 	created := make([]string, 0, len(ptable.Partitions))
 	for _, p := range ptable.Partitions {
-		if p.isCreated() {
+		if p.isCreated(ptable.Label) {
 			created = append(created, p.Node)
 		}
 	}
