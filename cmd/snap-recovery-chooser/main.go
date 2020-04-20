@@ -47,6 +47,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/snapcore/snapd/client"
 	"github.com/snapcore/snapd/dirs"
@@ -217,5 +218,10 @@ func main() {
 	}
 	if reboot {
 		fmt.Fprintf(Stderr, "The system is rebooting...\n")
+		// this is typically invoked by the console-conf systemd
+		// service, which is configured to be restarted on exit; keep
+		// running so that console-conf does not start poking snapd and
+		// thus unnecessarily delay the reboot
+		time.Sleep(10 * time.Minute)
 	}
 }
