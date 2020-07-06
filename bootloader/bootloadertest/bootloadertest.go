@@ -388,11 +388,11 @@ func (b *MockManagedAssetsBootloader) IsCurrentlyManaged() (bool, error) {
 	return b.IsManaged, b.IsManagedErr
 }
 
-func (b *MockManagedAssetsBootloader) BootAssets() []string {
+func (b *MockManagedAssetsBootloader) ManagedAssets() []string {
 	return b.Assets
 }
 
-func (b *MockManagedAssetsBootloader) UpdateBootConfig(opts *bootloader.Options) (bool, error) {
+func (b *MockManagedAssetsBootloader) UpdateBootConfig(opts *bootloader.Options, args []string) (bool, error) {
 	b.UpdateCalls++
 	return b.Updated, b.UpdateErr
 }

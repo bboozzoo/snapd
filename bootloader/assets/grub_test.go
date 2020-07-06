@@ -49,7 +49,7 @@ func (s *grubAssetsTestSuite) testGrubConfigContains(c *C, name string, keys ...
 }
 
 func (s *grubAssetsTestSuite) TestGrubConf(c *C) {
-	s.testGrubConfigContains(c, "grub.cfg", "snapd_recovery_mode")
+	s.testGrubConfigContains(c, "grub.cfg", "chainloader $prefix/$kernel")
 }
 
 func (s *grubAssetsTestSuite) TestGrubRecoveryConf(c *C) {

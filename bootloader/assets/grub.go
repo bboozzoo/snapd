@@ -41,7 +41,7 @@ set timeout_style=hidden
 # load only kernel_status from the bootenv
 load_env --file /EFI/ubuntu/grubenv kernel_status
 
-set cmdline="console=ttyS0 console=tty1 panic=-1"
+set cmdline="{{ .StaticCommandLine }}"
 
 set kernel=kernel.efi
 
@@ -70,7 +70,7 @@ menuentry "Run Ubuntu Core 20" {
     # use $prefix because the symlink manipulation at runtime for kernel snap
     # upgrades, etc. should only need the /boot/grub/ directory, not the
     # /EFI/ubuntu/ directory
-    chainloader $prefix/$kernel snapd_recovery_mode=run $cmdline
+    chainloader $prefix/$kernel {{ .ModeArgs }} $cmdline
 }
 else
     # nothing to boot :-/
@@ -89,7 +89,7 @@ if [ -e /EFI/ubuntu/grubenv ]; then
 fi
 
 # standard cmdline params
-set cmdline="console=ttyS0 console=tty1 panic=-1"
+set cmdline="{{ .StaticCommandLine }}"
 
 # if no default boot mode set, pick one
 if [ -z "$snapd_recovery_mode" ]; then
@@ -100,6 +100,8 @@ if [ "$snapd_recovery_mode" = "run" ]; then
     default="run"
 elif [ -n "$snapd_recovery_system" ]; then
     default=$snapd_recovery_mode-$snapd_recovery_system
+else
+    default=$snapd_recovery_mode-$best
 fi
 
 search --no-floppy --set=boot_fs --label ubuntu-boot
@@ -110,7 +112,6 @@ if [ -n "$boot_fs" ]; then
     }
 fi
 
-# globbing in grub does not sort
 for label in /systems/*; do
     regexp --set 1:label "/([0-9]*)\$" "$label"
     if [ -z "$label" ]; then

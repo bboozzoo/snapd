@@ -42,4 +42,6 @@ type Options struct {
 	Model *asserts.Model
 	// SystemLabel is the recover system label to seal the keyfile to
 	SystemLabel string
+	// CommandLines is the list of kernel command lines
+	CommandLines []string
 }

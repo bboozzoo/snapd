@@ -28,6 +28,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"text/template"
 )
 
 var errNoEdition = errors.New("no edition")
@@ -86,6 +87,18 @@ func (g *configAsset) Edition() uint {
 
 func (g *configAsset) Raw() []byte {
 	return g.body
+}
+
+func (g *configAsset) Render(ctx interface{}) ([]byte, error) {
+	tmpl, err := template.New("script").Parse(string(g.body))
+	if err != nil {
+		return nil, fmt.Errorf("internal error: boot script template is invalid: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, ctx); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func configAssetFrom(data []byte) (*configAsset, error) {

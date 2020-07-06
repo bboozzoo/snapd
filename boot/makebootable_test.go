@@ -346,7 +346,7 @@ func (s *makeBootable20Suite) TestMakeBootable20RunMode(c *C) {
 	mockSeedGrubCfg := filepath.Join(mockSeedGrubDir, "grub.cfg")
 	err = os.MkdirAll(filepath.Dir(mockSeedGrubCfg), 0755)
 	c.Assert(err, IsNil)
-	err = ioutil.WriteFile(mockSeedGrubCfg, nil, 0644)
+	err = ioutil.WriteFile(mockSeedGrubCfg, []byte("this is grub.cfg on seed"), 0644)
 	c.Assert(err, IsNil)
 
 	// grub on ubuntu-boot
@@ -354,7 +354,8 @@ func (s *makeBootable20Suite) TestMakeBootable20RunMode(c *C) {
 	mockBootGrubCfg := filepath.Join(mockBootGrubDir, "grub.cfg")
 	err = os.MkdirAll(filepath.Dir(mockBootGrubCfg), 0755)
 	c.Assert(err, IsNil)
-	err = ioutil.WriteFile(mockBootGrubCfg, nil, 0644)
+	err = ioutil.WriteFile(mockBootGrubCfg, []byte(`# Snapd-Boot-Config-Edition: 0
+this is grub.cfg on boot`), 0644)
 	c.Assert(err, IsNil)
 
 	unpackedGadgetDir := c.MkDir()
@@ -367,7 +368,11 @@ func (s *makeBootable20Suite) TestMakeBootable20RunMode(c *C) {
 	grubCfg := []byte("#grub cfg")
 	err = ioutil.WriteFile(filepath.Join(unpackedGadgetDir, "grub.conf"), grubCfg, 0644)
 	c.Assert(err, IsNil)
-	grubCfgAsset := []byte("#grub cfg from assets")
+	grubCfgAsset := []byte(`# Snapd-Boot-Config-Edition: 1
+#grub cfg from assets
+set cmdline="{{ .StaticCommandLine }}"
+chainloader $prefix/$kernel {{ .ModeArgs }} $cmdline
+`)
 	restore = assets.MockInternal("grub.cfg", grubCfgAsset)
 	defer restore()
 
@@ -406,7 +411,11 @@ version: 5.0
 	c.Assert(err, IsNil)
 
 	// ensure grub.cfg in boot was installed from internal assets
-	c.Check(mockBootGrubCfg, testutil.FileEquals, string(grubCfgAsset))
+	c.Check(mockBootGrubCfg, testutil.FileEquals, `# Snapd-Boot-Config-Edition: 1
+#grub cfg from assets
+set cmdline="console=ttyS0 console=tty1 panic=-1"
+chainloader $prefix/$kernel snapd_recovery_mode=run $cmdline
+`)
 
 	// ensure base/kernel got copied to /var/lib/snapd/snaps
 	core20Snap := filepath.Join(dirs.SnapBlobDirUnder(boot.InstallHostWritableDir), "core20_3.snap")
@@ -447,6 +456,13 @@ current_kernels=pc-kernel_5.snap
 model=my-brand/my-model-uc20
 grade=dangerous
 `)
+
+	// ensure grub.cfg on boot was updated
+	c.Check(mockBootGrubCfg, testutil.FileContains, "Snapd-Boot-Config-Edition: 1\n")
+	c.Check(mockBootGrubCfg, testutil.FileContains, `cmdline="console=ttyS0 console=tty1 panic=-1"`)
+	c.Check(mockBootGrubCfg, testutil.FileContains, " snapd_recovery_mode=run $cmdline")
+	// ensure grub.cfg on seed was not updated
+	c.Check(mockSeedGrubCfg, testutil.FileEquals, []byte("this is grub.cfg on seed"))
 }
 
 func (s *makeBootable20Suite) TestMakeBootable20RunModeInstallBootConfigErr(c *C) {

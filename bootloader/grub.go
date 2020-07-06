@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/snapcore/snapd/bootloader/grubenv"
 	"github.com/snapcore/snapd/osutil"
@@ -44,6 +45,7 @@ type grub struct {
 	basedir string
 
 	uefiRunKernelExtraction bool
+	recovery                bool
 }
 
 // newGrub create a new Grub bootloader object
@@ -59,6 +61,7 @@ func newGrub(rootdir string, opts *Options) RecoveryAwareBootloader {
 	}
 	if opts != nil {
 		g.uefiRunKernelExtraction = opts.ExtractedRunKernelImage
+		g.recovery = opts.Recovery
 	}
 
 	return g
@@ -87,7 +90,15 @@ func (g *grub) installManagedRecoveryBootConfig(gadgetDir string) (bool, error) 
 	}
 	assetName := g.Name() + "-recovery.cfg"
 	systemFile := filepath.Join(g.rootdir, "/EFI/ubuntu/grub.cfg")
-	return genericSetBootConfigFromAsset(systemFile, assetName)
+	data := struct {
+		StaticCommandLine string
+		ModeArgs          string
+	}{
+		StaticCommandLine: staticCommandLineArgs,
+		// TODO:UC20: pass recovery mode args
+		ModeArgs: "",
+	}
+	return genericSetBootConfigFromAsset(systemFile, assetName, &data)
 }
 
 func (g *grub) installManagedBootConfig(gadgetDir string) (bool, error) {
@@ -98,7 +109,15 @@ func (g *grub) installManagedBootConfig(gadgetDir string) (bool, error) {
 	}
 	assetName := g.Name() + ".cfg"
 	systemFile := filepath.Join(g.rootdir, "/EFI/ubuntu/grub.cfg")
-	return genericSetBootConfigFromAsset(systemFile, assetName)
+	data := struct {
+		StaticCommandLine string
+		ModeArgs          string
+	}{
+		StaticCommandLine: staticCommandLineArgs,
+		// TODO:UC20: pass run mode args from the caller
+		ModeArgs: "snapd_recovery_mode=run",
+	}
+	return genericSetBootConfigFromAsset(systemFile, assetName, &data)
 }
 
 func (g *grub) InstallBootConfig(gadgetDir string, opts *Options) (bool, error) {
@@ -328,18 +347,32 @@ func (g *grub) TryKernel() (snap.PlaceInfo, error) {
 	return nil, ErrNoTryKernelRef
 }
 
+// the default command line args used in all modes
+const staticCommandLineArgs = "console=ttyS0 console=tty1 panic=-1"
+
 // UpdateBootConfig updates the grub boot config only if it is already managed
 // and has a lower edition.
 //
 // Implements ManagedAssetsBootloader for the grub bootloader.
-func (g *grub) UpdateBootConfig(opts *Options) (bool, error) {
+
+// UpdateBootConfig updates the grub boot configuration script.
+//
+// Implements ManagedBootloader for the grub bootloader.
+func (g *grub) UpdateBootConfig(opts *Options, modeArgs []string) (bool, error) {
 	bootScriptName := "grub.cfg"
 	currentBootConfig := filepath.Join(g.dir(), "grub.cfg")
 	if opts != nil && opts.Recovery {
 		// use the recovery asset when asked to do so
 		bootScriptName = "grub-recovery.cfg"
 	}
-	return genericUpdateBootConfigFromAssets(currentBootConfig, bootScriptName)
+	data := struct {
+		StaticCommandLine string
+		ModeArgs          string
+	}{
+		StaticCommandLine: staticCommandLineArgs,
+		ModeArgs:          strings.Join(modeArgs, " "),
+	}
+	return genericUpdateBootConfigFromAssets(currentBootConfig, bootScriptName, &data)
 }
 
 // IsCurrentlyManaged returns true when the boot config is managed by snapd.
@@ -361,5 +394,30 @@ func (g *grub) IsCurrentlyManaged() (bool, error) {
 func (g *grub) ManagedAssets() []string {
 	return []string{
 		filepath.Join(g.basedir, "grub.cfg"),
+	}
+}
+
+// CommandLine returns the resulting kernel command line that will be passed by
+// the boot script.
+//
+// Implements ManagedAssetsBootloader for the grub bootloader.
+func (g *grub) CommandLine(modeArgs []string) (string, error) {
+	if g.recovery {
+		// consider how recovery boot config edition 1 kernel command
+		// line is formed
+		if len(modeArgs) != 2 {
+			return "", fmt.Errorf("internal error: incorrect number of mode arguments: %v", modeArgs)
+		}
+		mode, system := modeArgs[0], modeArgs[1]
+		if !strings.HasSuffix(mode, "=recover") {
+			mode, system = system, mode
+		}
+		return fmt.Sprintf("%s %s %s", mode, system, staticCommandLineArgs), nil
+	} else {
+		// consider how run mode boot config kernel command line is
+		// formed
+		extraArgs := strings.Join(modeArgs, " ")
+		// static arguments are slapped at the end
+		return strings.TrimSpace(fmt.Sprintf("%s %s", extraArgs, staticCommandLineArgs)), nil
 	}
 }

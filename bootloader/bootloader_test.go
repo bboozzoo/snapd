@@ -20,6 +20,7 @@
 package bootloader_test
 
 import (
+	"bytes"
 	"errors"
 	"io/ioutil"
 	"path/filepath"
@@ -134,8 +135,20 @@ func (s *bootenvTestSuite) TestInstallBootloaderConfigFromAssets(c *C) {
 	}
 	defaultRecoveryGrubAsset := assets.Internal("grub-recovery.cfg")
 	c.Assert(defaultRecoveryGrubAsset, NotNil)
+	recoveryGrubCfg := bytes.Replace(defaultRecoveryGrubAsset,
+		[]byte(`set cmdline="{{ .StaticCommandLine }}"`),
+		[]byte(`set cmdline="console=ttyS0 console=tty1 panic=-1"`),
+		-1)
 	defaultGrubAsset := assets.Internal("grub.cfg")
 	c.Assert(defaultGrubAsset, NotNil)
+	grubCfg := bytes.Replace(defaultGrubAsset,
+		[]byte(`set cmdline="{{ .StaticCommandLine }}"`),
+		[]byte(`set cmdline="console=ttyS0 console=tty1 panic=-1"`),
+		-1)
+	grubCfg = bytes.Replace(grubCfg,
+		[]byte(`{{ .ModeArgs }}`),
+		[]byte(`snapd_recovery_mode=run`),
+		-1)
 
 	for _, t := range []struct {
 		name                string
@@ -175,7 +188,7 @@ func (s *bootenvTestSuite) TestInstallBootloaderConfigFromAssets(c *C) {
 			// empty file in the gadget
 			gadgetFileContent: nil,
 			sysFile:           "/EFI/ubuntu/grub.cfg",
-			sysFileContent:    defaultRecoveryGrubAsset,
+			sysFileContent:    recoveryGrubCfg,
 		}, {
 			name:       "recovery grub missing asset",
 			opts:       recoveryOpts,
@@ -203,7 +216,7 @@ func (s *bootenvTestSuite) TestInstallBootloaderConfigFromAssets(c *C) {
 			// empty file in the gadget
 			gadgetFileContent: nil,
 			sysFile:           "/EFI/ubuntu/grub.cfg",
-			sysFileContent:    defaultGrubAsset,
+			sysFileContent:    grubCfg,
 		},
 	} {
 		mockGadgetDir := c.MkDir()

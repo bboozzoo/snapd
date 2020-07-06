@@ -152,11 +152,15 @@ type ManagedAssetsBootloader interface {
 	ManagedAssets() []string
 	// UpdateBootConfig attempts to update the boot config assets used by
 	// the bootloader. Returns true when assets were updated.
-	UpdateBootConfig(*Options) (bool, error)
+	UpdateBootConfig(opts *Options, args []string) (bool, error)
 	// CommandLine returns the kernel command line composed of the built-in
 	// list and extra arguments passed in arguments. The command line may be
 	// different when using a bootloader in the recovery partition.
 	CommandLine(extra []string) (string, error)
+}
+
+type ManagedAssetContext struct {
+	Systems []string
 }
 
 func genericInstallBootConfig(gadgetFile, systemFile string) (bool, error) {
@@ -169,18 +173,26 @@ func genericInstallBootConfig(gadgetFile, systemFile string) (bool, error) {
 	return true, osutil.CopyFile(gadgetFile, systemFile, osutil.CopyFlagOverwrite)
 }
 
-func genericSetBootConfigFromAsset(systemFile, assetName string) (bool, error) {
+func genericSetBootConfigFromAsset(systemFile, assetName string, data interface{}) (bool, error) {
 	bootConfig := assets.Internal(assetName)
 	if bootConfig == nil {
 		return true, fmt.Errorf("internal error: no boot asset for %q", assetName)
 	}
+	bc, err := configAssetFrom(bootConfig)
+	if err != nil {
+		return true, err
+	}
+	rendered, err := bc.Render(data)
+	if err != nil {
+		return true, fmt.Errorf("internal error: cannot generate boot config: %v", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(systemFile), 0755); err != nil {
 		return true, err
 	}
-	return true, osutil.AtomicWriteFile(systemFile, bootConfig, 0644, 0)
+	return true, osutil.AtomicWriteFile(systemFile, rendered, 0644, 0)
 }
 
-func genericUpdateBootConfigFromAssets(systemFile string, assetName string) (updated bool, err error) {
+func genericUpdateBootConfigFromAssets(systemFile string, assetName string, data interface{}) (updated bool, err error) {
 	currentBootConfigEdition, err := editionFromDiskConfigAsset(systemFile)
 	if err != nil && err != errNoEdition {
 		return false, err
@@ -201,7 +213,11 @@ func genericUpdateBootConfigFromAssets(systemFile string, assetName string) (upd
 		// to one currently installed
 		return false, nil
 	}
-	if err := osutil.AtomicWriteFile(systemFile, gbs.Raw(), 0644, 0); err != nil {
+	rendered, err := bc.Render(data)
+	if err != nil {
+		return false, fmt.Errorf("internal error: cannot generate boot config: %v", err)
+	}
+	if err := osutil.AtomicWriteFile(systemFile, rendered, 0644, 0); err != nil {
 		return false, err
 	}
 	return true, nil

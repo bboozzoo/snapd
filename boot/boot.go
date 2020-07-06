@@ -398,5 +398,6 @@ func UpdateManagedConfig(dev Device) (updated bool, err error) {
 		// assets are not managed
 		return false, nil
 	}
-	return mbl.UpdateBootConfig(opts)
+	// TODO: pass arguments
+	return mbl.UpdateBootConfig(opts, nil)
 }
