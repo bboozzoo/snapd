@@ -709,8 +709,9 @@ this is mocked grub.conf
 	eg, ok := g.(bootloader.ManagedAssetsBootloader)
 	c.Assert(ok, Equals, true)
 	// install the recovery boot script
-	err := eg.UpdateBootConfig(opts)
+	updated, err := eg.UpdateBootConfig(opts)
 	c.Assert(err, IsNil)
+	c.Check(updated, Equals, true)
 	// the recovery boot asset was picked
 	c.Assert(filepath.Join(s.grubEFINativeDir(), "grub.cfg"), testutil.FileEquals, `# Snapd-Boot-Config-Edition: 3
 this is mocked grub-recovery.conf
