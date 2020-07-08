@@ -202,7 +202,7 @@ func genericUpdateBootConfigFromAssets(systemFile string, assetName string) (upd
 		// to one currently installed
 		return false, nil
 	}
-	if err := osutil.AtomicWriteFile(systemFile, gbs.Raw(), 0644, 0); err != nil {
+	if err := osutil.AtomicWriteFile(systemFile, bc.Raw(), 0644, 0); err != nil {
 		return false, err
 	}
 	return true, nil
