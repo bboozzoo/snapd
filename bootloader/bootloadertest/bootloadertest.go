@@ -382,6 +382,7 @@ type MockManagedAssetsBootloader struct {
 	IsManagedErr      error
 	UpdateErr         error
 	UpdateCalls       int
+	Updated           bool
 	Assets            []string
 	StaticCommandLine string
 	CommandLineErr    error
@@ -401,9 +402,9 @@ func (b *MockManagedAssetsBootloader) ManagedAssets() []string {
 	return b.Assets
 }
 
-func (b *MockManagedAssetsBootloader) UpdateBootConfig(opts *bootloader.Options) error {
+func (b *MockManagedAssetsBootloader) UpdateBootConfig(opts *bootloader.Options) (bool, error) {
 	b.UpdateCalls++
-	return b.UpdateErr
+	return b.Updated, b.UpdateErr
 }
 
 func (b *MockManagedAssetsBootloader) CommandLine(args []string) (string, error) {
