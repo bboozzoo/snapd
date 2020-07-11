@@ -154,10 +154,11 @@ type ManagedAssetsBootloader interface {
 	// UpdateBootConfig attempts to update the boot config assets used by
 	// the bootloader. Returns true when assets were updated.
 	UpdateBootConfig(*Options) (bool, error)
-	// CommandLine returns the kernel command line composed of the built-in
-	// list and extra arguments passed in arguments. The command line may be
-	// different when using a bootloader in the recovery partition.
-	CommandLine(extra []string) (string, error)
+	// CommandLine returns the kernel command line composed system run mode
+	// arguments, extra arguments (configured by snapd) and the built-in
+	// bootloader specific arguments. The command line may be different when
+	// using a bootloader in the recovery partition.
+	CommandLine(modeArgs, extraArgs string) (string, error)
 }
 
 func genericInstallBootConfig(gadgetFile, systemFile string) (bool, error) {
