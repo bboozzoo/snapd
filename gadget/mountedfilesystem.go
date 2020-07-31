@@ -121,6 +121,9 @@ func (m *MountedFilesystemWriter) Write(whereDir string, preserve []string) erro
 			return fmt.Errorf("cannot write filesystem content of %s: %v", c, err)
 		}
 	}
+
+	// reseal and then apply the files
+	m.obsever.Apply()
 	return nil
 }
 
@@ -380,6 +383,9 @@ func (f *mountedFilesystemUpdater) entrySourcePath(source string) string {
 	return srcPath
 }
 
+type ManagedBootObserver interface {
+}
+
 // Update applies an update to a mounted filesystem. The caller must have
 // executed a Backup() before, to prepare a data set for rollback purpose.
 func (f *mountedFilesystemUpdater) Update() error {
@@ -405,6 +411,9 @@ func (f *mountedFilesystemUpdater) Update() error {
 	if skipped == len(f.ps.Content) {
 		return ErrNoUpdate
 	}
+
+	// reseal and then apply files
+	f.obserer.Apply()
 
 	return nil
 }
@@ -482,6 +491,13 @@ func (f *mountedFilesystemUpdater) updateDirectory(dstRoot, source, target strin
 func (f *mountedFilesystemUpdater) updateOrSkipFile(dstRoot, source, target string, preserveInDst []string, backupDir string) error {
 	srcPath := f.entrySourcePath(source)
 	dstPath, backupPath := f.entryDestPaths(dstRoot, source, target, backupDir)
+
+	// observe, answer is:
+	// write, no-write, no-write & backup?
+	canWrite := f.observer.ObserveWrite(srcPath, target)
+	if !canWrite {
+		return nil
+	}
 
 	// TODO: enable support for symlinks when needed
 	if osutil.IsSymlink(srcPath) {
@@ -767,6 +783,9 @@ func (f *mountedFilesystemUpdater) Rollback() error {
 			return fmt.Errorf("cannot rollback content: %v", err)
 		}
 	}
+
+	// revert and reseal
+	f.observer.Revert()
 
 	return nil
 }
