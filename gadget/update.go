@@ -50,6 +50,18 @@ type GadgetData struct {
 // and returns true when the pair should be part of an update.
 type UpdatePolicyFunc func(from, to *LaidOutStructure) bool
 
+// PendingStructureUpdateContext provides the necessary context for a pending
+// gadget structure update.
+type PendingStructureUpdateContext struct {
+	GadgetRootDir string
+	RollbackDir   string
+}
+
+// DelegateUpdaterFunc returns an updater that will apply an update of a
+// provided structure. Return nil (with nil error) When the update of a given
+// structure should not be delegated to an external updater.
+type DelegateUpdaterFunc func(what *LaidOutStructure, context *PendingStructureUpdateContext) (Updater, error)
+
 // Update applies the gadget update given the gadget information and data from
 // old and new revisions. It errors out when the update is not possible or
 // illegal, or a failure occurs at any of the steps. When there is no update, a
@@ -63,7 +75,7 @@ type UpdatePolicyFunc func(from, to *LaidOutStructure) bool
 // Data that would be modified during the update is first backed up inside the
 // rollback directory. Should the apply step fail, the modified data is
 // recovered.
-func Update(old, new GadgetData, rollbackDirPath string, updatePolicy UpdatePolicyFunc) error {
+func Update(old, new GadgetData, rollbackDirPath string, updatePolicy UpdatePolicyFunc, delegate DelegateUpdaterFunc) error {
 	// TODO: support multi-volume gadgets. But for now we simply
 	//       do not do any gadget updates on those. We cannot error
 	//       here because this would break refreshes of gadgets even
@@ -115,7 +127,7 @@ func Update(old, new GadgetData, rollbackDirPath string, updatePolicy UpdatePoli
 		}
 	}
 
-	return applyUpdates(new, updates, rollbackDirPath)
+	return applyUpdates(new, updates, rollbackDirPath, delegate)
 }
 
 func resolveVolume(old *Info, new *Info) (oldVol, newVol *Volume, err error) {
@@ -276,13 +288,14 @@ type Updater interface {
 	Backup() error
 	// Rollback restores data modified by update
 	Rollback() error
+	// TODO:UC20: need explicit Commit() step?
 }
 
-func applyUpdates(new GadgetData, updates []updatePair, rollbackDir string) error {
+func applyUpdates(new GadgetData, updates []updatePair, rollbackDir string, delegate DelegateUpdaterFunc) error {
 	updaters := make([]Updater, len(updates))
 
 	for i, one := range updates {
-		up, err := updaterForStructure(one.to, new.RootDir, rollbackDir)
+		up, err := updaterForStructure(one.to, new.RootDir, rollbackDir, delegate)
 		if err != nil {
 			return fmt.Errorf("cannot prepare update for volume structure %v: %v", one.to, err)
 		}
@@ -334,9 +347,24 @@ func applyUpdates(new GadgetData, updates []updatePair, rollbackDir string) erro
 
 var updaterForStructure = updaterForStructureImpl
 
-func updaterForStructureImpl(ps *LaidOutStructure, newRootDir, rollbackDir string) (Updater, error) {
+func updaterForStructureImpl(ps *LaidOutStructure, newRootDir, rollbackDir string, delegate DelegateUpdaterFunc) (Updater, error) {
 	var updater Updater
 	var err error
+
+	if delegate != nil {
+		updater, err = delegate(ps, &PendingStructureUpdateContext{
+			GadgetRootDir: newRootDir,
+			RollbackDir:   rollbackDir,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if updater != nil {
+			// update is delegated to external entity
+			return updater, nil
+		}
+	}
+	// no delegate or delegate not interested in updating this structure
 	if !ps.HasFilesystem() {
 		updater, err = newRawStructureUpdater(newRootDir, ps, rollbackDir, findDeviceForStructureWithFallback)
 	} else {
@@ -346,7 +374,7 @@ func updaterForStructureImpl(ps *LaidOutStructure, newRootDir, rollbackDir strin
 }
 
 // MockUpdaterForStructure replace internal call with a mocked one, for use in tests only
-func MockUpdaterForStructure(mock func(ps *LaidOutStructure, rootDir, rollbackDir string) (Updater, error)) (restore func()) {
+func MockUpdaterForStructure(mock func(ps *LaidOutStructure, rootDir, rollbackDir string, delegate DelegateUpdaterFunc) (Updater, error)) (restore func()) {
 	old := updaterForStructure
 	updaterForStructure = mock
 	return func() {

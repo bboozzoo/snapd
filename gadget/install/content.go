@@ -25,6 +25,8 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/snapcore/snapd/asserts"
+	"github.com/snapcore/snapd/boot"
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/gadget"
 	"github.com/snapcore/snapd/gadget/internal"
@@ -52,7 +54,7 @@ func makeFilesystem(ds *gadget.OnDiskStructure) error {
 
 // writeContent populates the given on-disk structure, according to the contents
 // defined in the gadget.
-func writeContent(ds *gadget.OnDiskStructure, gadgetRoot string) error {
+func writeContent(ds *gadget.OnDiskStructure, gadgetRoot string, model *asserts.Model) error {
 	switch {
 	case !ds.IsPartition():
 		return fmt.Errorf("cannot write non-partitions yet")
@@ -61,7 +63,7 @@ func writeContent(ds *gadget.OnDiskStructure, gadgetRoot string) error {
 			return err
 		}
 	case ds.HasFilesystem():
-		if err := writeFilesystemContent(ds, gadgetRoot); err != nil {
+		if err := writeFilesystemContent(ds, gadgetRoot, model); err != nil {
 			return err
 		}
 	}
@@ -90,7 +92,11 @@ func mountFilesystem(ds *gadget.OnDiskStructure, baseMntPoint string) error {
 	return nil
 }
 
-func writeFilesystemContent(ds *gadget.OnDiskStructure, gadgetRoot string) (err error) {
+type filesystemWriter interface {
+	Write(mountPoint string, preserve []string) error
+}
+
+func writeFilesystemContent(ds *gadget.OnDiskStructure, gadgetRoot string, model *asserts.Model) (err error) {
 	mountpoint := filepath.Join(contentMountpoint, strconv.Itoa(ds.Index))
 	if err := os.MkdirAll(mountpoint, 0755); err != nil {
 		return err
@@ -107,7 +113,12 @@ func writeFilesystemContent(ds *gadget.OnDiskStructure, gadgetRoot string) (err 
 		}
 	}()
 
-	fs, err := gadget.NewMountedFilesystemWriter(gadgetRoot, &ds.LaidOutStructure)
+	var fs filesystemWriter
+	if ds.Role == gadget.SystemBoot {
+		fs, err = boot.NewFilesystemWriter(model, gadgetRoot, &ds.LaidOutStructure)
+	} else {
+		fs, err = gadget.NewMountedFilesystemWriter(gadgetRoot, &ds.LaidOutStructure)
+	}
 	if err != nil {
 		return fmt.Errorf("cannot create filesystem image writer: %v", err)
 	}

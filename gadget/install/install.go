@@ -142,7 +142,7 @@ func Run(gadgetRoot, device string, options Options) error {
 			return err
 		}
 
-		if err := writeContent(&part, gadgetRoot); err != nil {
+		if err := writeContent(&part, gadgetRoot, options.Model); err != nil {
 			return err
 		}
 

@@ -249,6 +249,9 @@ func makeStamp(stamp string) error {
 
 type mountLookupFunc func(ps *LaidOutStructure) (string, error)
 
+// TODO:UC20: make mounted updater an exported type so that it can be used by
+// the boot package
+
 // mountedFilesystemUpdater assists in applying updates to a mounted filesystem.
 //
 // The update process is composed of 2 main passes, and an optional rollback:
