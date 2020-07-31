@@ -64,11 +64,12 @@ func checkContent(content *VolumeContent) error {
 type MountedFilesystemWriter struct {
 	contentDir string
 	ps         *LaidOutStructure
+	intercept  FileActionInterceptor
 }
 
 // NewMountedFilesystemWriter returns a writer capable of writing provided
 // structure, with content of the structure stored in the given root directory.
-func NewMountedFilesystemWriter(contentDir string, ps *LaidOutStructure) (*MountedFilesystemWriter, error) {
+func NewMountedFilesystemWriter(contentDir string, ps *LaidOutStructure, intercept FileActionInterceptor) (*MountedFilesystemWriter, error) {
 	if ps == nil {
 		return nil, fmt.Errorf("internal error: *LaidOutStructure is nil")
 	}
@@ -121,6 +122,13 @@ func (m *MountedFilesystemWriter) Write(whereDir string, preserve []string) erro
 			return fmt.Errorf("cannot write filesystem content of %s: %v", c, err)
 		}
 	}
+
+	if m.intercept != nil {
+		// reseal and then apply the files
+		if err := m.intercept.Apply(whereDir); err != nil {
+			return fmt.Errorf("cannot apply intercepted actions: %v", err)
+		}
+	}
 	return nil
 }
 
@@ -128,7 +136,7 @@ func (m *MountedFilesystemWriter) Write(whereDir string, preserve []string) erro
 // location dst. Follows rsync like semantics, that is:
 //   /foo/ -> /bar - writes contents of foo under /bar
 //   /foo  -> /bar - writes foo and its subtree under /bar
-func writeDirectory(src, dst string, preserveInDst []string) error {
+func (m *MountedFilesystemWriter) writeDirectory(volumeRoot, src, dst string, preserveInDst []string) error {
 	hasDirSourceSlash := strings.HasSuffix(src, "/")
 
 	if err := checkSourceIsDir(src); err != nil {
@@ -149,21 +157,47 @@ func writeDirectory(src, dst string, preserveInDst []string) error {
 		pSrc := filepath.Join(src, fi.Name())
 		pDst := filepath.Join(dst, fi.Name())
 
-		write := writeFileOrSymlink
+		write := m.interceptAwareWriteFileOrSymlink
 		if fi.IsDir() {
 			if err := os.MkdirAll(pDst, 0755); err != nil {
 				return fmt.Errorf("cannot create directory prefix: %v", err)
 			}
 
-			write = writeDirectory
+			write = m.writeDirectory
 			pSrc += "/"
 		}
-		if err := write(pSrc, pDst, preserveInDst); err != nil {
+		if err := write(volumeRoot, pSrc, pDst, preserveInDst); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// writeFileOrSymlink writes the source file or a symlink at given location or
+// under given directory. Follows rsync like semantics, that is:
+//   /foo -> /bar/ - writes foo as /bar/foo
+//   /foo  -> /bar - writes foo as /bar
+// The destination location is overwritten.
+func (m *MountedFilesystemWriter) interceptAwareWriteFileOrSymlink(volumeRoot, src, dst string, preserveInDst []string) error {
+	if strings.HasSuffix(dst, "/") {
+		// write to directory
+		dst = filepath.Join(dst, filepath.Base(src))
+	}
+
+	if m.intercept != nil {
+		// observe, answer is:
+		// write, no-write, no-write & backup?
+		action, err := m.intercept.Intercept(ActionWrite, volumeRoot, dst)
+		if err != nil {
+			return fmt.Errorf("cannot mediate file write: %v", err)
+		}
+		if action == ActionResultIntercepted {
+			// write has been intercepted
+			return nil
+		}
+	}
+	return writeFileOrSymlink(src, dst, preserveInDst)
 }
 
 // writeFileOrSymlink writes the source file or a symlink at given location or
@@ -225,10 +259,10 @@ func (m *MountedFilesystemWriter) writeVolumeContent(volumeRoot string, content 
 
 	if osutil.IsDirectory(realSource) || strings.HasSuffix(content.Source, "/") {
 		// write a directory
-		return writeDirectory(realSource, realTarget, preserveInDst)
+		return m.writeDirectory(volumeRoot, realSource, realTarget, preserveInDst)
 	} else {
 		// write a file
-		return writeFileOrSymlink(realSource, realTarget, preserveInDst)
+		return m.interceptAwareWriteFileOrSymlink(volumeRoot, realSource, realTarget, preserveInDst)
 	}
 }
 
@@ -274,8 +308,8 @@ type mountedFilesystemUpdater struct {
 // structure, with structure content coming from provided root directory. The
 // mount is located by calling a mount lookup helper. The backup directory
 // contains backup state information for use during rollback.
-func newMountedFilesystemUpdater(rootDir string, ps *LaidOutStructure, backupDir string, mountLookup mountLookupFunc) (*mountedFilesystemUpdater, error) {
-	fw, err := NewMountedFilesystemWriter(rootDir, ps)
+func newMountedFilesystemUpdater(rootDir string, ps *LaidOutStructure, backupDir string, mountLookup mountLookupFunc, intercept FileActionInterceptor) (*mountedFilesystemUpdater, error) {
+	fw, err := NewMountedFilesystemWriter(rootDir, ps, intercept)
 	if err != nil {
 		return nil, err
 	}
@@ -399,10 +433,22 @@ func (f *mountedFilesystemUpdater) Update() error {
 		}
 	}
 
-	if skipped == len(f.ps.Content) {
+	notModified := skipped == len(f.ps.Content)
+
+	if f.intercept != nil {
+		if err := f.intercept.Apply(f.mountPoint); err != nil {
+			if err != ErrNoUpdate {
+				return err
+			}
+			// nothing was committed
+			notModified = notModified && true
+		} else {
+			notModified = false
+		}
+	}
+	if notModified {
 		return ErrNoUpdate
 	}
-
 	return nil
 }
 
@@ -479,6 +525,19 @@ func (f *mountedFilesystemUpdater) updateDirectory(dstRoot, source, target strin
 func (f *mountedFilesystemUpdater) updateOrSkipFile(dstRoot, source, target string, preserveInDst []string, backupDir string) error {
 	srcPath := f.entrySourcePath(source)
 	dstPath, backupPath := f.entryDestPaths(dstRoot, source, target, backupDir)
+
+	if f.intercept != nil {
+		// observe, answer is:
+		// write, no-write, no-write & backup?
+		action, err := f.intercept.Intercept(ActionWrite, f.mountPoint, target)
+		if err != nil {
+			return fmt.Errorf("cannot mediate file action %v\n", err)
+		}
+		if action == ActionResultIntercepted {
+			// write has been intercepted
+			return nil
+		}
+	}
 
 	// TODO: enable support for symlinks when needed
 	if osutil.IsSymlink(srcPath) {
@@ -639,6 +698,14 @@ func (f *mountedFilesystemUpdater) backupOrCheckpointFile(dstRoot, source, targe
 	sameStamp := backupPath + ".same"
 	preserveStamp := backupPath + ".preserve"
 
+	interceptAction := ActionResultNone
+	if f.intercept != nil {
+		action, err := f.intercept.Intercept(ActionInspect, f.mountPoint, target)
+		if err != nil {
+			return nil
+		}
+	}
+
 	// TODO: enable support for symlinks when needed
 	if osutil.IsSymlink(dstPath) {
 		return fmt.Errorf("cannot backup file %s: symbolic links are not supported", target)
@@ -656,9 +723,9 @@ func (f *mountedFilesystemUpdater) backupOrCheckpointFile(dstRoot, source, targe
 		return nil
 	}
 
-	if strutil.SortedListContains(preserveInDst, dstPath) {
-		// file is to be preserved, create a relevant stamp
-
+	if strutil.SortedListContains(preserveInDst, dstPath) || interceptAction == ActionResultPreserve {
+		// file is to be preserved, by either being in the list or
+		// explicitly indicated so by the intercept
 		if !osutil.FileExists(dstPath) {
 			// preserve, but does not exist, will be written anyway
 			return nil
@@ -698,6 +765,12 @@ func (f *mountedFilesystemUpdater) backupOrCheckpointFile(dstRoot, source, targe
 	if err != nil {
 		backup.Cancel()
 		return fmt.Errorf("cannot backup original file: %v", err)
+	}
+
+	if interceptAction == ActionResultNeedsBackup {
+		// intercept indicated the file needs a backup, no need to any
+		// further comparisons
+		return nil
 	}
 
 	// digest of the update
@@ -765,6 +838,13 @@ func (f *mountedFilesystemUpdater) Rollback() error {
 		}
 	}
 
+	// revert and reseal
+	if f.intercept != nil {
+		if err := f.intercept.Revert(f.mountPoint); err != nil {
+			return fmt.Errorf("cannot revert intercepted actions: %v", err)
+		}
+	}
+
 	return nil
 }
 
@@ -819,7 +899,7 @@ func (f *mountedFilesystemUpdater) rollbackFile(dstRoot, source, target string, 
 	sameStamp := backupPath + ".same"
 	preserveStamp := backupPath + ".preserve"
 
-	if strutil.SortedListContains(preserveInDst, dstPath) && osutil.FileExists(preserveStamp) {
+	if osutil.FileExists(preserveStamp) {
 		// file was preserved at original location, do nothing
 		return nil
 	}

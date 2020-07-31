@@ -123,6 +123,7 @@ func Run(gadgetRoot, device string, options Options) error {
 		}
 	}
 
+	maybeIntercept := boot.InterceptManagedAssets(model)
 	for _, part := range created {
 		if options.Encrypt && part.Role == gadget.SystemData {
 			dataPart, err := newEncryptedDevice(&part, key, ubuntuDataLabel)
@@ -142,7 +143,7 @@ func Run(gadgetRoot, device string, options Options) error {
 			return err
 		}
 
-		if err := writeContent(&part, gadgetRoot); err != nil {
+		if err := writeContent(&part, gadgetRoot, maybeIntercept(&part)); err != nil {
 			return err
 		}
 

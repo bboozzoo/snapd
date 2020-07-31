@@ -50,6 +50,42 @@ type GadgetData struct {
 // and returns true when the pair should be part of an update.
 type UpdatePolicyFunc func(from, to *LaidOutStructure) bool
 
+type ActionResult int
+type Action int
+
+const (
+	// ActionInspect is the initial inspection of the target content.
+	ActionInspect Action = iota
+	// ActionWrite indicates a write action.
+	ActionWrite
+
+	// ActionResultNone proceed as usual
+	ActionResultNone ActionResult = iota
+	// ActionResultIntercepted action was intercepted.
+	ActionResultIntercepted
+	// ActionResultNeedsBackup action was intercept, create a backup of
+	// original content.
+	ActionResultNeedsBackup
+	// ActionResultPreserve indicates that the original content should be
+	// preserved.
+	ActionResultPreserve
+)
+
+type FileActionInterceptor interface {
+	// Intercept given action to a relative target path inside a given root
+	// directory. Returns what action should be performed.
+	Intercept(action Action, mountPoint, relativeTargetPath string) (ActionResult, error)
+	// Apply makes the intercepted actions happen. Return ErrNoUpdate when
+	// nothing was committed.
+	Apply(mountPoint string) error
+	// Revert makes the intercepted actions be reverted.
+	Revert(mountPoint string) error
+}
+
+// InterceptorFunc returns an interceptor for a given gadget structure. Returns
+// nil if no interceptor is needed.
+type InterceptorFunc func(what *LaidOutStructure) (FileActionInterceptor, error)
+
 // Update applies the gadget update given the gadget information and data from
 // old and new revisions. It errors out when the update is not possible or
 // illegal, or a failure occurs at any of the steps. When there is no update, a
@@ -63,7 +99,7 @@ type UpdatePolicyFunc func(from, to *LaidOutStructure) bool
 // Data that would be modified during the update is first backed up inside the
 // rollback directory. Should the apply step fail, the modified data is
 // recovered.
-func Update(old, new GadgetData, rollbackDirPath string, updatePolicy UpdatePolicyFunc) error {
+func Update(old, new GadgetData, rollbackDirPath string, updatePolicy UpdatePolicyFunc, interceptFunc InterceptorFunc) error {
 	// TODO: support multi-volume gadgets. But for now we simply
 	//       do not do any gadget updates on those. We cannot error
 	//       here because this would break refreshes of gadgets even
@@ -115,7 +151,7 @@ func Update(old, new GadgetData, rollbackDirPath string, updatePolicy UpdatePoli
 		}
 	}
 
-	return applyUpdates(new, updates, rollbackDirPath)
+	return applyUpdates(new, updates, rollbackDirPath, interceptFunc)
 }
 
 func resolveVolume(old *Info, new *Info) (oldVol, newVol *Volume, err error) {
@@ -278,11 +314,11 @@ type Updater interface {
 	Rollback() error
 }
 
-func applyUpdates(new GadgetData, updates []updatePair, rollbackDir string) error {
+func applyUpdates(new GadgetData, updates []updatePair, rollbackDir string, interceptorFunc InterceptorFunc) error {
 	updaters := make([]Updater, len(updates))
 
 	for i, one := range updates {
-		up, err := updaterForStructure(one.to, new.RootDir, rollbackDir)
+		up, err := updaterForStructure(one.to, new.RootDir, rollbackDir, interceptorFunc)
 		if err != nil {
 			return fmt.Errorf("cannot prepare update for volume structure %v: %v", one.to, err)
 		}
@@ -334,19 +370,25 @@ func applyUpdates(new GadgetData, updates []updatePair, rollbackDir string) erro
 
 var updaterForStructure = updaterForStructureImpl
 
-func updaterForStructureImpl(ps *LaidOutStructure, newRootDir, rollbackDir string) (Updater, error) {
+func updaterForStructureImpl(ps *LaidOutStructure, newRootDir, rollbackDir string, interceptorFunc InterceptorFunc) (Updater, error) {
 	var updater Updater
 	var err error
+
+	// no delegate or delegate not interested in updating this structure
 	if !ps.HasFilesystem() {
 		updater, err = newRawStructureUpdater(newRootDir, ps, rollbackDir, findDeviceForStructureWithFallback)
 	} else {
-		updater, err = newMountedFilesystemUpdater(newRootDir, ps, rollbackDir, findMountPointForStructure)
+		fileActionInterceptor, interceptErr := interceptorFunc(ps)
+		if interceptErr != nil {
+			return nil, fmt.Errorf("cannot establish mediation: %v", err)
+		}
+		updater, err = newMountedFilesystemUpdater(newRootDir, ps, rollbackDir, findMountPointForStructure, fileActionInterceptor)
 	}
 	return updater, err
 }
 
 // MockUpdaterForStructure replace internal call with a mocked one, for use in tests only
-func MockUpdaterForStructure(mock func(ps *LaidOutStructure, rootDir, rollbackDir string) (Updater, error)) (restore func()) {
+func MockUpdaterForStructure(mock func(ps *LaidOutStructure, rootDir, rollbackDir string, intercept InterceptorFunc) (Updater, error)) (restore func()) {
 	old := updaterForStructure
 	updaterForStructure = mock
 	return func() {
