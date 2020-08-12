@@ -28,7 +28,6 @@ import (
 
 	"github.com/snapcore/snapd/bootloader/lkenv"
 	"github.com/snapcore/snapd/logger"
-	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/snap"
 )
 
@@ -49,10 +48,6 @@ func newLk(rootdir string, opts *Options) Bootloader {
 	//
 	// determine mode we are in, runtime or image build
 	l.inRuntimeMode = !opts.PrepareImageTime
-
-	if !osutil.FileExists(l.envFile()) {
-		return nil
-	}
 
 	return l
 }
