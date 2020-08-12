@@ -532,16 +532,11 @@ version: 5.0
 		UnpackedGadgetDir: unpackedGadgetDir,
 	}
 
-	// no grub cfg in gadget directory raises an error
-	err = boot.MakeBootable(model, rootdir, bootWith, nil)
-	c.Assert(err, ErrorMatches, "cannot install boot config with a mismatched gadget")
-
 	// set up grub.cfg in gadget
 	grubCfg := []byte("#grub cfg")
 	err = ioutil.WriteFile(filepath.Join(unpackedGadgetDir, "grub.conf"), grubCfg, 0644)
 	c.Assert(err, IsNil)
 
-	// no write access to destination directory
 	restore := assets.MockInternal("grub.cfg", nil)
 	defer restore()
 	err = boot.MakeBootable(model, rootdir, bootWith, nil)
@@ -594,6 +589,9 @@ version: 5.0
 		UnpackedGadgetDir:   unpackedGadgetDir,
 		Recovery:            true,
 	}
+
+	err = ioutil.WriteFile(filepath.Join(unpackedGadgetDir, "uboot.conf"), nil, 0644)
+	c.Assert(err, IsNil)
 
 	// TODO:UC20: enable this use case
 	err = boot.MakeBootable(model, rootdir, bootWith, nil)
