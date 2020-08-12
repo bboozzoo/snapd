@@ -154,7 +154,7 @@ func (o *TrustedAssetsInstallObserver) Observe(op gadget.ContentOperation, affec
 	}
 
 	if o.bl == nil {
-		bl, err := bootloader.ForGadget(o.gadgetDir, &bootloader.Options{NoSlashBoot: true})
+		bl, err := bootloader.ForGadget(o.gadgetDir, root, &bootloader.Options{NoSlashBoot: true})
 		if err != nil {
 			return false, fmt.Errorf("cannot find bootloader: %v", err)
 		}
