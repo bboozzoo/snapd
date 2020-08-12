@@ -131,7 +131,10 @@ func (m *DeviceManager) doSetupRunSystem(t *state.Task, _ *tomb.Tomb) error {
 		bopts.Model = deviceCtx.Model()
 		bopts.SystemLabel = modeEnv.RecoverySystem
 
-		sealingContentObserver = boot.NewTrustedAssetsInstallObserver(deviceCtx.Model())
+		sealingContentObserver, err = boot.NewTrustedAssetsInstallObserver(deviceCtx.Model(), gadgetDir)
+		if err != nil {
+			return fmt.Errorf("cannot setup asset install observer: %v", err)
+		}
 	}
 
 	// run the create partition code
