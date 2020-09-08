@@ -109,6 +109,7 @@ type bootAsset struct {
 // helper types
 type sortedHashesBootAsset bootAsset
 type sortedAssetsBootChain bootChain
+type predictableBootChains []bootChain
 
 // copyForMarshalling copies the contents of boot asset and sorts the hash list.
 func (b *bootAsset) copyForMarshalling() *sortedHashesBootAsset {
@@ -119,28 +120,32 @@ func (b *bootAsset) copyForMarshalling() *sortedHashesBootAsset {
 	return (*sortedHashesBootAsset)(&newB)
 }
 
-// MarshalJSON marshals the boot asset into a form that is deterministic and
-// suitable for equivalence tests.
-func (b *bootAsset) MarshalJSON() ([]byte, error) {
-	s := (*sortedHashesBootAsset)(b.copyForMarshalling())
-	return json.Marshal(s)
+func (b *bootAsset) less(other *bootAsset) bool {
+	byRole := b.Role < other.Role
+	byName := b.Name < other.Name
+	// sort order: role -> name -> hash list (len -> lexical)
+	if b.Role != other.Role {
+		return byRole
+	}
+	if b.Name != other.Name {
+		return byName
+	}
+	return lessByHashList(b.Hashes, other.Hashes)
 }
+
+// // MarshalJSON marshals the boot asset into a form that is deterministic and
+// // suitable for equivalence tests.
+// func (b *bootAsset) MarshalJSON() ([]byte, error) {
+// 	s := (*sortedHashesBootAsset)(b.copyForMarshalling())
+// 	return json.Marshal(s)
+// }
 
 type byBootAssetOrder []bootAsset
 
 func (b byBootAssetOrder) Len() int      { return len(b) }
 func (b byBootAssetOrder) Swap(i, j int) { b[i], b[j] = b[j], b[i] }
 func (b byBootAssetOrder) Less(i, j int) bool {
-	// sort order: role -> name -> hash list (len -> lexical)
-	byRole := b[i].Role < b[j].Role
-	byName := b[i].Name < b[j].Name
-	if b[i].Role != b[j].Role {
-		return byRole
-	}
-	if b[i].Name != b[j].Name {
-		return byName
-	}
-	return lessByHashList(b[i].Hashes, b[j].Hashes)
+	return b[i].less(&(b[j]))
 }
 
 func lessByHashList(h1, h2 []string) bool {
@@ -184,4 +189,55 @@ func (b *bootChain) equalForReseal(other *bootChain) bool {
 		return false
 	}
 	return bytes.Equal(bJSON, otherJSON)
+}
+
+func lessSortedBootAssets(b1, b2 []bootAsset) bool {
+	if len(b1) != len(b2) {
+		return len(b1) < len(b2)
+	}
+	for i := range b1 {
+		if b1[i].less(&(b2[i])) {
+			return true
+		}
+	}
+	return false
+}
+
+type byBootChainOrder []sortedAssetsBootChain
+
+func (b byBootChainOrder) Len() int      { return len(b) }
+func (b byBootChainOrder) Swap(i, j int) { b[i], b[j] = b[j], b[i] }
+func (b byBootChainOrder) Less(i, j int) bool {
+	// sort order: role -> name -> hash list (len -> lexical)
+	if b[i].Model != b[j].Model {
+		return b[i].Model < b[j].Model
+	}
+	if b[i].BrandID != b[j].BrandID {
+		return b[i].BrandID < b[j].BrandID
+	}
+	if b[i].Grade != b[j].Grade {
+		return b[i].Grade < b[j].Grade
+	}
+	if b[i].ModelSignKeyID != b[j].ModelSignKeyID {
+		return b[i].ModelSignKeyID < b[j].ModelSignKeyID
+	}
+	if b[i].Kernel != b[j].Kernel {
+		return b[i].Kernel < b[j].Kernel
+	}
+	if b[i].KernelRevision != b[j].KernelRevision {
+		return b[i].KernelRevision < b[j].KernelRevision
+	}
+	if b[i].KernelCmdline != b[j].KernelCmdline {
+		return b[i].KernelCmdline < b[j].KernelCmdline
+	}
+	return lessSortedBootAssets(b[i].AssetChain, b[j].AssetChain)
+}
+
+func (s predictableBootChains) MarshalJSON() ([]byte, error) {
+	bootChains := make([]sortedAssetsBootChain, len(s))
+	for i := range s {
+		bootChains[i] = *(s[i].copyForMarshalling())
+	}
+	sort.Sort(byBootChainOrder(bootChains))
+	return json.Marshal(bootChains)
 }

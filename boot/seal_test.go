@@ -113,17 +113,6 @@ func createMockGrubCfg(baseDir string) error {
 	return ioutil.WriteFile(cfg, []byte("# Snapd-Boot-Config-Edition: 1\n"), 0644)
 }
 
-func (s *sealSuite) TestBootAssetMarshal(c *C) {
-	ba := &boot.BootAsset{
-		Role:   "foo",
-		Name:   "loader",
-		Hashes: []string{"q", "y", "x", "z", "1234", "a"},
-	}
-	d, err := json.Marshal(ba)
-	c.Assert(err, IsNil)
-	c.Check(string(d), Equals, `{"role":"foo","name":"loader","hashes":["1234","a","q","x","y","z"]}`)
-}
-
 func (s *sealSuite) TestBootAssetsSort(c *C) {
 	// by role
 	d := []boot.BootAsset{
