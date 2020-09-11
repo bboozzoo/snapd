@@ -145,7 +145,14 @@ func resealKeyToModeenv(model *asserts.Model, modeenv *Modeenv) error {
 
 	pbc := toPredictableBootChains(append(runModeBootChains, recoveryBootChains...))
 
-	// TODO:UC20: load and compare the predictable bootchains
+	needed, err := isResealNeeded(pbc, InstallHostWritableDir)
+	if err != nil {
+		return err
+	}
+	if !needed {
+		// boot chains are identical, nothing to do
+		return nil
+	}
 
 	roleToBlName := map[bootloader.Role]string{
 		bootloader.RoleRecovery: rbl.Name(),
@@ -166,7 +173,10 @@ func resealKeyToModeenv(model *asserts.Model, modeenv *Modeenv) error {
 		return fmt.Errorf("cannot reseal the encryption key: %v", err)
 	}
 
-	// TODO:UC20: save the new predictable bootchains
+	installBootChainsPath := filepath.Join(dirs.SnapFDEDirUnder(InstallHostWritableDir), "boot-chains")
+	if err := bootChainsToFile(pbc, installBootChainsPath); err != nil {
+		return fmt.Errorf("cannot store boot chains: %v", err)
+	}
 
 	return nil
 }
