@@ -53,7 +53,7 @@ func (s *grubAssetsTestSuite) testGrubConfigContains(c *C, name string, keys ...
 func (s *grubAssetsTestSuite) TestGrubConf(c *C) {
 	s.testGrubConfigContains(c, "grub.cfg",
 		"snapd_recovery_mode",
-		"set snapd_static_cmdline_args='console=ttyS0 console=tty1 panic=-1'",
+		"set snapd_static_cmdline_args='console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous'",
 	)
 }
 
@@ -61,7 +61,7 @@ func (s *grubAssetsTestSuite) TestGrubRecoveryConf(c *C) {
 	s.testGrubConfigContains(c, "grub-recovery.cfg",
 		"snapd_recovery_mode",
 		"snapd_recovery_system",
-		"set snapd_static_cmdline_args='console=ttyS0 console=tty1 panic=-1'",
+		"set snapd_static_cmdline_args='console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous'",
 	)
 }
 
@@ -71,8 +71,8 @@ func (s *grubAssetsTestSuite) TestGrubCmdlineSnippetEditions(c *C) {
 		edition uint
 		snip    []byte
 	}{
-		{"grub.cfg:static-cmdline", 1, []byte("console=ttyS0 console=tty1 panic=-1")},
-		{"grub-recovery.cfg:static-cmdline", 1, []byte("console=ttyS0 console=tty1 panic=-1")},
+		{"grub.cfg:static-cmdline", 1, []byte("console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous")},
+		{"grub-recovery.cfg:static-cmdline", 1, []byte("console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous")},
 	} {
 		snip := assets.SnippetForEdition(tc.asset, tc.edition)
 		c.Assert(snip, NotNil)
@@ -90,12 +90,12 @@ func (s *grubAssetsTestSuite) TestGrubCmdlineSnippetCrossCheck(c *C) {
 	}{
 		{
 			asset: "grub.cfg", snippet: "grub.cfg:static-cmdline", edition: 1,
-			content: []byte("console=ttyS0 console=tty1 panic=-1"),
+			content: []byte("console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous"),
 			pattern: "set snapd_static_cmdline_args='%s'\n",
 		},
 		{
 			asset: "grub-recovery.cfg", snippet: "grub-recovery.cfg:static-cmdline", edition: 1,
-			content: []byte("console=ttyS0 console=tty1 panic=-1"),
+			content: []byte("console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous"),
 			pattern: "set snapd_static_cmdline_args='%s'\n",
 		},
 	} {
