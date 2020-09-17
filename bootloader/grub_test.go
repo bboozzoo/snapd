@@ -965,7 +965,7 @@ boot script
 	extraArgs := "foo bar baz=1"
 	args, err := tg.CommandLine("snapd_recovery_mode=run", "", extraArgs)
 	c.Assert(err, IsNil)
-	c.Check(args, Equals, `snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1 foo bar baz=1`)
+	c.Check(args, Equals, `snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 dangerous foo bar baz=1`)
 
 	// now check the recovery bootloader
 	opts = &bootloader.Options{NoSlashBoot: true, Role: bootloader.RoleRecovery}
@@ -973,7 +973,7 @@ boot script
 	args, err = mrg.CommandLine("snapd_recovery_mode=recover", "snapd_recovery_system=20200202", extraArgs)
 	c.Assert(err, IsNil)
 	// static command line from recovery asset
-	c.Check(args, Equals, `snapd_recovery_mode=recover snapd_recovery_system=20200202 console=ttyS0 console=tty1 panic=-1 foo bar baz=1`)
+	c.Check(args, Equals, `snapd_recovery_mode=recover snapd_recovery_system=20200202 console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 dangerous foo bar baz=1`)
 }
 
 func (s *grubTestSuite) TestTrustedAssetsNativePartitionLayout(c *C) {
