@@ -433,8 +433,8 @@ version: 5.0
 			secboot.NewLoadChain(shim, secboot.NewLoadChain(grub, secboot.NewLoadChain(runGrub, secboot.NewLoadChain(runKernel)))),
 		})
 		c.Assert(params.ModelParams[0].KernelCmdlines, DeepEquals, []string{
-			"snapd_recovery_mode=recover snapd_recovery_system=20191216 console=ttyS0 console=tty1 panic=-1",
-			"snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1",
+			"snapd_recovery_mode=recover snapd_recovery_system=20191216 console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous",
+			"snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous",
 		})
 		c.Assert(params.ModelParams[0].Model.DisplayName(), Equals, "My Model")
 
@@ -749,8 +749,8 @@ version: 5.0
 			secboot.NewLoadChain(shim, secboot.NewLoadChain(grub, secboot.NewLoadChain(runGrub, secboot.NewLoadChain(runKernel)))),
 		})
 		c.Assert(params.ModelParams[0].KernelCmdlines, DeepEquals, []string{
-			"snapd_recovery_mode=recover snapd_recovery_system=20191216 console=ttyS0 console=tty1 panic=-1",
-			"snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1",
+			"snapd_recovery_mode=recover snapd_recovery_system=20191216 console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous",
+			"snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous",
 		})
 		c.Assert(params.ModelParams[0].Model.DisplayName(), Equals, "My Model")
 
