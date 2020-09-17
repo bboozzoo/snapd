@@ -148,8 +148,8 @@ func (s *sealSuite) TestSealKeyToModeenv(c *C) {
 							secboot.NewLoadChain(runKernel)))),
 			})
 			c.Assert(params.ModelParams[0].KernelCmdlines, DeepEquals, []string{
-				"snapd_recovery_mode=recover snapd_recovery_system=20200825 console=ttyS0 console=tty1 panic=-1",
-				"snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1",
+				"snapd_recovery_mode=recover snapd_recovery_system=20200825 console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous",
+				"snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous",
 			})
 			c.Assert(params.ModelParams[0].Model.DisplayName(), Equals, "My Model")
 
@@ -191,7 +191,7 @@ func (s *sealSuite) TestSealKeyToModeenv(c *C) {
 				Kernel:         "pc-kernel",
 				KernelRevision: "1",
 				KernelCmdlines: []string{
-					"snapd_recovery_mode=recover snapd_recovery_system=20200825 console=ttyS0 console=tty1 panic=-1",
+					"snapd_recovery_mode=recover snapd_recovery_system=20200825 console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous",
 				},
 			},
 			boot.BootChain{
@@ -219,7 +219,7 @@ func (s *sealSuite) TestSealKeyToModeenv(c *C) {
 				Kernel:         "pc-kernel",
 				KernelRevision: "500",
 				KernelCmdlines: []string{
-					"snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1",
+					"snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous",
 				},
 			},
 		})
@@ -321,8 +321,8 @@ func (s *sealSuite) TestResealKeyToModeenv(c *C) {
 			// shared parameters
 			c.Assert(params.ModelParams[0].Model.DisplayName(), Equals, "My Model")
 			c.Assert(params.ModelParams[0].KernelCmdlines, DeepEquals, []string{
-				"snapd_recovery_mode=recover snapd_recovery_system=20200825 console=ttyS0 console=tty1 panic=-1",
-				"snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1",
+				"snapd_recovery_mode=recover snapd_recovery_system=20200825 console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous",
+				"snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous",
 			})
 
 			// load chains
@@ -436,7 +436,7 @@ func (s *sealSuite) TestResealKeyToModeenv(c *C) {
 				Kernel:         "pc-kernel",
 				KernelRevision: "1",
 				KernelCmdlines: []string{
-					"snapd_recovery_mode=recover snapd_recovery_system=20200825 console=ttyS0 console=tty1 panic=-1",
+					"snapd_recovery_mode=recover snapd_recovery_system=20200825 console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous",
 				},
 			},
 			boot.BootChain{
@@ -464,7 +464,7 @@ func (s *sealSuite) TestResealKeyToModeenv(c *C) {
 				Kernel:         "pc-kernel",
 				KernelRevision: "500",
 				KernelCmdlines: []string{
-					"snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1",
+					"snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous",
 				},
 			},
 			boot.BootChain{
@@ -492,7 +492,7 @@ func (s *sealSuite) TestResealKeyToModeenv(c *C) {
 				Kernel:         "pc-kernel",
 				KernelRevision: "600",
 				KernelCmdlines: []string{
-					"snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1",
+					"snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1 systemd.debug-shell=1 rd.systemd.debug-shell=1 dangerous",
 				},
 			},
 		})
