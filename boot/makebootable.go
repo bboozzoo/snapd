@@ -380,7 +380,8 @@ func makeBootable20RunMode(model *asserts.Model, rootdir string, bootWith *Boota
 		return fmt.Errorf("internal error: cannot find recovery system bootloader: %v", err)
 	}
 	blVars = map[string]string{
-		"snapd_recovery_mode": "run",
+		"snapd_recovery_mode":           "run",
+		"snapd_default_recovery_system": recoverySystemLabel,
 	}
 	if err := bl.SetBootVars(blVars); err != nil {
 		return fmt.Errorf("cannot set recovery environment: %v", err)
