@@ -671,19 +671,34 @@ func (s *assetsSuite) TestInstallObserverObserveExistingRecoveryErr(c *C) {
 }
 
 func (s *assetsSuite) TestUpdateObserverNew(c *C) {
-	s.bootloaderWithTrustedAssets(c, []string{
-		"asset",
-	})
+	tab := s.bootloaderWithTrustedAssets(c, nil)
 
 	uc20Model := boottest.MakeMockUC20Model()
 
 	gadgetDir := c.MkDir()
 
+	// no trusted or managed assets
 	obs, err := boot.TrustedAssetsUpdateObserverForModel(uc20Model, gadgetDir)
+	c.Assert(err, Equals, boot.ErrObserverNotApplicable)
+	c.Check(obs, IsNil)
+
+	// no managed, some trusted assets, but we are not tracking them
+	tab.TrustedAssetsList = []string{"asset"}
+	obs, err = boot.TrustedAssetsUpdateObserverForModel(uc20Model, gadgetDir)
+	c.Assert(err, Equals, boot.ErrObserverNotApplicable)
+	c.Check(obs, IsNil)
+
+	// let's see some managed assets, but not trusted assets
+	tab.ManagedAssetsList = []string{"managed"}
+	tab.TrustedAssetsList = nil
+	obs, err = boot.TrustedAssetsUpdateObserverForModel(uc20Model, gadgetDir)
 	c.Assert(err, IsNil)
 	c.Check(obs, NotNil)
-	// sealed keys stamp
+
+	// no managed, some trusted which we need to track
 	s.stampSealedKeys(c, dirs.GlobalRootDir)
+	tab.ManagedAssetsList = nil
+	tab.TrustedAssetsList = []string{"asset"}
 	obs, err = boot.TrustedAssetsUpdateObserverForModel(uc20Model, gadgetDir)
 	c.Assert(err, IsNil)
 	c.Assert(obs, NotNil)
@@ -1003,38 +1018,6 @@ func (s *assetsSuite) TestUpdateObserverUpdateOtherRoleStructMocked(c *C) {
 		&gadget.ContentChange{After: filepath.Join(d, "foobar")})
 	c.Assert(err, IsNil)
 	c.Check(res, Equals, gadget.ChangeApply)
-}
-
-func (s *assetsSuite) TestUpdateObserverUpdateNotTrustedMocked(c *C) {
-	d := c.MkDir()
-	root := c.MkDir()
-
-	// mot a non trusted assets bootloader
-	bl := bootloadertest.Mock("not-trusted", "")
-	bootloader.Force(bl)
-	defer bootloader.Force(nil)
-
-	err := ioutil.WriteFile(filepath.Join(d, "foobar"), nil, 0644)
-	c.Assert(err, IsNil)
-
-	// no need to mock modeenv, the bootloader has no trusted assets
-
-	// we get an observer for UC20
-	obs, _ := s.uc20UpdateObserverEncryptedSystemMockedBootloader(c)
-
-	// observe the updates
-	res, err := obs.Observe(gadget.ContentUpdate, mockRunBootStruct, root, "asset",
-		&gadget.ContentChange{After: filepath.Join(d, "foobar")})
-	c.Assert(err, IsNil)
-	c.Check(res, Equals, gadget.ChangeApply)
-	res, err = obs.Observe(gadget.ContentUpdate, mockSeedStruct, root, "asset",
-		&gadget.ContentChange{After: filepath.Join(d, "foobar")})
-	c.Assert(err, IsNil)
-	c.Check(res, Equals, gadget.ChangeApply)
-
-	// reseal is a noop
-	err = obs.BeforeWrite()
-	c.Assert(err, IsNil)
 }
 
 func (s *assetsSuite) TestUpdateObserverUpdateTrivialErr(c *C) {

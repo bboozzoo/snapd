@@ -290,7 +290,8 @@ func (o *TrustedAssetsInstallObserver) ObserveExistingTrustedRecoveryAssets(reco
 		// assets do not need tracking, nothing to do
 		return nil
 	}
-	bl, trustedAssets, _, err := findMaybeTrustedBootloaderAndAssets(recoveryRootDir, &bootloader.Options{
+	// TODO: move to *ForModel()
+	bl, trustedAssets, err := findMaybeTrustedBootloaderAndAssets(recoveryRootDir, &bootloader.Options{
 		Role: bootloader.RoleRecovery,
 	})
 	if err != nil {
@@ -362,6 +363,16 @@ func TrustedAssetsUpdateObserverForModel(model *asserts.Model, gadgetDir string)
 		return nil, err
 	}
 
+	hasManaged := len(runManaged) > 0 || len(seedManaged) > 0
+	hasTrusted := len(runTrusted) > 0 || len(seedTrusted) > 0
+	if !hasManaged {
+		// no managed assets
+		if !hasTrusted || !trackTrustedAssets {
+			// no trusted assets or we are not tracking them either
+			return nil, ErrObserverNotApplicable
+		}
+	}
+
 	obs := &TrustedAssetsUpdateObserver{
 		cache: newTrustedAssetsCache(dirs.SnapBootAssetsDir),
 		model: model,
@@ -410,13 +421,13 @@ func trustedAndManagedAssetsOfBootloader(bl bootloader.Bootloader) (trustedAsset
 	return trustedAssets, managedAssets, nil
 }
 
-func findMaybeTrustedBootloaderAndAssets(rootDir string, opts *bootloader.Options) (foundBl bootloader.Bootloader, trustedAssets, managedAssets []string, err error) {
+func findMaybeTrustedBootloaderAndAssets(rootDir string, opts *bootloader.Options) (foundBl bootloader.Bootloader, trustedAssets []string, err error) {
 	foundBl, err = bootloader.Find(rootDir, opts)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("cannot find bootloader: %v", err)
+		return nil, nil, fmt.Errorf("cannot find bootloader: %v", err)
 	}
-	trustedAssets, managedAssets, err = trustedAndManagedAssetsOfBootloader(foundBl)
-	return foundBl, trustedAssets, managedAssets, err
+	trustedAssets, _, err = trustedAndManagedAssetsOfBootloader(foundBl)
+	return foundBl, trustedAssets, err
 }
 
 func gadgetMaybeTrustedBootloaderAndAssets(gadgetDir, rootDir string, opts *bootloader.Options) (foundBl bootloader.Bootloader, trustedAssets, managedAssets []string, err error) {
@@ -727,7 +738,7 @@ func observeSuccessfulBootAssetsForBootloader(m *Modeenv, root string, opts *boo
 	}
 
 	// let's find the bootloader first
-	bl, trustedAssets, _, err := findMaybeTrustedBootloaderAndAssets(root, opts)
+	bl, trustedAssets, err := findMaybeTrustedBootloaderAndAssets(root, opts)
 	if err != nil {
 		return nil, err
 	}
