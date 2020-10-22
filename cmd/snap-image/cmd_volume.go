@@ -28,6 +28,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/jessevdk/go-flags"
 
@@ -35,6 +36,7 @@ import (
 	"github.com/snapcore/snapd/i18n"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
+	"github.com/snapcore/snapd/strutil/quantity"
 )
 
 type cmdPrepareVolume struct {
@@ -63,15 +65,18 @@ func init() {
 }
 
 func dumpVolumeInfo(pv *gadget.LaidOutVolume, rootfsForName map[string]string) {
+	formatSize := func(sz gadget.Size) string {
+		return strings.TrimSpace(quantity.FormatAmount(uint64(sz), 8))
+	}
 	fmt.Fprintf(Stderr, "volume:\n")
-	fmt.Fprintf(Stderr, "  size: %v\n", pv.Size)
+	fmt.Fprintf(Stderr, "  size: %v (%s)\n", pv.Size, formatSize(pv.Size))
 	fmt.Fprintf(Stderr, "  schema: %v\n", pv.EffectiveSchema())
 	fmt.Fprintf(Stderr, "  structures: \n")
 	for _, ps := range pv.LaidOutStructure {
 		fmt.Fprintf(Stderr, "     %v:\n", ps)
 		fmt.Fprintf(Stderr, "       type: %v\n", ps.Type)
-		fmt.Fprintf(Stderr, "       size: %v\n", ps.Size)
-		fmt.Fprintf(Stderr, "       start-offset: %v\n", ps.StartOffset)
+		fmt.Fprintf(Stderr, "       size: %v (%s)\n", ps.Size, formatSize(ps.Size))
+		fmt.Fprintf(Stderr, "       start-offset: %v (%s)\n", ps.StartOffset, formatSize(ps.StartOffset))
 		erole := ps.EffectiveRole()
 		if erole == "" {
 			erole = "<none>"
