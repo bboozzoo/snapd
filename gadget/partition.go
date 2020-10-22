@@ -63,10 +63,10 @@ func Partition(image string, pv *LaidOutVolume) error {
 	// only sector unit is supported
 	fmt.Fprintf(script, "unit: sectors\n")
 	switch pv.EffectiveSchema() {
-	case GPT:
+	case schemaGPT:
 		fmt.Fprintf(script, "label: gpt\n")
 		fmt.Fprintf(script, "first-lba: 34\n")
-	case MBR:
+	case schemaMBR:
 		fmt.Fprintf(script, "label: dos\n")
 	}
 	if pv.ID != "" {
@@ -85,17 +85,17 @@ func Partition(image string, pv *LaidOutVolume) error {
 
 		mbrType, gptType := splitType(ps.Type)
 		pType := mbrType
-		if pv.EffectiveSchema() == GPT {
+		if pv.EffectiveSchema() == schemaGPT {
 			pType = gptType
 		}
 		if pType != "" {
 			fmt.Fprintf(script, ", type=%v", pType)
 		}
 
-		if pv.EffectiveSchema() == GPT && ps.Name != "" {
+		if pv.EffectiveSchema() == schemaGPT && ps.Name != "" {
 			fmt.Fprintf(script, ", name=%q", ps.Name)
 		}
-		if pv.EffectiveSchema() == MBR && ps.EffectiveRole() == SystemBoot {
+		if pv.EffectiveSchema() == schemaMBR && ps.EffectiveRole() == SystemBoot {
 			fmt.Fprintf(script, ", bootable")
 		}
 

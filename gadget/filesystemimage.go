@@ -24,17 +24,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/snapcore/snapd/gadget/internal"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
-)
-
-type MkfsFunc func(imgFile, label, contentsRootDir string) error
-
-var (
-	mkfsHandlers = map[string]MkfsFunc{
-		"vfat": MkfsVfat,
-		"ext4": MkfsExt4,
-	}
 )
 
 // FilesystemImageWriter is capable of creating filesystem images described by
@@ -64,10 +56,6 @@ func NewFilesystemImageWriter(contentDir string, ps *LaidOutStructure, workDir s
 	if contentDir == "" {
 		return nil, fmt.Errorf("internal error: gadget content directory cannot be unset")
 	}
-	if _, ok := mkfsHandlers[ps.Filesystem]; !ok {
-		return nil, fmt.Errorf("internal error: filesystem %q has no handler", ps.Filesystem)
-	}
-
 	fiw := &FilesystemImageWriter{
 		contentDir: contentDir,
 		ps:         ps,
@@ -89,11 +77,6 @@ func (f *FilesystemImageWriter) Write(fname string, postStage PostStageFunc) err
 		return fmt.Errorf("size of image file %v is different from declared structure size %v", sz, f.ps.Size)
 	}
 
-	mkfsWithContent := mkfsHandlers[f.ps.Filesystem]
-	if mkfsWithContent == nil {
-		return fmt.Errorf("internal error: filesystem %q has no handler", f.ps.Filesystem)
-	}
-
 	stagingDir := filepath.Join(f.workDir, fmt.Sprintf("snap-stage-content-part-%04d", f.ps.Index))
 	if osutil.IsDirectory(stagingDir) {
 		return fmt.Errorf("cannot prepare staging directory %s: path exists", stagingDir)
@@ -113,7 +96,7 @@ func (f *FilesystemImageWriter) Write(fname string, postStage PostStageFunc) err
 
 	// use a mounted filesystem writer to populate the staging directory
 	// with contents of given structure
-	mrw, err := NewMountedFilesystemWriter(f.contentDir, f.ps)
+	mrw, err := NewMountedFilesystemWriter(f.contentDir, f.ps, nil)
 	if err != nil {
 		return fmt.Errorf("cannot prepare filesystem writer for %v: %v", f.ps, err)
 	}
@@ -129,7 +112,7 @@ func (f *FilesystemImageWriter) Write(fname string, postStage PostStageFunc) err
 	}
 
 	// create a filesystem with contents of the staging directory
-	if err := mkfsWithContent(fname, f.ps.Label, stagingDir); err != nil {
+	if err := internal.MkfsWithContent(f.ps.Filesystem, fname, f.ps.Label, stagingDir); err != nil {
 		return fmt.Errorf("cannot create %q filesystem: %v", f.ps.Filesystem, err)
 	}
 
