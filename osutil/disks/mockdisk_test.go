@@ -109,7 +109,7 @@ func (s *mockDiskSuite) TestMockMountPointDisksToPartitionMappingVerifiesConsist
 		func() { disks.MockMountPointDisksToPartitionMapping(m) },
 		PanicMatches,
 		// use .* for true/false since iterating over map order is not defined
-		`mocked source mountpoint mount1 is duplicated with different options - previous option for IsDecryptedDevice was .*, current option is .*`,
+		`mocked source mountpoint is duplicated with different options, previous: {Mountpoint:mount1 IsDecryptedDevice:false} current: {Mountpoint:mount1 IsDecryptedDevice:true}`,
 	)
 }
 

@@ -104,15 +104,15 @@ func MockMountPointDisksToPartitionMapping(mockedMountPoints map[Mountpoint]*Moc
 	// and as an unencrypyted device for different tests, but never at the same
 	// time with the same mapping
 	alreadySeen := make(map[string]*MockDiskMapping, len(mockedMountPoints))
-	seenSrcMntPts := make(map[string]bool, len(mockedMountPoints))
+	seenSrcMntPts := make(map[string]Mountpoint, len(mockedMountPoints))
 	for srcMntPt, mockDisk := range mockedMountPoints {
-		if decryptedVal, ok := seenSrcMntPts[srcMntPt.Mountpoint]; ok {
-			if decryptedVal != srcMntPt.IsDecryptedDevice {
-				msg := fmt.Sprintf("mocked source mountpoint %s is duplicated with different options - previous option for IsDecryptedDevice was %t, current option is %t", srcMntPt.Mountpoint, decryptedVal, srcMntPt.IsDecryptedDevice)
+		if other, ok := seenSrcMntPts[srcMntPt.Mountpoint]; ok {
+			if srcMntPt != other {
+				msg := fmt.Sprintf("mocked source mountpoint is duplicated with different options, previous: %+v current: %+v", other, srcMntPt)
 				panic(msg)
 			}
 		}
-		seenSrcMntPts[srcMntPt.Mountpoint] = srcMntPt.IsDecryptedDevice
+		seenSrcMntPts[srcMntPt.Mountpoint] = srcMntPt
 		if old, ok := alreadySeen[mockDisk.DevNum]; ok {
 			if mockDisk != old {
 				// we already saw a disk with this DevNum as a different pointer
