@@ -1,5 +1,8 @@
 project: snapd
 
+artifacts:
+  - oom-kill
+
 environment:
     GOHOME: /home/gopath
     GOPATH: $GOHOME
@@ -442,6 +445,13 @@ debug-each: |
                 echo
 
             nested_exec sudo journalctl --no-pager -u snapd || true
+        fi
+
+        echo "# oom killer"
+        if dmesg |grep "oom-killer"; then
+            echo "oom-killer got invoked during the tests, this should not happen."
+            echo "Dmesg debug output:"
+            dmesg
         fi
 
         echo '# journal messages for snapd'

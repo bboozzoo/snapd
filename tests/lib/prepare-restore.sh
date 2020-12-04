@@ -720,10 +720,10 @@ restore_project_each() {
     if dmesg|grep "oom-killer"; then
         echo "oom-killer got invoked during the tests, this should not happen."
         echo "Dmesg debug output:"
-        dmesg
+        dmesg > $PWD/oom-kill
         echo "Meminfo debug output:"
-        cat /proc/meminfo
-        exit 1
+        cat /proc/meminfo >> $PWD/oom-kill
+        #exit 1
     fi
 
     # TODO: move this to tests.invariant.
