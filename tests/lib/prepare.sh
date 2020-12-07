@@ -325,6 +325,18 @@ prepare_classic() {
     fi
 }
 
+drop_unnecessary_snapd_bits() {
+    local SNAPD_SNAP_DIR="$1"
+    # gconv conversion tables
+    find "$SNAPD_SNAP_DIR/usr/lib/" -type d -name 'gconv' -exec rm -rfv \{\} \; || true
+    # *.so libs
+    find "$SNAPD_SNAP_DIR/usr/lib/" -name '*.so*' -not -name '*.socket' -ls -delete || true
+    # ld-*.so is invoked as interpreter when running binaries from the snap
+    find "$SNAPD_SNAP_DIR/lib/" -name '*.so*' -not -name 'ld-*.so*' -not -name '*.socket' -ls -delete || true
+    # locales
+    rm -rfv "$SNAPD_SNAP_DIR/usr/lib/locale"
+}
+
 repack_snapd_snap_with_deb_content() {
     local TARGET="$1"
 
@@ -337,6 +349,9 @@ repack_snapd_snap_with_deb_content() {
 
     dpkg-deb -x "$SPREAD_PATH"/../snapd_*.deb "$UNPACK_DIR"
     cp /usr/lib/snapd/info "$UNPACK_DIR"/usr/lib/snapd
+
+    drop_unnecessary_snapd_bits "$UNPACK_DIR"
+
     snap pack "$UNPACK_DIR" "$TARGET"
     rm -rf "$UNPACK_DIR"
 }
@@ -347,6 +362,8 @@ repack_core_snap_with_tweaks() {
 
     local UNPACK_DIR="/tmp/core-unpack"
     unsquashfs -no-progress -d "$UNPACK_DIR" "$CORESNAP"
+
+    drop_unnecessary_snapd_bits "$UNPACK_DIR"
 
     mkdir -p "$UNPACK_DIR"/etc/systemd/journald.conf.d
     cat <<EOF > "$UNPACK_DIR"/etc/systemd/journald.conf.d/to-console.conf
@@ -382,6 +399,8 @@ repack_snapd_snap_with_deb_content_and_run_mode_firstboot_tweaks() {
 
     dpkg-deb -x "$SPREAD_PATH"/../snapd_*.deb "$UNPACK_DIR"
     cp /usr/lib/snapd/info "$UNPACK_DIR"/usr/lib/snapd
+
+    drop_unnecessary_snapd_bits "$UNPACK_DIR"
 
     # now install a unit that sets up enough so that we can connect
     cat > "$UNPACK_DIR"/lib/systemd/system/snapd.spread-tests-run-mode-tweaks.service <<'EOF'

@@ -580,6 +580,7 @@ pkg_dependencies_ubuntu_generic(){
         udisks2
         upower
         uuid-runtime
+        squashfs-tools
         "
 }
 
