@@ -146,9 +146,13 @@ network netlink raw,
 # See: https://bugs.launchpad.net/snapd/+bug/1901489
 deny owner @{HOME}/.ICEauthority r,
 deny owner /run/user/*/ICEauthority r,
-deny unix (connect, receive, send)
-    type=stream
-    peer=(addr="@/tmp/.ICE-unix/[0-9]*"),
+# XXX 13.01.2021: disable the following deny entry due to:
+# https://bugzilla.opensuse.org/show_bug.cgi?id=1180766
+# because the kernels lack the fine grained AF_UNIX mediation patches,
+# the rule is downgraded and blocks all unix sockets
+# deny unix (connect, receive, send)
+#     type=stream
+#     peer=(addr="@/tmp/.ICE-unix/[0-9]*"),
 `
 
 const x11ConnectedPlugSecComp = `
