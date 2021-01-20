@@ -20,6 +20,9 @@
 package state
 
 import (
+	"context"
+	"fmt"
+	"runtime/trace"
 	"sync"
 	"time"
 
@@ -196,6 +199,9 @@ func (r *TaskRunner) run(t *Task) {
 	tomb := &tomb.Tomb{}
 	r.tombs[t.ID()] = tomb
 	tomb.Go(func() error {
+		_, tt := trace.NewTask(context.Background(), fmt.Sprintf("(%s) %s", t.ID(), t.Summary()))
+		defer tt.End()
+
 		// Capture the error result with tomb.Kill so we can
 		// use tomb.Err uniformly to consider both it or a
 		// overriding previous Kill reason.
