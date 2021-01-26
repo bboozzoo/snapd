@@ -368,6 +368,10 @@ func runSnapConfine(info *snap.Info, securityTag, snapApp string, args []string)
 		return ErrNeedsFullSnapCommand
 	}
 
+	if err := maybeWaitForSecurityProfileRegeneration(); err == ErrNeedsFullSnapCommand {
+		logger.Noticef("ignoring mismatch")
+	}
+
 	snapConfine, err := snapdHelperPath("snap-confine")
 	if err != nil {
 		return err
