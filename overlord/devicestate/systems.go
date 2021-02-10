@@ -22,6 +22,7 @@ package devicestate
 import (
 	"fmt"
 
+	"github.com/snapcore/snapd/asserts"
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/overlord/snapstate"
 	"github.com/snapcore/snapd/overlord/state"
@@ -175,4 +176,15 @@ func seededSystemFromModeenv() (*seededSystem, error) {
 		// SeedTime is intentionally left unset
 	}
 	return seededSys, nil
+}
+
+func createSystemForModel(label string, model *asserts.Model) error {
+	// model is non classic
+	if isUC20 := model.Grade() != asserts.ModelGradeUnset; !isUC20 {
+		return fmt.Errorf("cannot create a system for non UC20 model")
+	}
+
+	// XXX: seed must be mounted and writable
+	// filepath.Join(dirs.SnapSeedDir, "system-seed"
+	return nil
 }
