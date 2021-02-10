@@ -430,6 +430,10 @@ func remodelTasks(ctx context.Context, st *state.State, current, new *asserts.Mo
 	//       our remodel change our carefully constructed wait chain
 	//       breaks down.
 
+	// Keep track of downloads tasks carrying snap-setup, which in case of
+	// install are the download tasks
+	var snapSetupTasks []string
+
 	// Ensure all download/check tasks are run *before* the install
 	// tasks. During a remodel the network may not be available so
 	// we need to ensure we have everything local.
@@ -461,6 +465,7 @@ func remodelTasks(ctx context.Context, st *state.State, current, new *asserts.Mo
 		if err != nil {
 			return nil, fmt.Errorf("cannot remodel: %v", err)
 		}
+
 		if prevDownload != nil {
 			// XXX: we don't strictly need to serialize the download
 			downloadStart.WaitFor(prevDownload)
@@ -475,12 +480,29 @@ func remodelTasks(ctx context.Context, st *state.State, current, new *asserts.Mo
 		if firstInstallInChain == nil {
 			firstInstallInChain = installFirst
 		}
+
+		// download is always a first task of the 'download' phase
+		snapSetupTasks = append(snapSetupTasks, downloadStart.ID())
 	}
-	// Make sure the first install waits for the last download. With this
-	// our (simplified) wait chain looks like:
-	// download1 <- verify1 <- download2 <- verify2 <- download3 <- verify3 <- install1 <- install2 <- install3
+	// Make sure the first install waits for the recovery system which waits
+	// for the last download. With this our (simplified) wait chain looks
+	// like this:
+	//
+	// download1
+	//   ^- verify1
+	//        ^- download2
+	//             ^- verify2
+	//                  ^- download3
+	//                       ^- verify3
+	//                            ^- recovery
+	//                                 ^- install1
+	//                                      ^- install2
+	//                                           ^- install3
 	if firstInstallInChain != nil && lastDownloadInChain != nil {
-		firstInstallInChain.WaitFor(lastDownloadInChain)
+		// XXX: generate the label
+		createRecoveryTasks := createRecoverySystemTasks(st, "1234", snapSetupTasks)
+		createRecoveryTasks.WaitFor(lastDownloadInChain)
+		firstInstallInChain.WaitAll(createRecoveryTasks)
 	}
 
 	// Set the new model assertion - this *must* be the last thing done
@@ -636,4 +658,33 @@ func Remodeling(st *state.State) bool {
 		}
 	}
 	return false
+}
+
+func createRecoverySystemTasks(st *state.State, label string, snapSetupTasks []string) *state.TaskSet {
+	create := st.NewTask("create-recovery-system", fmt.Sprintf("Create recovery system with label %q", label))
+	// the label we want
+	create.Set("system-label", label)
+	// IDs of the tasks carrying snap-setup
+	create.Set("snap-setup-tasks", snapSetupTasks)
+
+	finalize := st.NewTask("finalize-recovery-system", fmt.Sprintf("Finalize recovery system %q", label))
+	finalize.WaitFor(create)
+	// finalize needs to know the label too
+	finalize.Set("system-label", label)
+	return state.NewTaskSet(create, finalize)
+}
+
+func CreateRecoverySystem(st *state.State, label string) (*state.Change, error) {
+	var seeded bool
+	err := st.Get("seeded", &seeded)
+	if err != nil && err != state.ErrNoState {
+		return nil, err
+	}
+	if !seeded {
+		return nil, fmt.Errorf("cannot remodel until fully seeded")
+	}
+	chg := st.NewChange("create-recovery-system", fmt.Sprintf("Create new recovery system with label %q", label))
+	ts := createRecoverySystemTasks(st, label, nil)
+	chg.AddAll(ts)
+	return chg, nil
 }

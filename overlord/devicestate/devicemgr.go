@@ -53,6 +53,7 @@ import (
 	"github.com/snapcore/snapd/snap"
 	"github.com/snapcore/snapd/snap/snapfile"
 	"github.com/snapcore/snapd/snapdenv"
+	"github.com/snapcore/snapd/strutil"
 	"github.com/snapcore/snapd/sysconfig"
 	"github.com/snapcore/snapd/systemd"
 	"github.com/snapcore/snapd/timings"
@@ -94,6 +95,8 @@ type DeviceManager struct {
 	ensureSeedInConfigRan bool
 
 	ensureInstalledRan bool
+
+	ensureTriedRecoverySystemRan bool
 
 	cloudInitAlreadyRestricted           bool
 	cloudInitErrorAttemptStart           *time.Time
@@ -161,6 +164,9 @@ func Manager(s *state.State, hookManager *hookstate.HookManager, runner *state.T
 	runner.AddHandler("update-managed-boot-config", m.doUpdateManagedBootConfig, nil)
 	// kernel command line updates from a gadget supplied file
 	runner.AddHandler("update-gadget-cmdline", m.doUpdateGadgetCommandLine, m.undoUpdateGadgetCommandLine)
+	// recovery systems
+	runner.AddHandler("create-recovery-system", m.doCreateRecoverySystem, m.undoCreateRecoverySystem)
+	runner.AddHandler("finalize-recovery-system", m.doFinalizeTriedRecoverySystem, m.undoFinalizeTriedRecoverySystem)
 
 	runner.AddBlocked(gadgetUpdateBlocked)
 
@@ -1048,6 +1054,70 @@ func (m *DeviceManager) ensureSeedInConfig() error {
 
 }
 
+func (m *DeviceManager) appendTriedRecoverySystem(label string) error {
+	// state is locked by the caller
+
+	var triedSystems []string
+	if err := m.state.Get("tried-systems", &triedSystems); err != nil && err != state.ErrNoState {
+		return err
+	}
+	if strutil.ListContains(triedSystems, label) {
+		// system already recorded as tried?
+		return nil
+	}
+	triedSystems = append(triedSystems, label)
+	m.state.Set("tried-systems", triedSystems)
+	return nil
+}
+
+func (m *DeviceManager) ensureTriedRecoverySystem() error {
+	if release.OnClassic {
+		return nil
+	}
+	if m.systemMode != "run" {
+		return nil
+	}
+	if m.ensureTriedRecoverySystemRan {
+		return nil
+	}
+
+	m.state.Lock()
+	defer m.state.Unlock()
+
+	deviceCtx, err := DeviceCtx(m.state, nil, nil)
+	if err != nil && err != state.ErrNoState {
+		return err
+	}
+	outcome, label, err := boot.InspectTryRecoverySystemOutcome(deviceCtx)
+	if err != nil {
+		if !boot.IsInconsistentRecoverySystemState(err) {
+			return err
+		}
+		// boot variables state was inconsistent
+		logger.Noticef("tried recovery system outcome error: %v", err)
+	}
+	switch outcome {
+	case boot.TryRecoverySystemOutcomeSuccess:
+		logger.Noticef("tried recovery system %q was successful", label)
+		if err := m.appendTriedRecoverySystem(label); err != nil {
+			return err
+		}
+	case boot.TryRecoverySystemOutcomeFailure, boot.TryRecoverySystemOutcomeInconsistent:
+		logger.Noticef("tried recovery system %q failed", label)
+	case boot.TryRecoverySystemOutcomeNoneTried:
+		// no system was tried
+	}
+	if outcome != boot.TryRecoverySystemOutcomeNoneTried {
+		if err := boot.ClearTryRecoverySystem(deviceCtx, label); err != nil {
+			logger.Noticef("cannot clear tried recovery system status: %v", err)
+			return err
+		}
+	}
+
+	m.ensureTriedRecoverySystemRan = true
+	return nil
+}
+
 type ensureError struct {
 	errs []error
 }
@@ -1095,6 +1165,10 @@ func (m *DeviceManager) Ensure() error {
 		}
 
 		if err := m.ensureInstalled(); err != nil {
+			errs = append(errs, err)
+		}
+
+		if err := m.ensureTriedRecoverySystem(); err != nil {
 			errs = append(errs, err)
 		}
 	}
