@@ -153,6 +153,7 @@ func Manager(s *state.State, hookManager *hookstate.HookManager, runner *state.T
 	// There is no undo handler for successful boot config update. The
 	// config assets are assumed to be always backwards compatible.
 	runner.AddHandler("update-managed-boot-config", m.doUpdateManagedBootConfig, nil)
+	runner.AddHandler("create-recovery-system", m.doCreateRecoverySystem, m.undoCreateRecoverySystem)
 
 	runner.AddBlocked(gadgetUpdateBlocked)
 
@@ -617,6 +618,30 @@ func (m *DeviceManager) ensureBootOk() error {
 	defer m.state.Unlock()
 
 	if release.OnClassic {
+		return nil
+	}
+
+	if m.SystemMode() == "recover" {
+		// XXX: could be a try recovery mode in which case mark it as
+		// successfully booted
+		modeenv, err := maybeReadModeenv()
+		if err != nil {
+
+		}
+		// XXX: verify that data is avaialble
+
+		// XXX: is the recovery system label needed
+		isTry, err := boot.MaybeMarkTryRecoverySystemSuccessful(modeenv.RecoverySystem, func() error { return nil })
+		if err != nil {
+			return err
+		}
+		if isTry {
+			// reboot now
+
+			// XXX find out which system we want to go back to, this
+			// could be set in bootenv?
+			return m.Reboot("", "run")
+		}
 		return nil
 	}
 

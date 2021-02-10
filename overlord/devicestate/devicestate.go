@@ -480,6 +480,7 @@ func remodelTasks(ctx context.Context, st *state.State, current, new *asserts.Mo
 	// our (simplified) wait chain looks like:
 	// download1 <- verify1 <- download2 <- verify2 <- download3 <- verify3 <- install1 <- install2 <- install3
 	if firstInstallInChain != nil && lastDownloadInChain != nil {
+		// XXX: add recovery system prepare task
 		firstInstallInChain.WaitFor(lastDownloadInChain)
 	}
 
