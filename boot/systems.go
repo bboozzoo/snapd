@@ -189,3 +189,37 @@ func MaybeMarkTryRecoverySystemSuccessful(currentSystemLabel string, healthCheck
 	}
 	return true, bl.SetBootVars(tried)
 }
+
+// IsTryRecoverySystemSuccessful indicates whether the candidate recovery system
+// of a given label has successfully booted and updated the boot environment.
+func IsTryRecoverySystemSuccessful(systemLabel string) (success bool, err error) {
+	opts := &bootloader.Options{
+		// setup the recovery bootloader
+		Role: bootloader.RoleRecovery,
+	}
+	// TODO:UC20: seed may need to be switched to RW
+	bl, err := bootloader.Find(InitramfsUbuntuSeedDir, opts)
+	if err != nil {
+		return false, err
+	}
+
+	vars, err := bl.GetBootVars("try_recovery_system", "recovery_system_status")
+	if err != nil {
+		return false, err
+	}
+
+	// we expect both variables to be set
+	status := vars["recovery_system_status"]
+	if status == "" {
+		return false, fmt.Errorf("internal error: recovery system status is unset")
+	}
+	trySystem := vars["try_recovery_system"]
+	if trySystem == "" {
+		return false, fmt.Errorf("internal error: try recovery system is unset")
+	}
+	if trySystem != systemLabel {
+		return false, fmt.Errorf("internal error: try recovery system label mismatch, expected %q (got %q)",
+			systemLabel, trySystem)
+	}
+	return status == "tried", nil
+}
