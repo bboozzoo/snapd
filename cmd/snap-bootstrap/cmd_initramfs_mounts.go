@@ -65,10 +65,38 @@ func init() {
 type cmdInitramfsMounts struct{}
 
 func (c *cmdInitramfsMounts) Execute(args []string) error {
-	if err := generateInitramfsMounts(); err != nil {
+	mode, recoverySystem, err := boot.ModeAndRecoverySystemFromKernelCommandLine()
+	if err != nil {
 		return err
 	}
-	return maybeHandleTryRecovery()
+
+	if mode == "recover" {
+		// prevent from being stuck in recover mode and boot back to run
+		// if the system gets rebooted
+		if err := boot.EnsureNextBootToRunMode(recoverySystem); err != nil {
+			return err
+		}
+		tring, err := boot.TryingRecoverySystem(recoverySystem)
+		if err != nil {
+			return err
+		}
+		if trying {
+
+		}
+	}
+
+	if err := generateInitramfsMounts(mode, recoverySystem); err != nil {
+		return err
+	}
+
+	if mode == "recover" {
+		isTryRecovery, err := maybeHandleTryRecovery()
+		if isTryRecovery && err == nil {
+			return nil
+		}
+
+	}
+	return nil
 }
 
 var (
@@ -104,7 +132,7 @@ func stampedAction(stamp string, action func() error) error {
 	return ioutil.WriteFile(stampFile, nil, 0644)
 }
 
-func generateInitramfsMounts() (err error) {
+func generateInitramfsMounts(mode, recoverySystem string) (err error) {
 	// ensure that the last thing we do is to lock access to sealed keys,
 	// regardless of mode or early failures.
 	defer func() {
@@ -123,11 +151,6 @@ func generateInitramfsMounts() (err error) {
 	err = stampedAction("secboot-epoch-measured", func() error {
 		return secbootMeasureSnapSystemEpochWhenPossible()
 	})
-	if err != nil {
-		return err
-	}
-
-	mode, recoverySystem, err := boot.ModeAndRecoverySystemFromKernelCommandLine()
 	if err != nil {
 		return err
 	}
@@ -410,6 +433,9 @@ type recoverModeStateMachine struct {
 	// the disk we have all our partitions on
 	disk disks.Disk
 
+	// when true, the fallback keys will not be tried
+	noFallbackKeys bool
+
 	// TODO:UC20: for clarity turn this into into tristate:
 	// unknown|encrypted|unencrypted
 	isEncryptedDev bool
@@ -664,13 +690,14 @@ func (m *recoverModeStateMachine) setUnlockStateWithFallbackKey(partName string,
 	return nil
 }
 
-func newRecoverModeStateMachine(model *asserts.Model, disk disks.Disk) *recoverModeStateMachine {
+func newRecoverModeStateMachine(model *asserts.Model, disk disks.Disk, tryFallbackKeys bool) *recoverModeStateMachine {
 	m := &recoverModeStateMachine{
 		model: model,
 		disk:  disk,
 		degradedState: &recoverDegradedState{
 			ErrorLog: []string{},
 		},
+		noFallbackKeys: !tryFallbackKeys,
 	}
 	// first step is to mount ubuntu-boot to check for run mode keys to unlock
 	// ubuntu-data
@@ -782,6 +809,9 @@ func (m *recoverModeStateMachine) mountBoot() (stateFunc, error) {
 		return nil, err
 	}
 	if part.MountState == partitionErrMounting {
+		if m.noFallbackKeys {
+			return nil, mountErr
+		}
 		// if we didn't mount data, then try to unlock data with the
 		// fallback key
 		return m.unlockDataFallbackKey, nil
@@ -808,6 +838,9 @@ func (m *recoverModeStateMachine) unlockDataRunKey() (stateFunc, error) {
 		return nil, err
 	}
 	if unlockErr != nil {
+		if m.noFallbackKeys {
+			return nil, unlockErr
+		}
 		// we couldn't unlock ubuntu-data with the primary key, or we didn't
 		// find it in the unencrypted case
 		if unlockRes.IsEncrypted {
@@ -869,6 +902,9 @@ func (m *recoverModeStateMachine) mountData() (stateFunc, error) {
 		// if we succeeded in mounting data and we are encrypted, the next step
 		// is to unlock save with the run key from ubuntu-data
 		return m.unlockSaveRunKey, nil
+	}
+	if m.noFallbackKeys {
+		return nil, mountErr
 	}
 
 	// otherwise we always fall back to unlocking save with the fallback key,
@@ -1043,7 +1079,6 @@ func generateMountsModeRecover(mst *initramfsMountsState) error {
 		// attackers from accessing the system - just because we can't access
 		// ubuntu-data doesn't mean that attackers wouldn't be able to if they
 		// could login
-
 		if err := copySafeDefaultData(boot.InitramfsDataDir); err != nil {
 			return err
 		}
@@ -1054,14 +1089,6 @@ func generateMountsModeRecover(mst *initramfsMountsState) error {
 		return err
 	}
 	if err := modeEnv.WriteTo(boot.InitramfsWritableDir); err != nil {
-		return err
-	}
-
-	// finally we need to modify the bootenv to mark the system as successful,
-	// this ensures that when you reboot from recover mode without doing
-	// anything else, you are auto-transitioned back to run mode
-	// TODO:UC20: as discussed unclear we need to pass the recovery system here
-	if err := boot.EnsureNextBootToRunMode(mst.recoverySystem); err != nil {
 		return err
 	}
 
@@ -1414,17 +1441,12 @@ func generateMountsModeRun(mst *initramfsMountsState) error {
 	return nil
 }
 
-func maybeHandleTryRecovery() (err error) {
-	mode, recoverySystem, err := boot.ModeAndRecoverySystemFromKernelCommandLine()
-	if err != nil {
-		return err
-	}
-
+func maybeHandleTryRecovery() (isTryRecovery bool, err error) {
 	if mode != "recover" {
 		return nil
 	}
 
-	isTryRecovery, err := boot.MaybeMarkTryRecoverySystemSuccessful(recoverySystem, func() error {
+	isTryRecovery, err = boot.MaybeMarkTryRecoverySystemSuccessful(recoverySystem, func() error {
 		// check that writable is accessible by checking whether the
 		// state file exists
 		if !osutil.FileExists(dirs.SnapStateFileUnder(boot.InitramfsHostWritableDir)) {
@@ -1439,7 +1461,7 @@ func maybeHandleTryRecovery() (err error) {
 			// system, but regardless, log for posterity
 			logger.Noticef("cannot determine the state of a try recovery system: %v", err)
 		}
-		return nil
+		return false, nil
 	}
 	// from this point on, we must finish with a system reboot
 	defer func() {
@@ -1456,7 +1478,7 @@ func maybeHandleTryRecovery() (err error) {
 	// mode
 	if err != nil {
 		logger.Noticef("cannot update the try recovery system state: %v", err)
-		return fmt.Errorf("cannot mark recovery system %q successful: %v", recoverySystem, err)
+		return true, fmt.Errorf("cannot mark recovery system %q successful: %v", recoverySystem, err)
 	}
-	return nil
+	return true, nil
 }

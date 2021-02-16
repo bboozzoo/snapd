@@ -132,6 +132,40 @@ func SetTryRecoverySystem(dev Device, systemLabel string) (err error) {
 	return bl.SetBootVars(vars)
 }
 
+func TryingRecoverySystem(currentSystemLabel string) (bool, err) {
+	opts := &bootloader.Options{
+		// setup the recovery bootloader
+		Role: bootloader.RoleRecovery,
+	}
+	bl, err := bootloader.Find(InitramfsUbuntuSeedDir, opts)
+	if err != nil {
+		return false, err
+	}
+
+	vars, err := bl.GetBootVars("try_recovery_system", "recovery_system_status")
+	if err != nil {
+		return false, err
+	}
+
+	status := vars["recovery_system_status"]
+	if status == "" {
+		// not trying any recovery systems right now
+		return false, nil
+	}
+
+	trySystem := vars["try_recovery_system"]
+	if trySystem == "" {
+		// XXX: could we end up with one variable set and the other not?
+		return false, fmt.Errorf("try recovery system is unset")
+	}
+
+	if trySystem != currentSystemLabel {
+		// this may still be ok, eg. if we're running the actual recovery system
+		return false, nil
+	}
+	return true, nil
+}
+
 // MaybeMarkTryRecoverySystemSuccessful updates the boot environment to indicate
 // that the candidate recovery system of a matching label has successfully
 // booted up to a point that this code can be called and the health check
@@ -186,6 +220,7 @@ func MaybeMarkTryRecoverySystemSuccessful(currentSystemLabel string, healthCheck
 
 	tried := map[string]string{
 		"recovery_system_status": "tried",
+		"snapd_recovery_mode":    "run",
 	}
 	return true, bl.SetBootVars(tried)
 }
