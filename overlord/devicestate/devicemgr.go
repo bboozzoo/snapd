@@ -621,30 +621,6 @@ func (m *DeviceManager) ensureBootOk() error {
 		return nil
 	}
 
-	if m.SystemMode() == "recover" {
-		// XXX: could be a try recovery mode in which case mark it as
-		// successfully booted
-		modeenv, err := maybeReadModeenv()
-		if err != nil {
-
-		}
-		// XXX: verify that data is avaialble
-
-		// XXX: is the recovery system label needed
-		isTry, err := boot.MaybeMarkTryRecoverySystemSuccessful(modeenv.RecoverySystem, func() error { return nil })
-		if err != nil {
-			return err
-		}
-		if isTry {
-			// reboot now
-
-			// XXX find out which system we want to go back to, this
-			// could be set in bootenv?
-			return m.Reboot("", "run")
-		}
-		return nil
-	}
-
 	// boot-ok/update-boot-revision is only relevant in run-mode
 	if m.SystemMode() != "run" {
 		return nil
