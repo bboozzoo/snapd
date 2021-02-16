@@ -132,20 +132,13 @@ func SetTryRecoverySystem(dev Device, systemLabel string) (err error) {
 	return bl.SetBootVars(vars)
 }
 
-// MaybeMarkTryRecoverySystemSuccessful updates the boot environment to indicate
-// that the candidate recovery system of a matching label has successfully
-// booted up to a point that this code can be called and the health check
-// executed inside the system indicated no errors. Returns true if the candidate
-// recovery system is the same as current, false when otherwise or when the
-// state cannot be determined due to errors. Note, it is possible to get true
-// and an error, if the health check of the current system failed or bootloader
-// variables cannot be updated.
-func MaybeMarkTryRecoverySystemSuccessful(currentSystemLabel string, healthCheck func() error) (isCurrentTryRecovery bool, err error) {
+// TryingRecoverySystem checks whether the boot variables indicate that the
+// given recovery system is being tried.
+func TryingRecoverySystem(currentSystemLabel string) (bool, error) {
 	opts := &bootloader.Options{
 		// setup the recovery bootloader
 		Role: bootloader.RoleRecovery,
 	}
-	// TODO:UC20: seed may need to be switched to RW
 	bl, err := bootloader.Find(InitramfsUbuntuSeedDir, opts)
 	if err != nil {
 		return false, err
@@ -172,22 +165,32 @@ func MaybeMarkTryRecoverySystemSuccessful(currentSystemLabel string, healthCheck
 		// this may still be ok, eg. if we're running the actual recovery system
 		return false, nil
 	}
+	return true, nil
+}
 
-	if status == "tried" {
-		// the current recovery system has already been tried and worked
-		return true, nil
+// MarkTryRecoverySystemResults updates the boot environment to indicate that
+// the outcome of trying out a recovery system and sets up the system to boot
+// into run mode.
+func MarkTryRecoverySystemResultForRunMode(success bool) error {
+	opts := &bootloader.Options{
+		// setup the recovery bootloader
+		Role: bootloader.RoleRecovery,
+	}
+	// TODO:UC20: seed may need to be switched to RW
+	bl, err := bootloader.Find(InitramfsUbuntuSeedDir, opts)
+	if err != nil {
+		return err
 	}
 
-	if healthCheck != nil {
-		if err := healthCheck(); err != nil {
-			return true, fmt.Errorf("system health check failed: %v", err)
-		}
+	vars := map[string]string{
+		// always going to back to run mode
+		"snapd_recovery_mode":   "run",
+		"snapd_recovery_system": "",
 	}
-
-	tried := map[string]string{
-		"recovery_system_status": "tried",
+	if success {
+		vars["recovery_system_status"] = "tried"
 	}
-	return true, bl.SetBootVars(tried)
+	return bl.SetBootVars(vars)
 }
 
 // IsTryRecoverySystemSuccessful indicates whether the candidate recovery system
