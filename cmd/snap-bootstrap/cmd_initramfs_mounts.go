@@ -65,10 +65,7 @@ func init() {
 type cmdInitramfsMounts struct{}
 
 func (c *cmdInitramfsMounts) Execute(args []string) error {
-	if err := generateInitramfsMounts(); err != nil {
-		return err
-	}
-	return maybeHandleTryRecovery()
+	return generateInitramfsMounts()
 }
 
 var (
@@ -410,6 +407,9 @@ type recoverModeStateMachine struct {
 	// the disk we have all our partitions on
 	disk disks.Disk
 
+	// when true, the fallback keys will not be tried
+	noFallbackKeys bool
+
 	// TODO:UC20: for clarity turn this into into tristate:
 	// unknown|encrypted|unencrypted
 	isEncryptedDev bool
@@ -664,13 +664,14 @@ func (m *recoverModeStateMachine) setUnlockStateWithFallbackKey(partName string,
 	return nil
 }
 
-func newRecoverModeStateMachine(model *asserts.Model, disk disks.Disk) *recoverModeStateMachine {
+func newRecoverModeStateMachine(model *asserts.Model, disk disks.Disk, allowFallbackKeys bool) *recoverModeStateMachine {
 	m := &recoverModeStateMachine{
 		model: model,
 		disk:  disk,
 		degradedState: &recoverDegradedState{
 			ErrorLog: []string{},
 		},
+		noFallbackKeys: !allowFallbackKeys,
 	}
 	// first step is to mount ubuntu-boot to check for run mode keys to unlock
 	// ubuntu-data
@@ -764,6 +765,9 @@ func (m *recoverModeStateMachine) mountBoot() (stateFunc, error) {
 		return nil, err
 	}
 	if part.FindState != partitionFound {
+		if m.noFallbackKeys {
+			return nil, fmt.Errorf("%v (fallback keys disabled)", findErr)
+		}
 		// if we didn't find ubuntu-boot, we can't try to unlock data with the
 		// run key, and should instead just jump straight to attempting to
 		// unlock with the fallback key
@@ -782,6 +786,9 @@ func (m *recoverModeStateMachine) mountBoot() (stateFunc, error) {
 		return nil, err
 	}
 	if part.MountState == partitionErrMounting {
+		if m.noFallbackKeys {
+			return nil, fmt.Errorf("%v (fallback keys disabled)", mountErr)
+		}
 		// if we didn't mount data, then try to unlock data with the
 		// fallback key
 		return m.unlockDataFallbackKey, nil
@@ -808,6 +815,9 @@ func (m *recoverModeStateMachine) unlockDataRunKey() (stateFunc, error) {
 		return nil, err
 	}
 	if unlockErr != nil {
+		if m.noFallbackKeys {
+			return nil, fmt.Errorf("%v (fallback keys disabled)", unlockErr)
+		}
 		// we couldn't unlock ubuntu-data with the primary key, or we didn't
 		// find it in the unencrypted case
 		if unlockRes.IsEncrypted {
@@ -865,21 +875,28 @@ func (m *recoverModeStateMachine) mountData() (stateFunc, error) {
 	if err := m.setMountState("ubuntu-data", boot.InitramfsHostUbuntuDataDir, mountErr); err != nil {
 		return nil, err
 	}
-	if mountErr == nil && m.isEncryptedDev {
+	if mountErr != nil {
+		if m.isEncryptedDev && m.noFallbackKeys {
+			// we are encrypted but cannot use the fallback keys
+			return nil, fmt.Errorf("%v (fallback keys disabled)", mountErr)
+		}
+
+		// if we are encrypted and we failed to mount data successfully,
+		// meaning we don't have the bare key from ubuntu-data to use,
+		// and need to fall back to the sealed key from ubuntu-seed,
+		// otherwise if the system is unencrypted the fallback secboot
+		// code does the right thing
+		return m.unlockSaveFallbackKey, nil
+	}
+	if m.isEncryptedDev {
 		// if we succeeded in mounting data and we are encrypted, the next step
 		// is to unlock save with the run key from ubuntu-data
 		return m.unlockSaveRunKey, nil
 	}
-
-	// otherwise we always fall back to unlocking save with the fallback key,
-	// this could be two cases:
-	// 1. we are unencrypted in which case the secboot function used in
-	//    unlockSaveRunKey will fail and then proceed to trying the fallback key
-	//    function anyways which uses a secboot function that is suitable for
-	//    unencrypted data
-	// 2. we are encrypted and we failed to mount data successfully, meaning we
-	//    don't have the bare key from ubuntu-data to use, and need to fall back
-	//    to the sealed key from ubuntu-seed
+	// we are unencrypted in which case the secboot function used in
+	// unlockSaveRunKey will fail and then proceed to trying the
+	// fallback key function anyways which uses a secboot function
+	// that is suitable for unencrypted data
 	return m.unlockSaveFallbackKey, nil
 }
 
@@ -899,6 +916,9 @@ func (m *recoverModeStateMachine) unlockSaveRunKey() (stateFunc, error) {
 		return nil, err
 	}
 	if unlockErr != nil {
+		if m.noFallbackKeys {
+			return nil, fmt.Errorf("%v (fallback keys disabled)", unlockErr)
+		}
 		// failed to unlock with run key, try fallback key
 		return m.unlockSaveFallbackKey, nil
 	}
@@ -973,6 +993,19 @@ func generateMountsModeRecover(mst *initramfsMountsState) error {
 		return err
 	}
 
+	// for most cases we allow the use of fallback keys
+	allowFallbackKeys := true
+
+	tryingCurrentSystem, err := boot.TryingRecoverySystem(mst.recoverySystem)
+	if err != nil {
+		// this could be an inconsistency in the state
+		return err
+	}
+	if tryingCurrentSystem {
+		// but in this case, use only the run keys
+		allowFallbackKeys = false
+	}
+
 	// 3. run the state machine logic for mounting partitions, this involves
 	//    trying to unlock then mount ubuntu-data, and then unlocking and
 	//    mounting ubuntu-save
@@ -981,7 +1014,7 @@ func generateMountsModeRecover(mst *initramfsMountsState) error {
 
 	machine, err := func() (machine *recoverModeStateMachine, err error) {
 		// first state to execute is to unlock ubuntu-data with the run key
-		machine = newRecoverModeStateMachine(model, disk)
+		machine = newRecoverModeStateMachine(model, disk, allowFallbackKeys)
 		for {
 			finished, err := machine.execute()
 			// TODO: consider whether certain errors are fatal or not
@@ -997,6 +1030,12 @@ func generateMountsModeRecover(mst *initramfsMountsState) error {
 	}()
 	if err != nil {
 		return err
+	}
+
+	if tryingCurrentSystem {
+		// end of the lien for a recovery system we only trying out
+		isSuccessful := !machine.degraded()
+		return finalizeTryRecoverySystem(isSuccessful)
 	}
 
 	// 3.1 write out degraded.json if we ended up falling back somewhere
@@ -1414,33 +1453,7 @@ func generateMountsModeRun(mst *initramfsMountsState) error {
 	return nil
 }
 
-func maybeHandleTryRecovery() (err error) {
-	mode, recoverySystem, err := boot.ModeAndRecoverySystemFromKernelCommandLine()
-	if err != nil {
-		return err
-	}
-
-	if mode != "recover" {
-		return nil
-	}
-
-	isTryRecovery, err := boot.MaybeMarkTryRecoverySystemSuccessful(recoverySystem, func() error {
-		// check that writable is accessible by checking whether the
-		// state file exists
-		if !osutil.FileExists(dirs.SnapStateFileUnder(boot.InitramfsHostWritableDir)) {
-			return fmt.Errorf("host state file is not accessible")
-		}
-		return nil
-	})
-	if !isTryRecovery {
-		if err != nil {
-			// we don't care much if it is impossible to tell if the
-			// try system is set or it does not much the current
-			// system, but regardless, log for posterity
-			logger.Noticef("cannot determine the state of a try recovery system: %v", err)
-		}
-		return nil
-	}
+func finalizeTryRecoverySystem(successful bool) (err error) {
 	// from this point on, we must finish with a system reboot
 	defer func() {
 		if rebootErr := boot.InitramfsReboot(); rebootErr != nil {
@@ -1451,12 +1464,26 @@ func maybeHandleTryRecovery() (err error) {
 			}
 		}
 	}()
+
+	healthCheck := func() error {
+		// check that writable is accessible by checking whether the
+		// state file exists
+		if !osutil.FileExists(dirs.SnapStateFileUnder(boot.InitramfsHostWritableDir)) {
+			return fmt.Errorf("host state file is not accessible")
+		}
+		return nil
+	}
+
+	if err := healthCheck(); err != nil {
+		successful = false
+	}
+
 	// that's it, we've tried booting a new recovery system to this point,
 	// whether things are looking good or bad we will reboot back to run
 	// mode
-	if err != nil {
+	if err := boot.MarkTryRecoverySystemResultForRunMode(successful); err != nil {
 		logger.Noticef("cannot update the try recovery system state: %v", err)
-		return fmt.Errorf("cannot mark recovery system %q successful: %v", recoverySystem, err)
+		return fmt.Errorf("cannot mark recovery system successful: %v", err)
 	}
 	return nil
 }
