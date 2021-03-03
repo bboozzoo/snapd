@@ -1,0 +1,7 @@
+summary: verify that LK environment in Go and C is in sync
+
+prepare:
+  go build lkenvcheck.go
+
+execute:
+  ./lkenvcheck
