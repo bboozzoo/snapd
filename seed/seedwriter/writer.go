@@ -550,6 +550,10 @@ func (w *Writer) InfoDerived() error {
 // SetInfo sets Info of the SeedSnap and possibly computes its
 // destination Path.
 func (w *Writer) SetInfo(sn *SeedSnap, info *snap.Info) error {
+	if sn.local {
+		return w.SetLocalInfo(sn, info, sn.Path)
+	}
+
 	if info.Confinement == snap.DevModeConfinement {
 		if err := w.policy.allowsDangerousFeatures(); err != nil {
 			return err
@@ -557,16 +561,28 @@ func (w *Writer) SetInfo(sn *SeedSnap, info *snap.Info) error {
 	}
 	sn.Info = info
 
-	if sn.local {
-		// nothing more to do
-		return nil
-	}
-
 	p, err := w.tree.snapPath(sn)
 	if err != nil {
 		return err
 	}
 	sn.Path = p
+	return nil
+}
+
+// SetLocalSnapInfo sets Info of the SeedSnap and marks it as a local snap.
+func (w *Writer) SetLocalInfo(sn *SeedSnap, info *snap.Info, path string) error {
+	if info.Confinement == snap.DevModeConfinement {
+		if err := w.policy.allowsDangerousFeatures(); err != nil {
+			return err
+		}
+	}
+	sn.Info = info
+	if !sn.local {
+		// the snap was not identified as a local one, but we were
+		// explicitly called to make it local
+		sn.local = true
+		sn.Path = path
+	}
 	return nil
 }
 
