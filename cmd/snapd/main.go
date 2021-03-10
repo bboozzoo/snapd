@@ -42,6 +42,7 @@ var (
 )
 
 func init() {
+	os.Setenv("SNAPD_DEBUG", "1")
 	err := logger.SimpleSetup()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: failed to activate logging: %s\n", err)
