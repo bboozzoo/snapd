@@ -323,3 +323,76 @@ func InspectTryRecoverySystemOutcome(dev Device) (outcome TryRecoverySystemOutco
 
 	return outcome, trySystem, nil
 }
+
+// TODO: promote recovery system to good ones and reseal
+func PromoteTryRecoverySystem(dev Device, systemLabel string) error {
+	if !dev.HasModeenv() {
+		return fmt.Errorf("internal error: recovery systems can only be used on UC20")
+	}
+
+	m, err := loadModeenv()
+	if err != nil {
+		return err
+	}
+	if !strutil.ListContains(m.GoodRecoverySystems, systemLabel) {
+		m.GoodRecoverySystems = append(m.GoodRecoverySystems, systemLabel)
+	}
+	// XXX: already?
+	m.CurrentRecoverySystems = []string{systemLabel}
+	if err := m.Write(); err != nil {
+		return err
+	}
+
+	const expectReseal = true
+	return resealKeyToModeenv(dirs.GlobalRootDir, dev.Model(), m, expectReseal)
+
+}
+
+// TODO: drop recovery system from good ones and reseal
+func DropGoodRecoverySystem(dev Device, systemLabel string) error {
+	if !dev.HasModeenv() {
+		return fmt.Errorf("internal error: recovery systems can only be used on UC20")
+	}
+
+	m, err := loadModeenv()
+	if err != nil {
+		return err
+	}
+	for idx, sys := range m.GoodRecoverySystems {
+		if sys == systemLabel {
+			m.GoodRecoverySystems = append(m.GoodRecoverySystems[:idx], m.GoodRecoverySystems[idx+1:]...)
+			if err := m.Write(); err != nil {
+				return err
+			}
+			break
+		}
+	}
+
+	const expectReseal = true
+	return resealKeyToModeenv(dirs.GlobalRootDir, dev.Model(), m, expectReseal)
+}
+
+// TODO: drop a candidate recovery system
+func DropTryRecoverySystem(dev Device, systemLabel string) error {
+	if !dev.HasModeenv() {
+		return fmt.Errorf("internal error: recovery systems can only be used on UC20")
+	}
+
+	m, err := loadModeenv()
+	if err != nil {
+		return err
+	}
+	// XXX helper for removal from list?
+	for idx, sys := range m.CurrentRecoverySystems {
+		if sys == systemLabel {
+			m.CurrentRecoverySystems = append(m.CurrentRecoverySystems[:idx], m.CurrentRecoverySystems[idx+1:]...)
+			if err := m.Write(); err != nil {
+				return err
+			}
+			break
+		}
+	}
+
+	const expectReseal = true
+	return resealKeyToModeenv(dirs.GlobalRootDir, dev.Model(), m, expectReseal)
+}
