@@ -256,11 +256,15 @@ func observeSuccessfulCommandLineUpdate(m *Modeenv) (*Modeenv, error) {
 	if err != nil {
 		return nil, err
 	}
+	logger.Noticef("booted with: %s\n", cmdlineBootedWith)
+	logger.Noticef("in list: %v", m.CurrentKernelCommandLines)
 	if !strutil.ListContains([]string(m.CurrentKernelCommandLines), cmdlineBootedWith) {
 		return nil, fmt.Errorf("current command line content %q not matching any expected entry",
 			cmdlineBootedWith)
 	}
 	newM.CurrentKernelCommandLines = bootCommandLines{cmdlineBootedWith}
+
+	logger.Noticef("now in list: %v", newM.CurrentKernelCommandLines)
 
 	return newM, nil
 }
@@ -324,6 +328,7 @@ func observeCommandLineUpdate(model *asserts.Model, reason commandLineUpdateReas
 	// this is the current expected command line which was recorded by
 	// bootstate
 	cmdline := m.CurrentKernelCommandLines[0]
+	logger.Noticef("current cmdline: %v", cmdline)
 	// this is the new expected command line
 	var candidateCmdline string
 	switch reason {
@@ -337,6 +342,7 @@ func observeCommandLineUpdate(model *asserts.Model, reason commandLineUpdateReas
 	if err != nil {
 		return false, err
 	}
+	logger.Noticef("candidate cmdline: %v", candidateCmdline)
 	if cmdline == candidateCmdline {
 		// command line is the same or no actual change in modeenv
 		return false, nil
