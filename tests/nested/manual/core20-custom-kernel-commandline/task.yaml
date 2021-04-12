@@ -3,8 +3,10 @@ summary: Verify custom kernel command line handling in UC20
 systems: [ubuntu-20.04-64]
 
 environment:
+    NESTED_BUILD_SNAPD_FROM_CURRENT: true
     # TODO: enable TPM once resealing with custom kernel command lines lands
     NESTED_ENABLE_TPM: false
+    NESTED_ENABLE_SECURE_BOOT: false
 
 details: |
     This test checks support for customized kernel command line arguments in UC20
@@ -13,10 +15,9 @@ prepare: |
     #shellcheck source=tests/lib/nested.sh
     . "$TESTSLIB/nested.sh"
 
-    echo "Ensure clean pc-gadget dir"
-    rm -rf pc-gadget
-    GADGET_SNAP="$(ls "$NESTED_ASSETS_DIR"/pc_*.snap)"
-    unsquashfs -d pc-gadget "$GADGET_SNAP"
+    echo "Grab and prepare the gadget snap"
+    snap download --basename=pc --channel="20/edge" pc
+    unsquashfs -d pc-gadget pc.snap
 
     echo 'hello from test' > pc-gadget/cmdline.extra
     snap pack pc-gadget/ extra-snaps/
