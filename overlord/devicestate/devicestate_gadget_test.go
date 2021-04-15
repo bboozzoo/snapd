@@ -1130,8 +1130,12 @@ func (s *deviceMgrGadgetSuite) testGadgetCommandlineUpdateRun(c *C, fromFiles, t
 		c.Check(tsk.Status(), Equals, state.DoneStatus)
 		// we log on success
 		log := tsk.Log()
-		c.Assert(log, HasLen, 1)
-		c.Check(log[0], Matches, fmt.Sprintf(".* %v", logMatch))
+		if logMatch != "" {
+			c.Assert(log, HasLen, 1)
+			c.Check(log[0], Matches, fmt.Sprintf(".* %v", logMatch))
+		} else {
+			c.Check(log, HasLen, 0)
+		}
 		if updated {
 			// update was applied, thus a restart was requested
 			c.Check(s.restartRequests, DeepEquals, []state.RestartType{state.RestartSystem})
@@ -1180,7 +1184,7 @@ func (s *deviceMgrGadgetSuite) TestUpdateGadgetCommandlineWithExistingArgs(c *C)
 			{"meta/gadget.yaml", gadgetYaml},
 			{"cmdline.extra", "args from updated gadget"},
 		},
-		"", "updated kernel command line", update)
+		"", "Updated kernel command line", update)
 
 	m, err = boot.ReadModeenv("")
 	c.Assert(err, IsNil)
@@ -1232,7 +1236,7 @@ func (s *deviceMgrGadgetSuite) TestUpdateGadgetCommandlineWithNewArgs(c *C) {
 			{"meta/gadget.yaml", gadgetYaml},
 			{"cmdline.extra", "args from new gadget"},
 		},
-		"", "updated kernel command line", update)
+		"", "Updated kernel command line", update)
 
 	m, err = boot.ReadModeenv("")
 	c.Assert(err, IsNil)
@@ -1285,7 +1289,7 @@ func (s *deviceMgrGadgetSuite) TestUpdateGadgetCommandlineDroppedArgs(c *C) {
 			{"meta/gadget.yaml", gadgetYaml},
 			// new one does not
 		},
-		"", "updated kernel command line", update)
+		"", "Updated kernel command line", update)
 
 	m, err = boot.ReadModeenv("")
 	c.Assert(err, IsNil)
@@ -1334,7 +1338,7 @@ func (s *deviceMgrGadgetSuite) TestUpdateGadgetCommandlineUnchanged(c *C) {
 	// old and new gadget have the same command line arguments, nothing changes
 	const update = false
 	s.testGadgetCommandlineUpdateRun(c, sameFiles, sameFiles,
-		"", "no kernel command line update from gadget", update)
+		"", "", update)
 
 	m, err = boot.ReadModeenv("")
 	c.Assert(err, IsNil)
@@ -1364,7 +1368,7 @@ func (s *deviceMgrGadgetSuite) TestUpdateGadgetCommandlineNonUC20(c *C) {
 			{"meta/gadget.yaml", gadgetYaml},
 			{"cmdline.extra", "args from new gadget"},
 		},
-		"", "no kernel command line update from gadget", update)
+		"", "", update)
 }
 
 func (s *deviceMgrGadgetSuite) TestGadgetCommandlineUpdateUndo(c *C) {
@@ -1470,4 +1474,81 @@ func (s *deviceMgrGadgetSuite) TestGadgetCommandlineUpdateUndo(c *C) {
 	})
 	// 2 calls, one to set the new arguments, and one to reset them back
 	c.Check(s.managedbl.SetBootVarsCalls, Equals, 2)
+}
+
+func (s *deviceMgrGadgetSuite) TestGadgetCommandlineUpdateNoChangeNoRebootsUndo(c *C) {
+	restore := release.MockOnClassic(false)
+	defer restore()
+
+	bootloader.Force(s.managedbl)
+	s.state.Lock()
+	s.setupUC20ModelWithGadget(c, "pc")
+	s.mockModeenvForMode(c, "run")
+	devicestate.SetBootOkRan(s.mgr, true)
+	s.state.Set("seeded", true)
+
+	// mimic system state
+	m, err := boot.ReadModeenv("")
+	c.Assert(err, IsNil)
+	m.CurrentKernelCommandLines = []string{
+		"snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1 args from gadget",
+	}
+	c.Assert(m.Write(), IsNil)
+
+	err = s.managedbl.SetBootVars(map[string]string{
+		"snapd_extra_cmdline_args": "args from gadget",
+	})
+	c.Assert(err, IsNil)
+	s.managedbl.SetBootVarsCalls = 0
+
+	currentSi := &snap.SideInfo{
+		RealName: "pc",
+		Revision: snap.R(33),
+		SnapID:   "foo-id",
+	}
+	snapstate.Set(s.state, "pc", &snapstate.SnapState{
+		SnapType: "gadget",
+		Sequence: []*snap.SideInfo{currentSi},
+		Current:  currentSi.Revision,
+		Active:   true,
+	})
+	sameFiles := [][]string{
+		{"meta/gadget.yaml", gadgetYaml},
+		{"cmdline.extra", "args from gadget"},
+	}
+	snaptest.MockSnapWithFiles(c, pcGadgetSnapYaml, currentSi, sameFiles)
+	updateSi := *currentSi
+	updateSi.Revision = snap.R(34)
+	// identical content, just a revision bump
+	snaptest.MockSnapWithFiles(c, pcGadgetSnapYaml, &updateSi, sameFiles)
+
+	tsk := s.state.NewTask("update-gadget-cmdline", "update gadget command line")
+	tsk.Set("snap-setup", &snapstate.SnapSetup{
+		SideInfo: &updateSi,
+		Type:     snap.TypeGadget,
+	})
+	terr := s.state.NewTask("error-trigger", "provoking total undo")
+	terr.WaitFor(tsk)
+	chg := s.state.NewChange("dummy", "...")
+	chg.AddTask(tsk)
+	chg.AddTask(terr)
+	s.state.Unlock()
+
+	s.settle(c)
+
+	s.state.Lock()
+	defer s.state.Unlock()
+
+	c.Assert(chg.IsReady(), Equals, true)
+	c.Check(chg.Err(), ErrorMatches, "(?s)cannot perform the following tasks.*total undo.*")
+	c.Check(tsk.Status(), Equals, state.UndoneStatus)
+	// there was nothing to update and thus nothing to undo
+	c.Check(s.restartRequests, HasLen, 0)
+	c.Check(s.managedbl.SetBootVarsCalls, Equals, 0)
+	// modeenv wasn't changed
+	m, err = boot.ReadModeenv("")
+	c.Assert(err, IsNil)
+	c.Check([]string(m.CurrentKernelCommandLines), DeepEquals, []string{
+		"snapd_recovery_mode=run console=ttyS0 console=tty1 panic=-1 args from gadget",
+	})
 }
