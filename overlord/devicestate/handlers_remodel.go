@@ -115,6 +115,8 @@ func (m *DeviceManager) doSetModel(t *state.Task, _ *tomb.Tomb) (err error) {
 		return err
 	}
 
+	// XXX: promote recovery system to good ones
+
 	// and finish (this will set the new model)
 	return remodCtx.Finish()
 }
