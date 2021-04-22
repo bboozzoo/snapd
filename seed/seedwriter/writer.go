@@ -666,6 +666,7 @@ func (w *Writer) modelSnapsToDownload(modSnaps []*asserts.ModelSnap) (toDownload
 			return nil, err
 		}
 		if !sn.local {
+			fmt.Printf("sn %+v %+v not local?\n", sn, sn.SnapRef)
 			toDownload = append(toDownload, sn)
 		}
 		if sn.optionSnap != nil {
