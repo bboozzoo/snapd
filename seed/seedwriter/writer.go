@@ -790,6 +790,9 @@ func (w *Writer) SnapsToDownload() (snaps []*SeedSnap, err error) {
 		if err != nil {
 			return nil, err
 		}
+		for _, m := range modSnaps {
+			fmt.Printf("mod snap: %v id: %v m: %+v\n", m.Name, m.ID(), m)
+		}
 		toDownload, err := w.modelSnapsToDownload(modSnaps)
 		if err != nil {
 			return nil, err
@@ -801,6 +804,7 @@ func (w *Writer) SnapsToDownload() (snaps []*SeedSnap, err error) {
 				return nil, err
 			}
 		}
+		fmt.Printf("to download: %v\n", toDownload)
 		return toDownload, nil
 	case toDownloadImplicit:
 		return w.modelSnapsToDownload(w.policy.implicitSnaps(w.availableByMode))
