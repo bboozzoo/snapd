@@ -142,10 +142,12 @@ func (m *DeviceManager) doCreateRecoverySystem(t *state.Task, _ *tomb.Tomb) (err
 
 	// get all infos
 	infoGetter := func(name string) (*snap.Info, bool, error) {
+		fmt.Printf("get info for snap: %v\n", name)
 		// snap may be present in the system in which case info comes
 		// from snapstate
 		info, err := snapstate.CurrentInfo(st, name)
 		if err == nil {
+			fmt.Printf("info for installed snap %q, id %q type %v\n", name, info.ID(), info.Type())
 			hash, _, err := asserts.SnapFileSHA3_384(info.MountFile())
 			if err != nil {
 				return nil, true, fmt.Errorf("cannot compute SHA3 of snap file: %v", err)

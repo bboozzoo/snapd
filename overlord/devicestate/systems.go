@@ -240,6 +240,7 @@ func createSystemForModelFromValidatedSnaps(model *asserts.Model, label string, 
 				kind = fmt.Sprintf("non-essential but %q", nonEssentialPresence)
 			}
 		}
+		fmt.Printf("%v snap: %v\n", kind, name)
 		info, present, err := getInfo(name)
 		if err != nil {
 			return fmt.Errorf("cannot obtain %v snap information: %v", kind, err)
@@ -315,7 +316,7 @@ func createSystemForModelFromValidatedSnaps(model *asserts.Model, label string, 
 		// we have in snap.Info, but getting it this way can be
 		// expensive as we need to compute the hash, try to find a
 		// better way
-		_, aRefs, err := seedwriter.DeriveSideInfo(sn.Path, f, db)
+		derivedSi, aRefs, err := seedwriter.DeriveSideInfo(sn.Path, f, db)
 		if err != nil {
 			if !asserts.IsNotFound(err) {
 				return recoverySystemDir, err
@@ -326,6 +327,9 @@ func createSystemForModelFromValidatedSnaps(model *asserts.Model, label string, 
 				return recoverySystemDir, fmt.Errorf("internal error: no assertions for asserted snap with ID: %v", info.SnapID)
 			}
 		}
+		fmt.Printf("derived side info: %+v\n", derivedSi)
+		fmt.Printf("set info: %v refs: %v id: %v\n", sn.Path, aRefs, info.SnapID)
+		fmt.Printf("info type? %q\n", info.Type())
 		if err := w.SetInfo(sn, info); err != nil {
 			return recoverySystemDir, err
 		}
