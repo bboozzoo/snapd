@@ -1108,6 +1108,8 @@ func (m *DeviceManager) appendTriedRecoverySystem(label string) error {
 }
 
 func (m *DeviceManager) ensureTriedRecoverySystem() error {
+	// fmt.Printf("ensure tried recovery, ran? %v mode %v\n", m.ensureTriedRecoverySystemRan, m.systemMode)
+
 	if release.OnClassic {
 		return nil
 	}
@@ -1127,6 +1129,7 @@ func (m *DeviceManager) ensureTriedRecoverySystem() error {
 		return err
 	}
 	outcome, label, err := boot.InspectTryRecoverySystemOutcome(deviceCtx)
+	fmt.Printf("outcome: %v label: %v, err: %v\n", outcome, label, err)
 	if err != nil {
 		if !boot.IsInconsistentRecoverySystemState(err) {
 			return err
