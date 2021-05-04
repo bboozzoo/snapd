@@ -608,6 +608,7 @@ func (m *SnapManager) doDownloadSnap(t *state.Task, tomb *tomb.Tomb) error {
 		return err
 	}
 
+	fmt.Printf("set snap path to %v\n", targetFn)
 	snapsup.SnapPath = targetFn
 
 	// update the snap setup for the follow up tasks

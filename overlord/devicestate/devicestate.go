@@ -482,6 +482,8 @@ func remodelTasks(ctx context.Context, st *state.State, current, new *asserts.Mo
 		if firstInstallInChain == nil {
 			firstInstallInChain = installFirst
 		}
+
+		fmt.Printf("download start: %v end: %v\n", downloadStart.ID(), downloadLast.ID())
 		// download is always a first task of the 'download' phase
 		snapSetupTasks = append(snapSetupTasks, downloadLast.ID())
 	}

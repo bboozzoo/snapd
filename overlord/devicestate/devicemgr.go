@@ -733,6 +733,7 @@ func (m *DeviceManager) ResetBootOk() {
 	osutil.MustBeTestBinary("ResetBootOk can only be called from tests")
 	m.bootOkRan = false
 	m.bootRevisionsUpdated = false
+	m.ensureTriedRecoverySystemRan = false
 }
 
 func (m *DeviceManager) ensureBootOk() error {
@@ -1119,6 +1120,8 @@ func (m *DeviceManager) ResetTriedRecoverySystemsRan() {
 }
 
 func (m *DeviceManager) ensureTriedRecoverySystem() error {
+	// fmt.Printf("ensure tried recovery, ran? %v mode %v\n", m.ensureTriedRecoverySystemRan, m.systemMode)
+
 	if release.OnClassic {
 		return nil
 	}
@@ -1138,6 +1141,7 @@ func (m *DeviceManager) ensureTriedRecoverySystem() error {
 		return err
 	}
 	outcome, label, err := boot.InspectTryRecoverySystemOutcome(deviceCtx)
+	fmt.Printf("outcome: %v label: %v, err: %v\n", outcome, label, err)
 	if err != nil {
 		if !boot.IsInconsistentRecoverySystemState(err) {
 			return err

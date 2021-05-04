@@ -144,10 +144,12 @@ func (m *DeviceManager) doCreateRecoverySystem(t *state.Task, _ *tomb.Tomb) (err
 
 	// get all infos
 	infoGetter := func(name string) (info *snap.Info, present bool, err error) {
+		fmt.Printf("get info for snap: %v\n", name)
 		// snap may be present in the system in which case info comes
 		// from snapstate
 		info, err = snapstate.CurrentInfo(st, name)
 		if err == nil {
+			fmt.Printf("info for installed snap %q, id %q type %v\n", name, info.ID(), info.Type())
 			hash, _, err := asserts.SnapFileSHA3_384(info.MountFile())
 			if err != nil {
 				return nil, true, fmt.Errorf("cannot compute SHA3 of snap file: %v", err)
@@ -170,6 +172,7 @@ func (m *DeviceManager) doCreateRecoverySystem(t *state.Task, _ *tomb.Tomb) (err
 		// thus we can pull the relevant information from the tasks
 		// carrying snap-setup
 
+		fmt.Printf("check download snaps for %v %+v\n", name, setup)
 		for _, tskID := range setup.SnapSetupTasks {
 			taskWithSnapSetup := st.Task(tskID)
 			snapsup, err := snapstate.TaskSnapSetup(taskWithSnapSetup)
@@ -179,6 +182,10 @@ func (m *DeviceManager) doCreateRecoverySystem(t *state.Task, _ *tomb.Tomb) (err
 			if snapsup.SnapName() != name {
 				continue
 			}
+			fmt.Printf("kind: %v\n", taskWithSnapSetup.Kind())
+			fmt.Printf("snapsup %+v\n", snapsup)
+			fmt.Printf("snapsup %+v\n", snapsup.SideInfo)
+
 			// by the time this task runs, the file has already been
 			// downloaded and validated
 			snapFile, err := snapfile.Open(snapsup.MountFile())
