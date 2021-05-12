@@ -1205,19 +1205,14 @@ func (s *systemsSuite) TestMarkRecoverySystemGoodHappy(c *C) {
 	})
 }
 
-func (s *systemsSuite) TestMarkRecoverySystemGoodInCurrent(c *C) {
+func (s *systemsSuite) TestMarkRecoverySystemGoodInCurrentErr(c *C) {
 	s.testMarkRecoverySystemGood(c, "1234", recoverySystemGoodTestCase{
 		systemLabelAddToCurrent: true,
-		resealCalls:             2,
 
-		readSeedSystems: []string{
-			// run key
-			"20200825", "1234",
-			// recovery keys
-			"20200825", "1234",
-		},
+		expectedErr: `internal error: system "1234" is already present in current systems list`,
+
 		expectedCurrentSystemsList: []string{"20200825", "1234"},
-		expectedGoodSystemsList:    []string{"20200825", "1234"},
+		expectedGoodSystemsList:    []string{"20200825"},
 	})
 }
 

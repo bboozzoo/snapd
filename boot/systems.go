@@ -359,12 +359,12 @@ func MarkRecoverySystemGood(dev Device, systemLabel string) (err error) {
 		return err
 	}
 	rewriteModeenv := false
-	if !strutil.ListContains(m.CurrentRecoverySystems, systemLabel) {
-		m.CurrentRecoverySystems = append(m.CurrentRecoverySystems, systemLabel)
-		rewriteModeenv = true
-	}
 	if !strutil.ListContains(m.GoodRecoverySystems, systemLabel) {
+		if strutil.ListContains(m.CurrentRecoverySystems, systemLabel) {
+			return fmt.Errorf("internal error: system %q is already present in current systems list", systemLabel)
+		}
 		m.GoodRecoverySystems = append(m.GoodRecoverySystems, systemLabel)
+		m.CurrentRecoverySystems = append(m.CurrentRecoverySystems, systemLabel)
 		rewriteModeenv = true
 	}
 	if rewriteModeenv {
