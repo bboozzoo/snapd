@@ -919,11 +919,13 @@ func (s *deviceMgrRemodelSuite) TestReregRemodelClashAnyChange(c *C) {
 	}
 
 	// simulate any other change
-	s.state.NewChange("chg", "other change")
+	chg := s.state.NewChange("chg", "other change")
+	chg.SetStatus(state.DoingStatus)
 
 	_, err := devicestate.Remodel(s.state, new)
-	c.Check(err, DeepEquals, &snapstate.ChangeConflictError{
-		Message: "cannot start complete remodel, other changes are in progress",
+	c.Assert(err, NotNil)
+	c.Assert(err, DeepEquals, &snapstate.ChangeConflictError{
+		Message: `other changes in progress, change "remodel" not allowed until they are done`,
 	})
 }
 
