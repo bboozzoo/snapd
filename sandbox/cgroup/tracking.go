@@ -130,7 +130,8 @@ tryAgain:
 	// contained therein.
 	hasTracking := false
 	start := time.Now()
-	for tries := 0; tries < 100; tries++ {
+	tries := 1
+	for ; tries < 101; tries++ {
 		path, err := cgroupProcessPathInTrackingCgroup(pid)
 		if err != nil {
 			return err
@@ -142,7 +143,7 @@ tryAgain:
 		time.Sleep(1 * time.Millisecond)
 	}
 	waitForTracking := time.Since(start)
-	logger.Debugf("waited %v for tracking", waitForTracking)
+	logger.Debugf("waited %v for tracking, %v tries", waitForTracking, tries)
 	if !hasTracking {
 		logger.Debugf("systemd could not associate process %d with transient scope %s", pid, unitName)
 		return ErrCannotTrackProcess
