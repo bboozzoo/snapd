@@ -24,6 +24,7 @@ import (
 	"gopkg.in/tomb.v2"
 
 	"github.com/snapcore/snapd/asserts"
+	"github.com/snapcore/snapd/boot"
 	"github.com/snapcore/snapd/gadget"
 	"github.com/snapcore/snapd/overlord/assertstate"
 	"github.com/snapcore/snapd/overlord/snapstate"
@@ -116,6 +117,18 @@ func (m *DeviceManager) doSetModel(t *state.Task, _ *tomb.Tomb) (err error) {
 	}
 
 	if new.Grade() != asserts.ModelGradeUnset {
+		var triedSystems []string
+		if err := st.Get("tried-systems", &triedSystems); err != nil {
+			return fmt.Errorf("cannot obtain tried recovery systems: %v", err)
+		}
+		recoverySetup, err := taskRecoverySystemSetup(t)
+		if err != nil {
+			return err
+		}
+		if err := boot.PromoteTriedRecoverySystem(remodCtx, recoverySetup.Label, triedSystems); err != nil {
+			return err
+		}
+
 		// TODO: update ubuntu-boot/device/model
 		// TODO: reseal for both the old and current model
 	}
