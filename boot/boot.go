@@ -478,3 +478,11 @@ func UpdateCommandLineForGadgetComponent(dev Device, gadgetSnapOrDir string) (ne
 	}
 	return cmdlineChange, nil
 }
+
+// DeviceChange handles a change of the underlying device. Specifically it can
+// be used during remodel when a new device is associated with a new model. The
+// encryption keys will be resealed for both models. When the model transition
+// is complete, the `to` device can be set to nil.
+func DeviceChange(fromOrCurrent Device, to Device) error {
+	return nil
+}
