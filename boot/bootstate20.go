@@ -172,7 +172,7 @@ func (u20 *bootStateUpdate20) commit() error {
 		// flag as hint whether to reseal based on whether we
 		// wrote the modeenv
 		expectReseal := modeenvRewritten
-		if err := resealKeyToModeenv(dirs.GlobalRootDir, u20.resealModel, u20.writeModeenv, expectReseal); err != nil {
+		if err := resealKeyToModeenv(dirs.GlobalRootDir, []*asserts.Model{u20.resealModel}, u20.writeModeenv, expectReseal); err != nil {
 			return err
 		}
 	}

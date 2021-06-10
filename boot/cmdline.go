@@ -349,7 +349,7 @@ func observeCommandLineUpdate(model *asserts.Model, reason commandLineUpdateReas
 	}
 
 	expectReseal := true
-	if err := resealKeyToModeenv(dirs.GlobalRootDir, model, m, expectReseal); err != nil {
+	if err := resealKeyToModeenv(dirs.GlobalRootDir, []*asserts.Model{model}, m, expectReseal); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -358,7 +358,7 @@ func observeCommandLineUpdate(model *asserts.Model, reason commandLineUpdateReas
 // kernelCommandLinesForResealWithFallback provides the list of kernel command
 // lines for use during reseal. During normal operation, the command lines will
 // be listed in the modeenv.
-func kernelCommandLinesForResealWithFallback(model *asserts.Model, modeenv *Modeenv) (cmdlines []string, err error) {
+func kernelCommandLinesForResealWithFallback(models []*asserts.Model, modeenv *Modeenv) (cmdlines []string, err error) {
 	if len(modeenv.CurrentKernelCommandLines) > 0 {
 		return modeenv.CurrentKernelCommandLines, nil
 	}
@@ -366,9 +366,12 @@ func kernelCommandLinesForResealWithFallback(model *asserts.Model, modeenv *Mode
 	// default during snapd update, since this is a compatibility scenario
 	// there would be no kernel command lines arguments coming from the
 	// gadget either
-	cmdline, err := ComposeCommandLine(model, "")
-	if err != nil {
-		return nil, err
+	for _, model := range models {
+		cmdline, err := ComposeCommandLine(model, "")
+		if err != nil {
+			return nil, err
+		}
+		cmdlines = append(cmdlines, cmdline)
 	}
-	return []string{cmdline}, nil
+	return cmdlines, nil
 }

@@ -537,7 +537,7 @@ func (s *sealSuite) TestResealKeyToModeenvWithSystemFallback(c *C) {
 		// the behavior with unasserted kernel is tested in
 		// boot_test.go specific tests
 		const expectReseal = false
-		err = boot.ResealKeyToModeenv(rootdir, model, modeenv, expectReseal)
+		err = boot.ResealKeyToModeenv(rootdir, []*asserts.Model{model}, modeenv, expectReseal)
 		if !tc.sealedKeys || (tc.reuseRunPbc && tc.reuseRecoveryPbc) {
 			// did nothing
 			c.Assert(err, IsNil)
@@ -807,7 +807,7 @@ func (s *sealSuite) TestResealKeyToModeenvRecoveryKeysForGoodSystemsOnly(c *C) {
 	// the behavior with unasserted kernel is tested in
 	// boot_test.go specific tests
 	const expectReseal = false
-	err = boot.ResealKeyToModeenv(rootdir, model, modeenv, expectReseal)
+	err = boot.ResealKeyToModeenv(rootdir, []*asserts.Model{model}, modeenv, expectReseal)
 	c.Assert(err, IsNil)
 	c.Assert(resealKeysCalls, Equals, 2)
 
@@ -1010,7 +1010,7 @@ func (s *sealSuite) TestResealKeyToModeenvFallbackCmdline(c *C) {
 	defer restore()
 
 	const expectReseal = false
-	err = boot.ResealKeyToModeenv(rootdir, model, modeenv, expectReseal)
+	err = boot.ResealKeyToModeenv(rootdir, []*asserts.Model{model}, modeenv, expectReseal)
 	c.Assert(err, IsNil)
 	c.Assert(resealKeysCalls, Equals, 2)
 
@@ -1185,7 +1185,7 @@ func (s *sealSuite) TestRecoveryBootChainsForSystems(c *C) {
 			CurrentTrustedRecoveryBootAssets: tc.assetsMap,
 		}
 
-		bc, err := boot.RecoveryBootChainsForSystems(tc.recoverySystems, tbl, model, modeenv)
+		bc, err := boot.RecoveryBootChainsForSystems(tc.recoverySystems, tbl, []*asserts.Model{model}, modeenv)
 		if tc.err == "" {
 			c.Assert(err, IsNil)
 			c.Assert(bc, HasLen, len(tc.recoverySystems))
@@ -1508,7 +1508,7 @@ func (s *sealSuite) TestResealKeyToModeenvWithFdeHookCalled(c *C) {
 	defer dirs.SetRootDir("")
 
 	resealKeyToModeenvUsingFDESetupHookCalled := 0
-	restore := boot.MockResealKeyToModeenvUsingFDESetupHook(func(string, *asserts.Model, *boot.Modeenv, bool) error {
+	restore := boot.MockResealKeyToModeenvUsingFDESetupHook(func(string, []*asserts.Model, *boot.Modeenv, bool) error {
 		resealKeyToModeenvUsingFDESetupHookCalled++
 		return nil
 	})
@@ -1534,7 +1534,7 @@ func (s *sealSuite) TestResealKeyToModeenvWithFdeHookCalled(c *C) {
 
 	model := boottest.MakeMockUC20Model()
 	expectReseal := false
-	err = boot.ResealKeyToModeenv(rootdir, model, modeenv, expectReseal)
+	err = boot.ResealKeyToModeenv(rootdir, []*asserts.Model{model}, modeenv, expectReseal)
 	c.Assert(err, IsNil)
 	c.Check(resealKeyToModeenvUsingFDESetupHookCalled, Equals, 1)
 }
@@ -1545,7 +1545,7 @@ func (s *sealSuite) TestResealKeyToModeenvWithFdeHookVerySad(c *C) {
 	defer dirs.SetRootDir("")
 
 	resealKeyToModeenvUsingFDESetupHookCalled := 0
-	restore := boot.MockResealKeyToModeenvUsingFDESetupHook(func(string, *asserts.Model, *boot.Modeenv, bool) error {
+	restore := boot.MockResealKeyToModeenvUsingFDESetupHook(func(string, []*asserts.Model, *boot.Modeenv, bool) error {
 		resealKeyToModeenvUsingFDESetupHookCalled++
 		return fmt.Errorf("fde setup hook failed")
 	})
@@ -1563,7 +1563,7 @@ func (s *sealSuite) TestResealKeyToModeenvWithFdeHookVerySad(c *C) {
 
 	model := boottest.MakeMockUC20Model()
 	expectReseal := false
-	err = boot.ResealKeyToModeenv(rootdir, model, modeenv, expectReseal)
+	err = boot.ResealKeyToModeenv(rootdir, []*asserts.Model{model}, modeenv, expectReseal)
 	c.Assert(err, ErrorMatches, "fde setup hook failed")
 	c.Check(resealKeyToModeenvUsingFDESetupHookCalled, Equals, 1)
 }

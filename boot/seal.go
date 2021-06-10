@@ -174,7 +174,7 @@ func sealKeyToModeenvUsingSecboot(key, saveKey secboot.EncryptionKey, model *ass
 		return fmt.Errorf("internal error: cannot seal keys without a trusted assets bootloader")
 	}
 
-	recoveryBootChains, err := recoveryBootChainsForSystems([]string{modeenv.RecoverySystem}, tbl, model, modeenv)
+	recoveryBootChains, err := recoveryBootChainsForSystems([]string{modeenv.RecoverySystem}, tbl, []*asserts.Model{model}, modeenv)
 	if err != nil {
 		return fmt.Errorf("cannot compose recovery boot chains: %v", err)
 	}
@@ -190,7 +190,7 @@ func sealKeyToModeenvUsingSecboot(key, saveKey secboot.EncryptionKey, model *ass
 
 	// kernel command lines are filled during install
 	cmdlines := modeenv.CurrentKernelCommandLines
-	runModeBootChains, err := runModeBootChains(rbl, bl, model, modeenv, cmdlines)
+	runModeBootChains, err := runModeBootChains(rbl, bl, []*asserts.Model{model}, modeenv, cmdlines)
 	if err != nil {
 		return fmt.Errorf("cannot compose run mode boot chains: %v", err)
 	}
@@ -311,7 +311,7 @@ func sealedKeysMethod(rootdir string) (sm sealingMethod, err error) {
 
 // resealKeyToModeenv reseals the existing encryption key to the
 // parameters specified in modeenv.
-func resealKeyToModeenv(rootdir string, model *asserts.Model, modeenv *Modeenv, expectReseal bool) error {
+func resealKeyToModeenv(rootdir string, models []*asserts.Model, modeenv *Modeenv, expectReseal bool) error {
 	method, err := sealedKeysMethod(rootdir)
 	if err == errNoSealedKeys {
 		// nothing to do
@@ -322,9 +322,9 @@ func resealKeyToModeenv(rootdir string, model *asserts.Model, modeenv *Modeenv, 
 	}
 	switch method {
 	case sealingMethodFDESetupHook:
-		return resealKeyToModeenvUsingFDESetupHook(rootdir, model, modeenv, expectReseal)
+		return resealKeyToModeenvUsingFDESetupHook(rootdir, models, modeenv, expectReseal)
 	case sealingMethodTPM, sealingMethodLegacyTPM:
-		return resealKeyToModeenvSecboot(rootdir, model, modeenv, expectReseal)
+		return resealKeyToModeenvSecboot(rootdir, models, modeenv, expectReseal)
 	default:
 		return fmt.Errorf("unknown key sealing method: %q", method)
 	}
@@ -332,7 +332,7 @@ func resealKeyToModeenv(rootdir string, model *asserts.Model, modeenv *Modeenv, 
 
 var resealKeyToModeenvUsingFDESetupHook = resealKeyToModeenvUsingFDESetupHookImpl
 
-func resealKeyToModeenvUsingFDESetupHookImpl(rootdir string, model *asserts.Model, modeenv *Modeenv, expectReseal bool) error {
+func resealKeyToModeenvUsingFDESetupHookImpl(rootdir string, models []*asserts.Model, modeenv *Modeenv, expectReseal bool) error {
 	// TODO: we need to implement reseal at least in terms of
 	//       rebinding the keys to models on remodeling
 
@@ -354,7 +354,7 @@ func resealKeyToModeenvUsingFDESetupHookImpl(rootdir string, model *asserts.Mode
 }
 
 // TODO:UC20: allow more than one model to accommodate the remodel scenario
-func resealKeyToModeenvSecboot(rootdir string, model *asserts.Model, modeenv *Modeenv, expectReseal bool) error {
+func resealKeyToModeenvSecboot(rootdir string, models []*asserts.Model, modeenv *Modeenv, expectReseal bool) error {
 	// build the recovery mode boot chain
 	rbl, err := bootloader.Find(InitramfsUbuntuSeedDir, &bootloader.Options{
 		Role: bootloader.RoleRecovery,
@@ -370,7 +370,7 @@ func resealKeyToModeenvSecboot(rootdir string, model *asserts.Model, modeenv *Mo
 
 	// the recovery boot chains for the run key are generated for all
 	// recovery systems, including those that are being tried
-	recoveryBootChainsForRunKey, err := recoveryBootChainsForSystems(modeenv.CurrentRecoverySystems, tbl, model, modeenv)
+	recoveryBootChainsForRunKey, err := recoveryBootChainsForSystems(modeenv.CurrentRecoverySystems, tbl, models, modeenv)
 	if err != nil {
 		return fmt.Errorf("cannot compose recovery boot chains for run key: %v", err)
 	}
@@ -385,7 +385,7 @@ func resealKeyToModeenvSecboot(rootdir string, model *asserts.Model, modeenv *Mo
 		logger.Noticef("no good recovery systems for reseal, fallback to known current system %v",
 			testedRecoverySystems[0])
 	}
-	recoveryBootChains, err := recoveryBootChainsForSystems(testedRecoverySystems, tbl, model, modeenv)
+	recoveryBootChains, err := recoveryBootChainsForSystems(testedRecoverySystems, tbl, models, modeenv)
 	if err != nil {
 		return fmt.Errorf("cannot compose recovery boot chains: %v", err)
 	}
@@ -398,11 +398,11 @@ func resealKeyToModeenvSecboot(rootdir string, model *asserts.Model, modeenv *Mo
 	if err != nil {
 		return fmt.Errorf("cannot find the bootloader: %v", err)
 	}
-	cmdlines, err := kernelCommandLinesForResealWithFallback(model, modeenv)
+	cmdlines, err := kernelCommandLinesForResealWithFallback(models, modeenv)
 	if err != nil {
 		return err
 	}
-	runModeBootChains, err := runModeBootChains(rbl, bl, model, modeenv, cmdlines)
+	runModeBootChains, err := runModeBootChains(rbl, bl, models, modeenv, cmdlines)
 	if err != nil {
 		return fmt.Errorf("cannot compose run mode boot chains: %v", err)
 	}
@@ -517,97 +517,101 @@ func resealFallbackObjectKeys(pbc predictableBootChains, authKeyFile string, rol
 
 // TODO:UC20: this needs to take more than one model to accommodate the remodel
 // scenario
-func recoveryBootChainsForSystems(systems []string, trbl bootloader.TrustedAssetsBootloader, model *asserts.Model, modeenv *Modeenv) (chains []bootChain, err error) {
-	for _, system := range systems {
-		// get kernel and gadget information from seed
-		perf := timings.New(nil)
-		_, snaps, err := seedReadSystemEssential(dirs.SnapSeedDir, system, []snap.Type{snap.TypeKernel, snap.TypeGadget}, perf)
-		if err != nil {
-			return nil, fmt.Errorf("cannot read system %q seed: %v", system, err)
-		}
-		if len(snaps) != 2 {
-			return nil, fmt.Errorf("cannot obtain recovery system snaps")
-		}
-		seedKernel, seedGadget := snaps[0], snaps[1]
-		if snaps[0].EssentialType == snap.TypeGadget {
-			seedKernel, seedGadget = seedGadget, seedKernel
-		}
+func recoveryBootChainsForSystems(systems []string, trbl bootloader.TrustedAssetsBootloader, models []*asserts.Model, modeenv *Modeenv) (chains []bootChain, err error) {
+	for _, model := range models {
+		for _, system := range systems {
+			// get kernel and gadget information from seed
+			perf := timings.New(nil)
+			_, snaps, err := seedReadSystemEssential(dirs.SnapSeedDir, system, []snap.Type{snap.TypeKernel, snap.TypeGadget}, perf)
+			if err != nil {
+				return nil, fmt.Errorf("cannot read system %q seed: %v", system, err)
+			}
+			if len(snaps) != 2 {
+				return nil, fmt.Errorf("cannot obtain recovery system snaps")
+			}
+			seedKernel, seedGadget := snaps[0], snaps[1]
+			if snaps[0].EssentialType == snap.TypeGadget {
+				seedKernel, seedGadget = seedGadget, seedKernel
+			}
 
-		// get the command line
-		cmdline, err := ComposeRecoveryCommandLine(model, system, seedGadget.Path)
-		if err != nil {
-			return nil, fmt.Errorf("cannot obtain recovery kernel command line: %v", err)
-		}
+			// get the command line
+			cmdline, err := ComposeRecoveryCommandLine(model, system, seedGadget.Path)
+			if err != nil {
+				return nil, fmt.Errorf("cannot obtain recovery kernel command line: %v", err)
+			}
 
-		var kernelRev string
-		if seedKernel.SideInfo.Revision.Store() {
-			kernelRev = seedKernel.SideInfo.Revision.String()
-		}
+			var kernelRev string
+			if seedKernel.SideInfo.Revision.Store() {
+				kernelRev = seedKernel.SideInfo.Revision.String()
+			}
 
-		recoveryBootChain, err := trbl.RecoveryBootChain(seedKernel.Path)
-		if err != nil {
-			return nil, err
-		}
+			recoveryBootChain, err := trbl.RecoveryBootChain(seedKernel.Path)
+			if err != nil {
+				return nil, err
+			}
 
-		// get asset chains
-		assetChain, kbf, err := buildBootAssets(recoveryBootChain, modeenv)
-		if err != nil {
-			return nil, err
-		}
+			// get asset chains
+			assetChain, kbf, err := buildBootAssets(recoveryBootChain, modeenv)
+			if err != nil {
+				return nil, err
+			}
 
-		chains = append(chains, bootChain{
-			BrandID:        model.BrandID(),
-			Model:          model.Model(),
-			Grade:          model.Grade(),
-			ModelSignKeyID: model.SignKeyID(),
-			AssetChain:     assetChain,
-			Kernel:         seedKernel.SnapName(),
-			KernelRevision: kernelRev,
-			KernelCmdlines: []string{cmdline},
-			model:          model,
-			kernelBootFile: kbf,
-		})
+			chains = append(chains, bootChain{
+				BrandID:        model.BrandID(),
+				Model:          model.Model(),
+				Grade:          model.Grade(),
+				ModelSignKeyID: model.SignKeyID(),
+				AssetChain:     assetChain,
+				Kernel:         seedKernel.SnapName(),
+				KernelRevision: kernelRev,
+				KernelCmdlines: []string{cmdline},
+				model:          model,
+				kernelBootFile: kbf,
+			})
+		}
 	}
 	return chains, nil
 }
 
-func runModeBootChains(rbl, bl bootloader.Bootloader, model *asserts.Model, modeenv *Modeenv, cmdlines []string) ([]bootChain, error) {
+func runModeBootChains(rbl, bl bootloader.Bootloader, models []*asserts.Model, modeenv *Modeenv, cmdlines []string) ([]bootChain, error) {
 	tbl, ok := rbl.(bootloader.TrustedAssetsBootloader)
 	if !ok {
 		return nil, fmt.Errorf("recovery bootloader doesn't support trusted assets")
 	}
-	chains := make([]bootChain, 0, len(modeenv.CurrentKernels))
-	for _, k := range modeenv.CurrentKernels {
-		info, err := snap.ParsePlaceInfoFromSnapFileName(k)
-		if err != nil {
-			return nil, err
-		}
-		runModeBootChain, err := tbl.BootChain(bl, info.MountFile())
-		if err != nil {
-			return nil, err
-		}
+	chains := make([]bootChain, 0, len(modeenv.CurrentKernels)*len(models))
+	for _, model := range models {
+		for _, k := range modeenv.CurrentKernels {
+			info, err := snap.ParsePlaceInfoFromSnapFileName(k)
+			if err != nil {
+				return nil, err
+			}
+			runModeBootChain, err := tbl.BootChain(bl, info.MountFile())
+			if err != nil {
+				return nil, err
+			}
 
-		// get asset chains
-		assetChain, kbf, err := buildBootAssets(runModeBootChain, modeenv)
-		if err != nil {
-			return nil, err
+			// get asset chains
+			assetChain, kbf, err := buildBootAssets(runModeBootChain, modeenv)
+			if err != nil {
+				return nil, err
+			}
+			var kernelRev string
+			if info.SnapRevision().Store() {
+				kernelRev = info.SnapRevision().String()
+			}
+			chains = append(chains, bootChain{
+				BrandID:        model.BrandID(),
+				Model:          model.Model(),
+				Grade:          model.Grade(),
+				ModelSignKeyID: model.SignKeyID(),
+				AssetChain:     assetChain,
+				Kernel:         info.SnapName(),
+				KernelRevision: kernelRev,
+				KernelCmdlines: cmdlines,
+				model:          model,
+				kernelBootFile: kbf,
+			})
 		}
-		var kernelRev string
-		if info.SnapRevision().Store() {
-			kernelRev = info.SnapRevision().String()
-		}
-		chains = append(chains, bootChain{
-			BrandID:        model.BrandID(),
-			Model:          model.Model(),
-			Grade:          model.Grade(),
-			ModelSignKeyID: model.SignKeyID(),
-			AssetChain:     assetChain,
-			Kernel:         info.SnapName(),
-			KernelRevision: kernelRev,
-			KernelCmdlines: cmdlines,
-			model:          model,
-			kernelBootFile: kbf,
-		})
 	}
 	return chains, nil
 }
