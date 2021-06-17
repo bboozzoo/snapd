@@ -42,6 +42,7 @@ var opts struct {
 // snap-confine.
 
 func main() {
+	os.Setenv("SNAPD_DEBUG", "1")
 	logger.SimpleSetup()
 	if err := run(); err != nil {
 		fmt.Printf("cannot update snap namespace: %s\n", err)
@@ -61,6 +62,7 @@ func parseArgs(args []string) error {
 // the setuid snap-confine.
 
 func run() error {
+	logger.Noticef("snap update ns runs")
 	// There is some C code that runs before main() is started.
 	// That code always runs and sets an error condition if it fails.
 	// Here we just check for the error.
