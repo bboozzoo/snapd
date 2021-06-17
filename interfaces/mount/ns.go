@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 
 	"github.com/snapcore/snapd/dirs"
+	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/snapdtool"
 )
@@ -43,8 +44,10 @@ func runNamespaceTool(toolName, snapName string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		logger.Noticef("invoking tool %v", toolPath)
 		cmd := exec.Command(toolPath, snapName)
 		output, err := cmd.CombinedOutput()
+		logger.Noticef("tool output:\n%s", output)
 		return output, err
 	}
 	return nil, nil
@@ -61,6 +64,7 @@ func DiscardSnapNamespace(snapName string) error {
 
 // Update the mount namespace of a given snap.
 func UpdateSnapNamespace(snapName string) error {
+	logger.Noticef("update mount ns for snap %v", snapName)
 	output, err := runNamespaceTool("snap-update-ns", snapName)
 	if err != nil {
 		return fmt.Errorf("cannot update preserved namespace of snap %q: %s", snapName, osutil.OutputErr(output, err))
