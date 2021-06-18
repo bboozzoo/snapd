@@ -369,6 +369,8 @@ static bool is_base_transition(const sc_invocation * inv)
 	return !sc_streq(inv->orig_base_snap_name, base_snap_name);
 }
 
+static bool sc_is_mount_ns_in_use(const char *snap_instance);
+
 // The namespace may be stale. To check this we must actually switch into it
 // but then we use up our setns call (the kernel misbehaves if we setns twice).
 // To work around this we'll fork a child and use it to probe. The child will
@@ -454,7 +456,6 @@ static int sc_inspect_and_maybe_discard_stale_ns(int mnt_fd,
 		    && should_discard_current_ns(base_snap_dev)) {
 			value = SC_DISCARD_SHOULD;
 			value_str = "should";
-
 		}
 		// If the base snap changed, we must discard the mount namespace and
 		// start over to allow the newly started process to see the requested
@@ -494,18 +495,16 @@ static int sc_inspect_and_maybe_discard_stale_ns(int mnt_fd,
 	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
 		die("support process for mount namespace inspection exited abnormally");
 	}
+	bool in_use = sc_is_mount_ns_in_use(inv->snap_instance);
+	debug("mount ns in use? %s", in_use ? "yes" : "no");
+
 	// If the namespace is up-to-date then we are done.
 	switch (value) {
 	case SC_DISCARD_NO:
 		debug("preserved mount is not stale, reusing");
 		return 0;
 	case SC_DISCARD_SHOULD:
-		if (sc_cgroup_is_v2()) {
-			debug
-			    ("WARNING: cgroup v2 detected, preserved mount namespace process presence check unsupported, discarding");
-			break;
-		}
-		if (sc_cgroup_freezer_occupied(inv->snap_instance)) {
+		if (sc_is_mount_ns_in_use(inv->snap_instance)) {
 			// Some processes are still using the namespace so we cannot discard it
 			// as that would fracture the view that the set of processes inside
 			// have on what is mounted.
@@ -571,6 +570,7 @@ int sc_join_preserved_ns(struct sc_mount_ns *group, struct sc_apparmor
 	if (ns_statfs_buf.f_type == NSFS_MAGIC
 	    || ns_statfs_buf.f_type == PROC_SUPER_MAGIC) {
 
+		debug("maybe discard stale ns?");
 		// Inspect and perhaps discard the preserved mount namespace.
 		if (sc_inspect_and_maybe_discard_stale_ns
 		    (mnt_fd, inv, snap_discard_ns_fd) == EAGAIN) {
@@ -914,4 +914,20 @@ void sc_store_ns_info(const sc_invocation * inv)
 		die("cannot flush %s", info_path);
 	}
 	debug("saved mount namespace meta-data to %s", info_path);
+}
+
+bool sc_is_mount_ns_in_use(const char *snap_instance)
+{
+	// perform an indirect check of whether the mount namespace is occupied,
+	// with cgroups v1, each snap process is attached to a group under the
+	// freezer controller, however with cgroups v2, we must check for any groups
+	// tracking the snap
+	bool occupied = false;
+	if (sc_cgroup_is_v2()) {
+		// cgroup v2 must consult the tracking groups
+		occupied = sc_cgroup_is_tracking_snap(snap_instance);
+	} else {
+		occupied = sc_cgroup_freezer_occupied(snap_instance);
+	}
+	return occupied;
 }

@@ -37,4 +37,14 @@ void sc_cgroup_create_and_join(const char *parent, const char *name, pid_t pid);
  **/
 bool sc_cgroup_is_v2(void);
 
+/**
+ * sc_cgroup_is_tracking_snap checks whether the snap process are being
+ * currently tracked in a cgroup.
+ *
+ * Note that sc_cgroup_is_tracking_snap will traverse the cgroups hierarchy
+ * looking for a group name with a specific prefix. This is inherently racy. The
+ * caller must have take the per snap instance lock.
+ */
+bool sc_cgroup_is_tracking_snap(const char *snap_instance);
+
 #endif

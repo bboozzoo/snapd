@@ -15,12 +15,13 @@
  *
  */
 
-// For AT_EMPTY_PATH and O_PATH
 #define _GNU_SOURCE
 
 #include "cgroup-support.h"
 
+#include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -96,4 +97,64 @@ bool sc_cgroup_is_v2() {
         return true;
     }
     return false;
+}
+
+static bool traverse_looking_for_prefix_in_dir(DIR *root, const char *prefix) {
+    while (true) {
+        errno = 0;
+        struct dirent *ent = readdir(root);
+        if (ent == NULL) {
+            if (errno != 0) {
+                die("cannot read directory entry");
+            }
+            break;
+        }
+        if (ent->d_type != DT_DIR) {
+            continue;
+        }
+        if (sc_streq(ent->d_name, "..") || sc_streq(ent->d_name, ".")) {
+            /* we don't want to go up or process the current directory again */
+            continue;
+        }
+        debug("checking %s has prefix %s", ent->d_name, prefix);
+        if (sc_startswith(ent->d_name, prefix)) {
+            debug("found match");
+            /* the directory starts with our prefix */
+            return true;
+        }
+        int entfd = openat(dirfd(root), ent->d_name, O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (entfd == -1) {
+            die("cannot open directory entry %s", ent->d_name);
+        }
+        debug("got directory fd: %d", entfd);
+        /* takes ownership o the file descriptor? */
+        DIR *entdir SC_CLEANUP(sc_cleanup_closedir) = fdopendir(entfd);
+        if (entdir == NULL) {
+            die("cannot fdopendir directory %s", ent->d_name);
+        }
+        debug("descend into %s", ent->d_name);
+        int found = traverse_looking_for_prefix_in_dir(entdir, prefix);
+        if (found == true) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool sc_cgroup_is_tracking_snap(const char *snap_instance) {
+    debug("is cgroup tracking snap %s?", snap_instance);
+    char tracking_group_name[PATH_MAX] = {0};
+    sc_must_snprintf(tracking_group_name, sizeof tracking_group_name, "snap.%s.", snap_instance);
+
+    // this would otherwise be inherently racy, but the caller is expected to
+    // keep the snap instance lock
+
+    bool found = false;
+    debug("opening %s", cgroup_dir);
+    DIR *root SC_CLEANUP(sc_cleanup_closedir) = opendir(cgroup_dir);
+    if (root == NULL) {
+        die("cannot open cgroup root dir");
+    }
+    found = traverse_looking_for_prefix_in_dir(root, tracking_group_name);
+    return found;
 }
