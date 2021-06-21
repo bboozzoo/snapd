@@ -147,7 +147,10 @@ bool sc_cgroup_is_tracking_snap(const char *snap_instance) {
     sc_must_snprintf(tracking_group_name, sizeof tracking_group_name, "snap.%s.", snap_instance);
 
     // this would otherwise be inherently racy, but the caller is expected to
-    // keep the snap instance lock
+    // keep the snap instance lock, thus preventing new apps of that snap from
+    // starting; not we can still return false positive if the currently running
+    // process exits but we look at the hierarchy before systemd has cleaned up
+    // the group
 
     bool found = false;
     debug("opening %s", cgroup_dir);

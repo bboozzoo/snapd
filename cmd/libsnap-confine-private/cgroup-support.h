@@ -43,7 +43,10 @@ bool sc_cgroup_is_v2(void);
  *
  * Note that sc_cgroup_is_tracking_snap will traverse the cgroups hierarchy
  * looking for a group name with a specific prefix. This is inherently racy. The
- * caller must have take the per snap instance lock.
+ * caller must have take the per snap instance lock to prevent new applications
+ * of that snap from being started. However, it is still possible that the
+ * application may exit but the cgroup has not been cleaned up yet, in which
+ * case this call will return a false positive.
  */
 bool sc_cgroup_is_tracking_snap(const char *snap_instance);
 
