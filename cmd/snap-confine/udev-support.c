@@ -165,6 +165,9 @@ static void sc_udev_allow_dev_net_tun(int devices_allow_fd)
 	}
 }
 
+typedef bool (*filter_assigned_cb)(struct udev_device * dev,
+				   const void *user_data);
+
 /**
  * Allow access to assigned devices.
  *
@@ -173,7 +176,9 @@ static void sc_udev_allow_dev_net_tun(int devices_allow_fd)
  * access to all assigned devices.
  **/
 static void sc_udev_allow_assigned(int devices_allow_fd, struct udev *udev,
-				   struct udev_list_entry *assigned)
+				   struct udev_list_entry *assigned,
+				   filter_assigned_cb filter_assigned,
+				   const void *user_data)
 {
 	for (struct udev_list_entry * entry = assigned; entry != NULL;
 	     entry = udev_list_entry_get_next(entry)) {
@@ -193,6 +198,12 @@ static void sc_udev_allow_assigned(int devices_allow_fd, struct udev *udev,
 			debug("cannot find device from syspath %s", path);
 			continue;
 		}
+
+		if (filter_assigned != NULL
+		    && filter_assigned(device, user_data) == false) {
+			continue;
+		}
+
 		dev_t devnum = udev_device_get_devnum(device);
 		unsigned int major = major(devnum);
 		unsigned int minor = minor(devnum);
@@ -237,7 +248,9 @@ static void sc_udev_allow_assigned(int devices_allow_fd, struct udev *udev,
 
 static void sc_udev_setup_acls(int devices_allow_fd, int devices_deny_fd,
 			       struct udev *udev,
-			       struct udev_list_entry *assigned)
+			       struct udev_list_entry *assigned,
+			       filter_assigned_cb filter_assigned,
+			       const void *user_data)
 {
 	/* Deny device access by default.
 	 *
@@ -253,7 +266,8 @@ static void sc_udev_setup_acls(int devices_allow_fd, int devices_deny_fd,
 	sc_udev_allow_nvidia(devices_allow_fd);
 	sc_udev_allow_uhid(devices_allow_fd);
 	sc_udev_allow_dev_net_tun(devices_allow_fd);
-	sc_udev_allow_assigned(devices_allow_fd, udev, assigned);
+	sc_udev_allow_assigned(devices_allow_fd, udev, assigned,
+			       filter_assigned, user_data);
 }
 
 static char *sc_security_to_udev_tag(const char *security_tag)
@@ -386,10 +400,44 @@ static void sc_cleanup_cgroup_fds(sc_cgroup_fds * fds)
 	}
 }
 
+static bool filter_assigned_by_current_tag_maybe(struct udev_device *dev,
+						 const void *data)
+{
+	/* since version 247 of systemd, the TAGS property is sticky, meaning tags
+	 * that were added once stay around, a new property called CURRENT_TAGS was
+	 * introduced, which contains the set of tags based on the most recent
+	 * database update, see:
+	 * https://github.com/systemd/systemd/blob/v247/NEWS#L5-L87
+	 */
+
+	const char *current_tags =
+	    udev_device_get_property_value(dev, "CURRENT_TAGS");
+	if (current_tags == NULL) {
+		/* the device was assigned to the snap, but CURRENT_TAGS is not set,
+		 * meaning we are likely running with an older version of systemd/udev
+		 * which did not use sticky TAGS yet */
+		return true;
+	}
+	debug("current tags %s", current_tags);
+
+	const char *security_tag = (const char *)data;
+	/* the tags are always of the form: :<tag>: */
+	char tag_pattern[SNAP_SECURITY_TAG_MAX_LEN + sizeof("::")] = { 0 };
+	sc_must_snprintf(tag_pattern, sizeof tag_pattern, ":%s:", security_tag);
+
+	if (strstr(current_tags, tag_pattern) != NULL) {
+		/* most recent db update has tagged the device */
+		return true;
+	}
+
+	return false;
+}
+
 void sc_setup_device_cgroup(const char *security_tag)
 {
 	debug("setting up device cgroup");
 	if (sc_cgroup_is_v2()) {
+		debug("or not, cgroup v2 isn't supported");
 		/* TODO: add support for v2 mode. This is coming but needs several more
 		 * rounds of iteration. */
 		return;
@@ -444,7 +492,8 @@ void sc_setup_device_cgroup(const char *security_tag)
 	}
 	/* Setup the device group access control list */
 	sc_udev_setup_acls(fds.devices_allow_fd, fds.devices_deny_fd,
-			   udev, assigned);
+			   udev, assigned,
+			   filter_assigned_by_current_tag_maybe, security_tag);
 
 	/* Move ourselves to the device cgroup */
 	sc_dprintf(fds.cgroup_procs_fd, "%i\n", getpid());
