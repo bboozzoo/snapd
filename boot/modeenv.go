@@ -258,6 +258,7 @@ func (m *Modeenv) Copy() (*Modeenv, error) {
 // Write outputs the modeenv to the file where it was read, only valid on
 // modeenv that has been read.
 func (m *Modeenv) Write() error {
+	fmt.Printf("---- modeenv write: %+v\n", m)
 	if m.read {
 		return m.WriteTo(m.originRootdir)
 	}

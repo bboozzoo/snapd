@@ -336,6 +336,7 @@ var resealKeyToModeenv = resealKeyToModeenvImpl
 // resealKeyToModeenv reseals the existing encryption key to the
 // parameters specified in modeenv.
 func resealKeyToModeenvImpl(rootdir string, modeenv *Modeenv, expectReseal bool) error {
+	fmt.Printf("--- reseal\n")
 	method, err := sealedKeysMethod(rootdir)
 	if err == errNoSealedKeys {
 		// nothing to do
@@ -466,6 +467,7 @@ func resealKeyToModeenvSecboot(rootdir string, modeenv *Modeenv, expectReseal bo
 			return err
 		}
 	} else {
+		fmt.Printf("run reseal not needed\n")
 		logger.Debugf("reseal not necessary")
 	}
 
@@ -491,6 +493,7 @@ func resealKeyToModeenvSecboot(rootdir string, modeenv *Modeenv, expectReseal bo
 			return err
 		}
 	} else {
+		fmt.Printf("recovery reseal not needed\n")
 		logger.Debugf("fallback reseal not necessary")
 	}
 
