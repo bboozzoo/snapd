@@ -136,6 +136,46 @@ func (ss *SeedSnaps) MakeAssertedSnap(c *C, snapYaml string, files [][]string, r
 	return snapDecl, snapRev
 }
 
+// AddAssertedSnap is like MakeAssertedSnap but the snap assertions already
+// exist in the database.
+func (ss *SeedSnaps) AddAssertedSnap(c *C, snapPath string, db *asserts.Database) {
+	sha3_384, _, err := asserts.SnapFileSHA3_384(snapPath)
+	c.Assert(err, IsNil)
+	a, err := db.Find(asserts.SnapRevisionType, map[string]string{
+		"snap-sha3-384": sha3_384,
+	})
+	c.Assert(err, IsNil)
+
+	revA := a.(*asserts.SnapRevision)
+
+	a, err = db.Find(asserts.SnapDeclarationType, map[string]string{
+		"snap-id": revA.SnapID(),
+		"series":  "16",
+	})
+	c.Assert(err, IsNil)
+
+	declA := a.(*asserts.SnapDeclaration)
+
+	sf, err := snapfile.Open(snapPath)
+	c.Assert(err, IsNil)
+	info, err := snap.ReadInfoFromSnapFile(sf, &snap.SideInfo{
+		Revision: snap.R(revA.Revision()),
+		SnapID:   revA.SnapID(),
+		RealName: declA.SnapName(),
+	})
+	c.Assert(err, IsNil)
+
+	if ss.snaps == nil {
+		ss.snaps = make(map[string]string)
+		ss.infos = make(map[string]*snap.Info)
+		ss.snapRevs = make(map[string]*asserts.SnapRevision)
+	}
+
+	ss.snaps[info.SnapName()] = snapPath
+	ss.infos[info.SnapName()] = info
+	ss.snapRevs[info.SnapName()] = revA
+}
+
 func (ss *SeedSnaps) AssertedSnap(snapName string) (snapFile string) {
 	return ss.snaps[snapName]
 }
@@ -234,9 +274,18 @@ type TestingSeed20 struct {
 	SeedDir string
 }
 
+// MakeSeed creates the seed with given label and generates model assertions
 func (s *TestingSeed20) MakeSeed(c *C, label, brandID, modelID string, modelHeaders map[string]interface{}, optSnaps []*seedwriter.OptionsSnap) *asserts.Model {
 	model := s.Brands.Model(brandID, modelID, modelHeaders)
 
+	assertstest.AddMany(s.StoreSigning, s.Brands.AccountsAndKeys(brandID)...)
+
+	s.MakeSeedWithModel(c, label, model, optSnaps)
+	return model
+}
+
+// MakeSeedWithModel creates the seed with given label for a given model
+func (s *TestingSeed20) MakeSeedWithModel(c *C, label string, model *asserts.Model, optSnaps []*seedwriter.OptionsSnap) {
 	db, err := asserts.OpenDatabase(&asserts.DatabaseConfig{
 		Backstore: asserts.NewMemoryBackstore(),
 		Trusted:   s.StoreSigning.Trusted,
@@ -260,7 +309,6 @@ func (s *TestingSeed20) MakeSeed(c *C, label, brandID, modelID string, modelHead
 		}
 		return asserts.NewFetcher(db, retrieve, save2)
 	}
-	assertstest.AddMany(s.StoreSigning, s.Brands.AccountsAndKeys(brandID)...)
 
 	opts := seedwriter.Options{
 		SeedDir: s.SeedDir,
@@ -336,8 +384,6 @@ func (s *TestingSeed20) MakeSeed(c *C, label, brandID, modelID string, modelHead
 
 	err = w.WriteMeta()
 	c.Assert(err, IsNil)
-
-	return model
 }
 
 func ValidateSeed(c *C, root, label string, usesSnapd bool, trusted []asserts.Assertion) seed.Seed {
