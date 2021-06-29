@@ -548,12 +548,18 @@ func (sa *SigningAccounts) Account(accountID string) *asserts.Account {
 	if acct := sa.accts[accountID]; acct != nil {
 		return acct
 	}
+	if sa.store.TrustedAccount.AccountID() == accountID {
+		return sa.store.TrustedAccount
+	}
 	panic(fmt.Sprintf("unknown test account-id: %s", accountID))
 }
 
 func (sa *SigningAccounts) AccountKey(accountID string) *asserts.AccountKey {
 	if acctKey := sa.acctKeys[accountID]; acctKey != nil {
 		return acctKey
+	}
+	if sa.store.TrustedAccount.AccountID() == accountID {
+		return sa.store.TrustedKey
 	}
 	panic(fmt.Sprintf("unknown test account-id: %s", accountID))
 }
