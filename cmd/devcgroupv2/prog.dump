@@ -1,0 +1,83 @@
+int bpf_prog1(struct bpf_cgroup_dev_ctx * ctx):
+; short type = ctx->access_type & 0xFFFF;
+   0: (61) r2 = *(u32 *)(r1 +0)
+   1: (b7) r3 = 169877536
+; char fmt[] = "  %d:%d    \n";
+   2: (63) *(u32 *)(r10 -8) = r3
+   3: (18) r3 = 0x2064253a64252020
+   5: (7b) *(u64 *)(r10 -16) = r3
+   6: (b7) r3 = 0
+   7: (73) *(u8 *)(r10 -4) = r3
+; struct access_pattern key = {};
+   8: (63) *(u32 *)(r10 -32) = r3
+; switch (type) {
+   9: (bf) r3 = r2
+  10: (57) r3 &= 65535
+  11: (15) if r3 == 0x2 goto pc+9
+; 
+  12: (bf) r3 = r2
+  13: (67) r3 <<= 48
+  14: (c7) r3 s>>= 48
+; switch (type) {
+  15: (67) r3 <<= 32
+  16: (77) r3 >>= 32
+  17: (55) if r3 != 0x1 goto pc+6
+  18: (b7) r3 = 98
+; 
+  19: (73) *(u8 *)(r10 -32) = r3
+  20: (05) goto pc+4
+  21: (b7) r3 = 99
+  22: (73) *(u8 *)(r10 -32) = r3
+  23: (05) goto pc+1
+  24: (b7) r3 = 63
+  25: (73) *(u8 *)(r10 -16) = r3
+; key.major = ctx->major;
+  26: (61) r3 = *(u32 *)(r1 +4)
+; key.major = ctx->major;
+  27: (63) *(u32 *)(r10 -28) = r3
+; key.minor = ctx->minor;
+  28: (61) r4 = *(u32 *)(r1 +8)
+; key.minor = ctx->minor;
+  29: (63) *(u32 *)(r10 -24) = r4
+; if (access & BPF_DEVCG_ACC_READ)
+  30: (bf) r1 = r2
+  31: (57) r1 &= 131072
+; if (access & BPF_DEVCG_ACC_READ)
+  32: (15) if r1 == 0x0 goto pc+2
+  33: (b7) r1 = 114
+; fmt[8] = 'r';
+  34: (73) *(u8 *)(r10 -8) = r1
+; if (access & BPF_DEVCG_ACC_WRITE)
+  35: (bf) r1 = r2
+  36: (57) r1 &= 262144
+; if (access & BPF_DEVCG_ACC_WRITE)
+  37: (15) if r1 == 0x0 goto pc+2
+  38: (b7) r1 = 119
+; fmt[9] = 'w';
+  39: (73) *(u8 *)(r10 -7) = r1
+; if (access & BPF_DEVCG_ACC_MKNOD)
+  40: (57) r2 &= 65536
+; if (access & BPF_DEVCG_ACC_MKNOD)
+  41: (15) if r2 == 0x0 goto pc+2
+  42: (b7) r1 = 109
+; fmt[10] = 'm';
+  43: (73) *(u8 *)(r10 -6) = r1
+  44: (bf) r1 = r10
+; bpf_trace_printk(fmt, sizeof(fmt), ctx->major, ctx->minor);
+  45: (07) r1 += -16
+  46: (b7) r2 = 13
+  47: (85) call bpf_trace_printk#-58192
+  48: (bf) r2 = r10
+  49: (07) r2 += -32
+; result = bpf_map_lookup_elem(&hash_map, &key);
+  50: (18) r1 = map[id:84]
+  52: (85) call __htab_map_lookup_elem#146384
+  53: (15) if r0 == 0x0 goto pc+1
+  54: (07) r0 += 64
+  55: (bf) r1 = r0
+  56: (b7) r0 = 1
+; if (result == NULL) {
+  57: (55) if r1 != 0x0 goto pc+1
+  58: (b7) r0 = 0
+; }
+  59: (95) exit

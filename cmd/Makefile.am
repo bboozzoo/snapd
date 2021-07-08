@@ -24,7 +24,8 @@ subdirs = \
 		  snap-update-ns \
 		  snapd-env-generator \
 		  snapd-generator \
-		  system-shutdown
+		  system-shutdown \
+		  devcgroupv2
 
 # Run check-syntax when checking
 # TODO: conver those to autotools-style tests later
@@ -81,7 +82,9 @@ new_format = \
 	 snap-device-helper/snap-device-helper-test.c \
 	 snap-discard-ns/snap-discard-ns.c \
 	 snap-gdb-shim/snap-gdb-shim.c \
-	 snap-gdb-shim/snap-gdbserver-shim.c
+	 snap-gdb-shim/snap-gdbserver-shim.c \
+	 devcgroupv2/main.c \
+	 devcgroupv2/bpf-prog.c
 
 # NOTE: clang-format is using project-wide .clang-format file.
 .PHONY: fmt
@@ -569,3 +572,14 @@ install-exec-local::
 if APPARMOR
 	install -m 755 $(srcdir)/snapd-apparmor/snapd-apparmor $(DESTDIR)$(libexecdir)
 endif
+
+##
+## devcgroupv2
+##
+
+noinst_PROGRAMS += devcgroupv2/devcgroupv2
+
+devcgroupv2_devcgroupv2_SOURCES = devcgroupv2/main.c
+devcgroupv2_devcgroupv2_CFLAGS = $(CHECK_CFLAGS) $(LIBBPF_CFLAGS)
+devcgroupv2_devcgroupv2_LDADD = libsnap-confine-private.a
+devcgroupv2_devcgroupv2_LDFLAGS = $(LIBBPF_LIBS)
