@@ -28,7 +28,7 @@
 
 #include "../libsnap-confine-private/utils.h"
 
-static size_t align_to(size_t val, size_t alignment) {
+__attribute__((unused)) static size_t align_to(size_t val, size_t alignment) {
 	if (val % alignment == 0) {
 		return val;
 	}
@@ -77,17 +77,26 @@ int main(int argc, char **argv) {
 	// where the value is 1 byte, but effectively ignored at this time. We are
 	// using the map as a set, but 0 sized key cannot be used when creating a
 	// map.
+	size_t aligned_key_size = 16;
+	/* NOTE: we pull a nasty hack, the structure is packed and its size isn't
+	 * aligned to multiples of 4; if we place it on a stack at an address
+	 * aligned to 4 bytes, the starting offsets of major and minor would be
+	 * unaligned; however, the first field of the structure is 1 byte, so we can
+	 * put the structure at 4 byte aligned address -1 and thus major and minor
+	 * end up aligned without too much hassle */
     struct bpf_insn prog[] = {
 		/* r1 holds pointer to bpf_cgroup_dev_ctx */
 
+		/* initialize r0 */
+        BPF_MOV64_IMM(BPF_REG_0, 0), /* r0 = 0 */
 		/* make some place on the stack for the key */
 		BPF_MOV64_REG(BPF_REG_6, BPF_REG_10), /* r6 = r10 (sp) */
-		BPF_ALU64_IMM(BPF_SUB, BPF_REG_6, align_to(sizeof(struct key), 4)), /* r6 = sp - sizeof(struct key) */
+		BPF_ALU64_IMM(BPF_ADD, BPF_REG_6, -aligned_key_size-1), /* r6 = sp + (-sizeof(struct key)) */
 		/* copy major to our key */
 		BPF_LDX_MEM(BPF_W, BPF_REG_2, BPF_REG_1,
 					offsetof(struct bpf_cgroup_dev_ctx, major)), /* r2 = *(u32)(r1->major) */
-		BPF_STX_MEM(BPF_W, BPF_REG_6, BPF_REG_2,
-					offsetof(struct key, major)), /* *(r6 + offsetof(major)) = r2 */
+		BPF_STX_MEM(BPF_W, BPF_REG_10, BPF_REG_2,
+					-aligned_key_size-1+offsetof(struct key, major)), /* *(r6 + offsetof(major)) = r2 */
 		/* copy minor to our key */
 		BPF_LDX_MEM(BPF_W, BPF_REG_2, BPF_REG_1,
 					offsetof(struct bpf_cgroup_dev_ctx, minor)), /* r2 = *(u32)(r1->minor) */
@@ -110,7 +119,7 @@ int main(int argc, char **argv) {
         BPF_MOV64_IMM(BPF_REG_0, 0), /* r0 = 0 */
 		BPF_EXIT_INSN(),
 		/* back on happy path, prepare arguments for map lookup */
-		BPF_MOV64_IMM(BPF_REG_1, map_fd),
+		BPF_LD_MAP_FD(BPF_REG_1, map_fd),
 		BPF_MOV64_REG(BPF_REG_2, BPF_REG_6), /* r2 = (struct key *) r6, */
 		BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, 0, 0, BPF_FUNC_map_lookup_elem), /* r0 = bpf_map_lookup_elem(<map>, &key) */
 		BPF_JMP_IMM(BPF_JEQ, BPF_REG_0, 0, 2), /* if (value_ptr == 0) goto pc + 2*/
