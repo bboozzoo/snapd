@@ -3,15 +3,15 @@
  * clang -target bpf bpf-prog.c $(pkg-config --cflags libbpf) -O2 -c -g -o bpf-prog.o
  */
 
-#include <bpf/bpf_helpers.h>
 #include <linux/bpf.h>
 #include <linux/version.h>
+#include <bpf/bpf_helpers.h>
 
 struct access_pattern {
     __u8 type;
     __u32 major;
     __u32 minor;
-};
+} __attribute__((packed));
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
