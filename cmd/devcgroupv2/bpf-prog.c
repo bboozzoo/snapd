@@ -5,6 +5,7 @@
 
 #include <linux/bpf.h>
 #include <linux/version.h>
+/* must follow linux/bpf.h */
 #include <bpf/bpf_helpers.h>
 
 struct access_pattern {
