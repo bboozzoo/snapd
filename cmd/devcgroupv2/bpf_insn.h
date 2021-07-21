@@ -311,5 +311,4 @@ static inline bool insn_is_zext(const struct bpf_insn *insn)
 		.off   = 0,					\
 		.imm   = 0 })
 
-
 #endif				/* __BPF_INSN_H__ */

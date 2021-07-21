@@ -123,7 +123,7 @@ int main(int argc, char **argv) {
            &key) */
         BPF_JMP_IMM(BPF_JEQ, BPF_REG_0, 0, 1),                               /* if (value_ptr == 0) goto pc + 1 */
         /* we found an exact match */
-        BPF_JMP_A(5),                                                        /* else goto pc + 5 */
+        BPF_JMP_A(5), /* else goto pc + 5 */
         /* maybe the minor number is using 0xffffffff (any) mask */
         BPF_ST_MEM(BPF_W, BPF_REG_6, offsetof(struct key, minor), UINT32_MAX),
         BPF_LD_MAP_FD(BPF_REG_1, map_fd),
@@ -132,7 +132,7 @@ int main(int argc, char **argv) {
            &key) */
         BPF_JMP_IMM(BPF_JEQ, BPF_REG_0, 0, 2),                               /* if (value_ptr == 0) goto pc + 2 */
         /* we found a match with any minor number for that type|major */
-        BPF_MOV64_IMM(BPF_REG_0, 1),                                         /* r0 = 1 */
+        BPF_MOV64_IMM(BPF_REG_0, 1), /* r0 = 1 */
         BPF_JMP_A(1),
         BPF_MOV64_IMM(BPF_REG_0, 0), /* r0 = 0 */
         BPF_EXIT_INSN(),
