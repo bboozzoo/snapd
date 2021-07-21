@@ -32,17 +32,17 @@ Allow /dev/null and /dev/zero access:
 
 ```
 # /dev/null
-sudo ~/code/linux/tools/bpf/bpftool/bpftool map update pinned /sys/fs/bpf/snap_devcgroup_test key 0x63 00 00 00 01 00 00 00 03 value 01 any 
+sudo ~/code/linux/tools/bpf/bpftool/bpftool map update pinned /sys/fs/bpf/snap_devcgroup_test key 0x63 01 00 00 00 03 00 00 00 value 01 any 
 # /dev/zero
-sudo ~/code/linux/tools/bpf/bpftool/bpftool map update pinned /sys/fs/bpf/snap_devcgroup_test key 0x63 00 00 00 01 00 00 00 05 value 01 any 
+sudo ~/code/linux/tools/bpf/bpftool/bpftool map update pinned /sys/fs/bpf/snap_devcgroup_test key 0x63 01 00 00 00 05 00 00 00 value 01 any 
 ```
 
 Inspect the dump:
 
 ```
 $ sudo ~/code/linux/tools/bpf/bpftool/bpftool map dump pinned /sys/fs/bpf/snap_devcgroup_test 
-key: 63 00 00 00 01 00 00 00  05  value: 01
-key: 63 00 00 00 01 00 00 00  03  value: 01
+key: 63 01 00 00 00 05 00 00  00  value: 01
+key: 63 01 00 00 00 03 00 00  00  value: 01
 Found 2 elements
 ```
 
@@ -59,7 +59,7 @@ dd if=/dev/zero of=/dev/null bs=1 count=1
 Block /dev/zero:
 
 ```
-sudo ~/code/linux/tools/bpf/bpftool/bpftool map delete pinned /sys/fs/bpf/snap_devcgroup_test key 0x63 00 00 00 01 00 00 00 05
+sudo ~/code/linux/tools/bpf/bpftool/bpftool map delete pinned /sys/fs/bpf/snap_devcgroup_test key 0x63 01 00 00 00 05 00 00 00
 
 ```
 
@@ -68,4 +68,20 @@ and verify:
 ```
 dd if=/dev/zero of=/dev/null bs=1 count=1
 dd: failed to open '/dev/zero': Operation not permitted
+```
+
+Allow all char devices with major 1 (/dev/null, /dev/zero, /dev/full ...)
+
+```
+sudo ~/code/linux/tools/bpf/bpftool/bpftool map update pinned /sys/fs/bpf/snap_devcgroup_test key 0x63 01 00 00 00 0xff 0xff 0xff 0xff value 01 any 
+```
+
+and verify:
+
+```
+$ dd if=/dev/zero of=/dev/full
+dd: writing to '/dev/full': No space left on device
+1+0 records in
+0+0 records out
+0 bytes copied, 0,000186622 s, 0,0 kB/s
 ```
