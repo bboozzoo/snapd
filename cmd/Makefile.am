@@ -274,7 +274,7 @@ snap_confine_snap_confine_SOURCES = \
 	snap-confine/user-support.h
 
 snap_confine_snap_confine_CFLAGS = $(CHECK_CFLAGS) $(AM_CFLAGS) -DLIBEXECDIR=\"$(libexecdir)\" -DNATIVE_LIBDIR=\"$(libdir)\"
-snap_confine_snap_confine_LDFLAGS = $(AM_LDFLAGS)
+snap_confine_snap_confine_LDFLAGS = $(AM_LDFLAGS) -fvisibility=hidden
 snap_confine_snap_confine_LDADD = libsnap-confine-private.a
 snap_confine_snap_confine_CFLAGS += $(LIBUDEV_CFLAGS)
 snap_confine_snap_confine_LDADD += $(snap_confine_snap_confine_extra_libs)
@@ -477,7 +477,7 @@ EXTRA_DIST += snap-discard-ns/snap-discard-ns.rst
 snap_discard_ns_snap_discard_ns_SOURCES = \
 	snap-discard-ns/snap-discard-ns.c
 snap_discard_ns_snap_discard_ns_CFLAGS = $(CHECK_CFLAGS) $(AM_CFLAGS)
-snap_discard_ns_snap_discard_ns_LDFLAGS = $(AM_LDFLAGS)
+snap_discard_ns_snap_discard_ns_LDFLAGS = $(AM_LDFLAGS) -fvisibility=hidden
 snap_discard_ns_snap_discard_ns_LDADD = libsnap-confine-private.a
 snap_discard_ns_snap_discard_ns_STATIC =
 
@@ -554,6 +554,7 @@ systemdsystemenvgenerator_PROGRAMS = snapd-env-generator/snapd-env-generator
 
 snapd_env_generator_snapd_env_generator_SOURCES = snapd-env-generator/main.c
 snapd_env_generator_snapd_env_generator_LDADD = libsnap-confine-private.a
+snapd_env_generator_snapd_env_generator_LDFLAGS = $(AM_LDFLAGS) -fvisibility=hidden
 EXTRA_DIST += snapd-env-generator/snapd-env-generator.rst
 
 if HAVE_RST2MAN
