@@ -62,6 +62,9 @@
 %global snappy_svcs      snapd.service snapd.socket snapd.autoimport.service snapd.seeded.service
 %global snappy_user_svcs snapd.session-agent.service snapd.session-agent.socket
 
+# override go-rpm-macros default
+%global gomodulesmode    GO111MODULE=on
+
 # Until we have a way to add more extldflags to gobuild macro...
 # Always use external linking when building static binaries.
 %if 0%{?fedora} || 0%{?rhel} >= 8
@@ -514,12 +517,10 @@ mkdir -p src/github.com/snapcore
 ln -s ../../../ src/github.com/snapcore/snapd
 
 %if ! 0%{?with_bundled}
-export GOPATH=$(pwd):%{gopath}
-# FIXME: move spec file really to a go.mod world instead of this hack
-rm -f go.mod
-export GO111MODULE=off
-#%else
-#export GOPATH=$(pwd):$(pwd)/Godeps/_workspace:%{gopath}
+# use the distro provided dependencies
+GOMODFLAGS=-mod=readonly
+%else
+GOMODFLAGS=-mod=vendor
 %endif
 
 # see https://github.com/gofed/go-macros/blob/master/rpm/macros.d/macros.go-compilers-golang
@@ -540,10 +541,10 @@ sed -e "s:github.com/snapcore/bolt:github.com/boltdb/bolt:g" -i advisor/*.go err
 # We have to build snapd first to prevent the build from
 # building various things from the tree without additional
 # set tags.
-%gobuild -o bin/snapd $GOFLAGS ./cmd/snapd
+%gobuild -o bin/snapd $GOFLAGS $GOMODFLAGS ./cmd/snapd
 BUILDTAGS="${BUILDTAGS} nomanagers"
-%gobuild -o bin/snap $GOFLAGS %{import_path}/cmd/snap
-%gobuild -o bin/snap-failure $GOFLAGS %{import_path}/cmd/snap-failure
+%gobuild -o bin/snap $GOFLAGS $GOMODFLAGS %{import_path}/cmd/snap
+%gobuild -o bin/snap-failure $GOFLAGS $GOMODFLAGS %{import_path}/cmd/snap-failure
 
 # To ensure things work correctly with base snaps,
 # snap-exec, snap-update-ns, and snapctl need to be built statically
@@ -554,16 +555,16 @@ BUILDTAGS="${BUILDTAGS} nomanagers"
     # disable that functionality for statically built binaries
     BUILDTAGS="${BUILDTAGS} no_openssl"
 %endif
-    %gobuild_static -o bin/snap-exec $GOFLAGS %{import_path}/cmd/snap-exec
-    %gobuild_static -o bin/snap-update-ns $GOFLAGS %{import_path}/cmd/snap-update-ns
-    %gobuild_static -o bin/snapctl $GOFLAGS %{import_path}/cmd/snapctl
+    %gobuild_static -o bin/snap-exec $GOFLAGS $GOMODFLAGS %{import_path}/cmd/snap-exec
+    %gobuild_static -o bin/snap-update-ns $GOFLAGS $GOMODFLAGS %{import_path}/cmd/snap-update-ns
+    %gobuild_static -o bin/snapctl $GOFLAGS $GOMODFLAGS %{import_path}/cmd/snapctl
 )
 
 %if 0%{?rhel}
 # There's no static link library for libseccomp in RHEL/CentOS...
 sed -e "s/-Bstatic -lseccomp/-Bstatic/g" -i cmd/snap-seccomp/*.go
 %endif
-%gobuild -o bin/snap-seccomp $GOFLAGS %{import_path}/cmd/snap-seccomp
+%gobuild -o bin/snap-seccomp $GOFLAGS $GOMODFLAGS %{import_path}/cmd/snap-seccomp
 
 %if 0%{?with_selinux}
 (
@@ -766,14 +767,7 @@ done
 
 # snapd tests
 %if 0%{?with_check} && 0%{?with_unit_test} && 0%{?with_devel}
-%if ! 0%{?with_bundled}
-export GOPATH=%{buildroot}/%{gopath}:%{gopath}
-%else
-export GOPATH=%{buildroot}/%{gopath}:$(pwd)/Godeps/_workspace:%{gopath}
-%endif
-# FIXME: we are in the go.mod world now but without this things fall apart
-export GO111MODULE=off
-%gotest %{import_path}/...
+%gotest $GOMODFLAGS %{import_path}/...
 %endif
 
 # snap-confine tests (these always run!)
