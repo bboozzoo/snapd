@@ -167,7 +167,7 @@ override_dh_auto_build:
 	cp -a bootloader/assets/data _build/src/$(DH_GOPKG)/bootloader/assets
 
 	# this is the main go build
-	SNAPD_VANILLA_GO=$$(which go) PATH="$$(pwd)/packaging/build-tools/:$$PATH" dh_auto_build -- $(BUILDFLAGS) $(TAGS) $(GCCGOFLAGS)
+	SNAPD_VANILLA_GO=$$(which go) PATH="$$(pwd)/packaging/build-tools/:$$PATH" dh_auto_build -- -mod vendor $(BUILDFLAGS) $(TAGS) $(GCCGOFLAGS)
 
 	(cd _build/bin && GOPATH=$$(pwd)/.. go build -mod vendor $(BUILDFLAGS) $(GCCGOFLAGS) $(SNAP_TAGS) $(DH_GOPKG)/cmd/snap)
 	(cd _build/bin && GOPATH=$$(pwd)/.. go build -mod vendor $(BUILDFLAGS) $(GCCGOFLAGS) $(SNAP_TAGS) $(DH_GOPKG)/cmd/snap-bootstrap)
