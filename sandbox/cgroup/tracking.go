@@ -275,6 +275,8 @@ var doCreateTransientScope = func(conn *dbus.Conn, unitName string, pid int) err
 	mode := "fail"
 	properties := []property{{"PIDs", []uint{uint(pid)}}}
 	aux := []auxUnit(nil)
+	// set up a watch for JobRemoved signals, o that we'll know when our
+	// request has completed
 	jobRemoveMatch := []dbus.MatchOption{
 		dbus.WithMatchInterface("org.freedesktop.systemd1.Manager"),
 		dbus.WithMatchMember("JobRemoved"),
@@ -282,23 +284,20 @@ var doCreateTransientScope = func(conn *dbus.Conn, unitName string, pid int) err
 	if err := conn.AddMatchSignal(jobRemoveMatch...); err != nil {
 		return fmt.Errorf("cannot subscribe to systemd signals: %v", err)
 	}
+	// signal channel with buffer for some messages
 	signals := make(chan *dbus.Signal, 10)
+	// for receiving job results
 	jobResultChan := make(chan string, 1)
+	// for passing the job we want to observe
 	jobWaitFor := make(chan dbus.ObjectPath, 1)
+	// and start watching for signals, we do this before even sending a
+	// request, so that we won't miss any signals from systemd
 	conn.Signal(signals)
 
-	systemd := conn.Object("org.freedesktop.systemd1", "/org/freedesktop/systemd1")
-	call := systemd.Call(
-		"org.freedesktop.systemd1.Manager.StartTransientUnit",
-		0,
-		unitName,
-		mode,
-		properties,
-		aux,
-	)
 	var wg sync.WaitGroup
 	closeChan := make(chan struct{})
 	defer func() {
+		// wait for the signal handling to finish before returning
 		close(closeChan)
 		wg.Wait()
 	}()
@@ -353,6 +352,15 @@ var doCreateTransientScope = func(conn *dbus.Conn, unitName string, pid int) err
 			}
 		}
 	}()
+	systemd := conn.Object("org.freedesktop.systemd1", "/org/freedesktop/systemd1")
+	call := systemd.Call(
+		"org.freedesktop.systemd1.Manager.StartTransientUnit",
+		0,
+		unitName,
+		mode,
+		properties,
+		aux,
+	)
 	var job dbus.ObjectPath
 	if err := call.Store(&job); err != nil {
 		if dbusErr, ok := err.(dbus.Error); ok {
