@@ -76,7 +76,6 @@ type testDBusStream struct {
 
 func (s *testDBusStream) decodeRequest(req []byte) {
 	buf := bytes.NewBuffer(req)
-	// s.m is locked
 	if !s.authDone {
 		// Before authentication is done process the text protocol anticipating
 		// the TEST authentication used by NewDBusTestConn call below.
