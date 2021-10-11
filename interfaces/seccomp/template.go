@@ -103,7 +103,7 @@ clock_gettime64
 clock_nanosleep
 clock_nanosleep_time64
 clone
-clone3
+clone3 errno:ENOSYS
 close
 
 # needed by ls -l
