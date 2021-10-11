@@ -555,12 +555,17 @@ func parseLine(line string, secFilter *seccomp.ScmpFilter) error {
 	}
 
 	var conds []seccomp.ScmpCondition
+	var action seccomp.ScmpAction = seccomp.ActAllow
 	for pos, arg := range tokens[1:] {
 		var cmpOp seccomp.ScmpCompareOp
 		var value uint64
 		var err error
 
 		if arg == "-" { // skip arg
+			continue
+		}
+		if arg == "errno:ENOSYS" {
+			action = seccomp.ActErrno.SetReturnCode(errnoNoSys)
 			continue
 		}
 
@@ -623,12 +628,13 @@ func parseLine(line string, secFilter *seccomp.ScmpFilter) error {
 			return fmt.Errorf("cannot parse line %q: %s", line, err)
 		}
 		conds = append(conds, scmpCond)
+
 	}
 
 	// Default to adding a precise match if possible. Otherwise
 	// let seccomp figure out the architecture specifics.
-	if err = secFilter.AddRuleConditionalExact(secSyscall, seccomp.ActAllow, conds); err != nil {
-		err = secFilter.AddRuleConditional(secSyscall, seccomp.ActAllow, conds)
+	if err = secFilter.AddRuleConditionalExact(secSyscall, action, conds); err != nil {
+		err = secFilter.AddRuleConditional(secSyscall, action, conds)
 	}
 
 	return err
@@ -688,6 +694,7 @@ func addSecondaryArches(secFilter *seccomp.ScmpFilter) error {
 }
 
 var errnoOnDenial int16 = C.EPERM
+var errnoNoSys int16 = C.ENOSYS
 
 func preprocess(content []byte) (unrestricted, complain bool) {
 	scanner := bufio.NewScanner(bytes.NewBuffer(content))

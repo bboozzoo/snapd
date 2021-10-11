@@ -485,6 +485,9 @@ func (s *snapSeccompSuite) TestCompile(c *C) {
 		{"chown - -1 u:root", "chown;native;-,99,0", Deny},
 		{"chown - -1 -1", "chown;native;-,-1,-1", Allow},
 		{"chown - -1 -1", "chown;native;-,99,-1", Deny},
+
+		// specific errno action
+		{"clone3 errno:ENOSYS", "clone3;native;0,0", Deny},
 	} {
 		s.runBpf(c, t.seccompWhitelist, t.bpfInput, t.expected)
 	}
