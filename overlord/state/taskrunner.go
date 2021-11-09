@@ -20,6 +20,7 @@
 package state
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -402,7 +403,9 @@ ConsiderTasks:
 			continue
 		}
 
+		fmt.Printf("consider task %v %v %v\n", t.ID(), t.Kind(), t.Summary())
 		if mustWait(t) {
+			fmt.Printf("--- must wait\n")
 			// Dependencies still unhandled.
 			continue
 		}
@@ -424,6 +427,7 @@ ConsiderTasks:
 			if nextTaskTime.IsZero() || nextTaskTime.After(tWhen) {
 				nextTaskTime = tWhen
 			}
+			fmt.Printf("--- next task time %v\n", nextTaskTime)
 			continue
 		}
 
@@ -436,6 +440,7 @@ ConsiderTasks:
 			}
 		}
 
+		fmt.Printf("Running task %s on %s: %s\n", t.ID(), t.Status(), t.Summary())
 		logger.Debugf("Running task %s on %s: %s", t.ID(), t.Status(), t.Summary())
 		r.run(t)
 
@@ -444,7 +449,9 @@ ConsiderTasks:
 
 	// schedule next Ensure no later than the next task time
 	if !nextTaskTime.IsZero() {
-		r.state.EnsureBefore(nextTaskTime.Sub(ensureTime))
+		nextTime := nextTaskTime.Sub(ensureTime)
+		fmt.Printf("got next time: %v\n", nextTime)
+		r.state.EnsureBefore(nextTime)
 	}
 
 	return nil

@@ -481,9 +481,11 @@ func (o *Overlord) settle(timeout time.Duration, beforeCleanups func()) error {
 		}
 		o.stateEng.Wait()
 		o.ensureLock.Lock()
+		fmt.Printf("expected next: %v next: %v\n", next, o.ensureNext)
 		done = o.ensureNext.Equal(next)
 		o.ensureLock.Unlock()
 		if done {
+			fmt.Printf("---- done\n")
 			if beforeCleanups != nil {
 				beforeCleanups()
 				beforeCleanups = nil
@@ -493,6 +495,7 @@ func (o *Overlord) settle(timeout time.Duration, beforeCleanups func()) error {
 			st.Lock()
 			for _, chg := range st.Changes() {
 				if chg.IsReady() && !chg.IsClean() {
+					fmt.Printf("change %v but not clean\n", chg.Summary())
 					done = false
 					break
 				}

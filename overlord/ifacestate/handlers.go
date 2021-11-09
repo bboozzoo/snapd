@@ -1106,6 +1106,8 @@ func (m *InterfaceManager) doAutoConnect(task *state.Task, _ *tomb.Tomb) error {
 		return err
 	}
 
+	fmt.Printf("%q task auto connect\n", snapsup.InstanceName())
+
 	deviceCtx, err := snapstate.DeviceCtx(st, task, nil)
 	if err != nil {
 		return err
@@ -1121,6 +1123,7 @@ func (m *InterfaceManager) doAutoConnect(task *state.Task, _ *tomb.Tomb) error {
 	// has happened or we may not have all the interfaces of the
 	// new core/base snap.
 	if err := snapstate.FinishRestart(task, snapsup); err != nil {
+		fmt.Printf("%q task auto connect %v\n", snapsup.InstanceName(), err)
 		return err
 	}
 

@@ -1215,6 +1215,7 @@ func (m *DeviceManager) Ensure() error {
 		}
 
 		if err := m.ensureBootOk(); err != nil {
+			fmt.Printf("---- not boot ok: %v\n", err)
 			errs = append(errs, err)
 		}
 

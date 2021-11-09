@@ -1420,6 +1420,7 @@ func (m *SnapManager) doLinkSnap(t *state.Task, _ *tomb.Tomb) (err error) {
 		linkCtx.RequireMountedSnapdSnap = true
 	}
 	reboot, err := m.backend.LinkSnap(newInfo, deviceCtx, linkCtx, perfTimings)
+	fmt.Printf("--- %q reboot? %v\n", snapsup.InstanceName(), reboot)
 	// defer a cleanup helper which will unlink the snap if anything fails after
 	// this point
 	defer func() {
@@ -1552,14 +1553,17 @@ func (m *SnapManager) doLinkSnap(t *state.Task, _ *tomb.Tomb) (err error) {
 	// so that we switch executing its snapd.
 	var canReboot bool
 	if reboot {
+		fmt.Printf("reboot\n")
 		// system reboot is required, but can this task request that?
 		if err := t.Get("can-reboot", &canReboot); err != nil && err != state.ErrNoState {
+			fmt.Printf("err %v\n", err)
 			return err
 		} else if err == state.ErrNoState {
 			// err-no-state, implying the the task was created
 			// before those variables were introduced
 			canReboot = true
 		}
+		fmt.Printf("do link %q can reboot: %v\n", snapsup.InstanceName(), canReboot)
 		if !canReboot {
 			t.Logf("reboot postponed to later tasks")
 		}
@@ -1584,6 +1588,7 @@ func (m *SnapManager) maybeRestart(t *state.Task, info *snap.Info, rebootRequire
 
 	if rebootRequired {
 		t.Logf("Requested system restart.")
+		fmt.Printf("--- restart system\n")
 		RestartSystem(t)
 		return
 	}
