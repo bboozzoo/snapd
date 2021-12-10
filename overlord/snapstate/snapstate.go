@@ -66,14 +66,15 @@ const (
 )
 
 const (
-	DownloadAndChecksDoneEdge = state.TaskSetEdge("download-and-checks-done")
-	BeginEdge                 = state.TaskSetEdge("begin")
-	BeforeHooksEdge           = state.TaskSetEdge("before-hooks")
-	HooksEdge                 = state.TaskSetEdge("hooks")
-	BeforeMaybeRebootEdge     = state.TaskSetEdge("before-maybe-reboot")
-	MaybeRebootEdge           = state.TaskSetEdge("maybe-reboot")
-	MaybeRebootWaitEdge       = state.TaskSetEdge("maybe-reboot-wait")
-	AfterMaybeRebootWaitEdge  = state.TaskSetEdge("after-maybe-reboot-wait")
+	DownloadAndChecksDoneEdge    = state.TaskSetEdge("download-and-checks-done")
+	BeginEdge                    = state.TaskSetEdge("begin")
+	BeforeHooksEdge              = state.TaskSetEdge("before-hooks")
+	HooksEdge                    = state.TaskSetEdge("hooks")
+	BeforeMaybeRebootEdge        = state.TaskSetEdge("before-maybe-reboot")
+	MaybeRebootEdge              = state.TaskSetEdge("maybe-reboot")
+	MaybeRebootWaitEdge          = state.TaskSetEdge("maybe-reboot-wait")
+	AfterMaybeRebootWaitEdge     = state.TaskSetEdge("after-maybe-reboot-wait")
+	BeforeLocalModificationsEdge = state.TaskSetEdge("before-local-modifications")
 )
 
 var ErrNothingToDo = errors.New("nothing to do")
@@ -2429,8 +2430,8 @@ func AddLinkNewBaseOrKernel(st *state.State, ts *state.TaskSet) (*state.TaskSet,
 	ts.AddTask(linkSnap)
 	// make sure that remodel can identify which tasks introduce actual
 	// changes to the system and order them correctly
-	if edgeTask := ts.MaybeEdge(DownloadAndChecksDoneEdge); edgeTask == nil {
-		ts.MarkEdge(allTasks[len(allTasks)-1], DownloadAndChecksDoneEdge)
+	if edgeTask := ts.MaybeEdge(BeforeLocalModificationsEdge); edgeTask == nil {
+		ts.MarkEdge(allTasks[len(allTasks)-1], BeforeLocalModificationsEdge)
 	}
 	return ts, nil
 }
@@ -2481,7 +2482,7 @@ func SwitchToNewGadget(st *state.State, name string) (*state.TaskSet, error) {
 
 	// we need this for remodel
 	ts := state.NewTaskSet(prepareSnap, gadgetUpdate, gadgetCmdline)
-	ts.MarkEdge(prepareSnap, DownloadAndChecksDoneEdge)
+	ts.MarkEdge(prepareSnap, BeforeLocalModificationsEdge)
 	return ts, nil
 }
 
@@ -2508,8 +2509,8 @@ func AddGadgetAssetsTasks(st *state.State, ts *state.TaskSet) (*state.TaskSet, e
 	ts.AddTask(gadgetCmdline)
 	// make sure that remodel can identify which tasks introduce actual
 	// changes to the system and order them correctly
-	if edgeTask := ts.MaybeEdge(DownloadAndChecksDoneEdge); edgeTask == nil {
-		ts.MarkEdge(allTasks[len(allTasks)-1], DownloadAndChecksDoneEdge)
+	if edgeTask := ts.MaybeEdge(BeforeLocalModificationsEdge); edgeTask == nil {
+		ts.MarkEdge(allTasks[len(allTasks)-1], BeforeLocalModificationsEdge)
 	}
 	return ts, nil
 }
