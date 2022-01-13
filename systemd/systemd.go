@@ -950,11 +950,11 @@ loop:
 			allStopped := true
 			stillRunningServices := []string{}
 			for _, service := range serviceNames {
-				bs, err := s.systemctl("show", "--property=ActiveState", service)
+				active, err := s.IsActive(service)
 				if err != nil {
 					return err
 				}
-				if !isStopDone(bs) {
+				if active {
 					stillRunningServices = append(stillRunningServices, service)
 					allStopped = false
 				}
