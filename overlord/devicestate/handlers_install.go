@@ -56,9 +56,11 @@ import (
 
 var (
 	bootMakeRunnable            = boot.MakeRunnableSystem
+	bootMakeRunnableAfterReset  = boot.MakeRunnableSystemAfterReset
 	bootEnsureNextBootToRunMode = boot.EnsureNextBootToRunMode
 	installRun                  = install.Run
 	installFactoryReset         = install.FactoryReset
+	secbootChangeEncryptionKey  = secboot.ChangeEncryptionKey
 
 	sysconfigConfigureTargetSystem = sysconfig.ConfigureTargetSystem
 )
@@ -919,15 +921,75 @@ func (m *DeviceManager) doFactoryResetRunSystem(t *state.Task, _ *tomb.Tomb) err
 		return fmt.Errorf("cannot use gadget: %v", err)
 	}
 
+	var trustedInstallObserver *boot.TrustedAssetsInstallObserver
+	// get a nice nil interface by default
+	var installObserver gadget.ContentObserver
+	trustedInstallObserver, err = boot.TrustedAssetsInstallObserverForModel(model, gadgetDir, useEncryption)
+	if err != nil && err != boot.ErrObserverNotApplicable {
+		return fmt.Errorf("cannot setup asset install observer: %v", err)
+	}
+	if err == nil {
+		installObserver = trustedInstallObserver
+		if !useEncryption {
+			// there will be no key sealing, so past the
+			// installation pass no other methods need to be called
+			trustedInstallObserver = nil
+		}
+	}
+
+	var installedSystem *install.InstalledSystemSideData
 	// run the create partition code
 	logger.Noticef("create and deploy partitions")
 	timings.Run(perfTimings, "factory-reset", "Factory reset", func(tm timings.Measurer) {
 		st.Unlock()
 		defer st.Lock()
-		_, err = installFactoryReset(model, gadgetDir, kernelDir, "", bopts, nil, tm)
+		installedSystem, err = installFactoryReset(model, gadgetDir, kernelDir, "", bopts, installObserver, tm)
 	})
 	if err != nil {
 		return fmt.Errorf("cannot perform factory reset: %v", err)
+	}
+	logger.Noticef("devs: %+v", installedSystem)
+
+	if trustedInstallObserver != nil {
+		// TODO: generate new encryption key for save
+		// TODO: generate new recovery key for save
+		key, err := keys.NewEncryptionKey()
+		if err != nil {
+			return fmt.Errorf("cannot create encryption key: %v", err)
+		}
+
+		saveNode := installedSystem.DeviceForRole[gadget.SystemSave]
+		if saveNode == "" {
+			return fmt.Errorf("internal error: no system-save device")
+		}
+
+		if err := secbootChangeEncryptionKey(saveNode, key); err != nil {
+			return fmt.Errorf("cannot change encryption keys: %v", err)
+		}
+
+		installedSystem.KeyForRole[gadget.SystemSave] = key
+
+		// sanity check
+		if len(installedSystem.KeyForRole) == 0 || installedSystem.KeyForRole[gadget.SystemData] == nil || installedSystem.KeyForRole[gadget.SystemSave] == nil {
+			return fmt.Errorf("internal error: system encryption keys are unset")
+		}
+		dataEncryptionKey := installedSystem.KeyForRole[gadget.SystemData]
+		saveEncryptionKey := installedSystem.KeyForRole[gadget.SystemSave]
+
+		// make note of the encryption keys
+		trustedInstallObserver.ChosenEncryptionKeys(dataEncryptionKey, saveEncryptionKey)
+
+		// keep track of recovery assets
+		if err := trustedInstallObserver.ObserveExistingTrustedRecoveryAssets(boot.InitramfsUbuntuSeedDir); err != nil {
+			return fmt.Errorf("cannot observe existing trusted recovery assets: err")
+		}
+		if err := saveKeys(installedSystem.KeyForRole); err != nil {
+			return err
+		}
+		// write markers containing a secret to pair data and save
+		if err := writeMarkers(); err != nil {
+			return err
+		}
 	}
 
 	// TODO: splice into a common install/reset helper?
@@ -988,7 +1050,7 @@ func (m *DeviceManager) doFactoryResetRunSystem(t *state.Task, _ *tomb.Tomb) err
 		UnpackedGadgetDir: gadgetDir,
 	}
 	timings.Run(perfTimings, "boot-make-runnable", "Make target system runnable", func(timings.Measurer) {
-		err = bootMakeRunnable(deviceCtx.Model(), bootWith, nil)
+		err = bootMakeRunnableAfterReset(deviceCtx.Model(), bootWith, trustedInstallObserver)
 	})
 	if err != nil {
 		return fmt.Errorf("cannot make system runnable: %v", err)
