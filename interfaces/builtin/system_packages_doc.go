@@ -40,8 +40,8 @@ const systemPackagesDocConnectedPlugAppArmor = `
 # Description: can access documentation of system packages.
 
 /usr/share/doc/{,**} r,
+/usr/share/*-doc{,s}/{,**} r,
 /usr/share/libreoffice/help/{,**} r,
-/usr/share/xubuntu-docs/{,**} r,
 `
 
 type systemPackagesDocInterface struct {
@@ -58,14 +58,15 @@ func (iface *systemPackagesDocInterface) AppArmorConnectedPlug(spec *apparmor.Sp
 	emit("  mount options=(bind) /var/lib/snapd/hostfs/usr/share/libreoffice/help/ -> /usr/share/libreoffice/help/,\n")
 	emit("  remount options=(bind, ro) /usr/share/libreoffice/help/,\n")
 	emit("  umount /usr/share/libreoffice/help/,\n")
-	// /usr/share/libreoffice may not exist, set up apparmor profile for
-	// creating a mimic, assuming that at least /usr/share exists
-	apparmor.GenWritableProfile(emit, "/usr/share/libreoffice/help", 3)
-	emit("  mount options=(bind) /var/lib/snapd/hostfs/usr/share/xubuntu-docs/ -> /usr/share/xubuntu-docs/,\n")
-	emit("  remount options=(bind, ro) /usr/share/xubuntu-docs/,\n")
-	emit("  umount /usr/share/xubuntu-docs/,\n")
-	// and a writable mimic for /usr/share/xubuntu-docs
-	apparmor.GenWritableProfile(emit, "/usr/share/xubuntu-docs", 3)
+	// generic docs from the host
+	emit("  # Mount generic *-docs locations from /usr/share\n")
+	emit("  mount options=(bind) /var/lib/snapd/hostfs/usr/share/*-doc{,s}/ -> /usr/share/*-doc{,s}/,\n")
+	emit("  remount options=(bind, ro) /usr/share/*-doc{,s}/,\n")
+	emit("  umount /usr/share/*-doc{,s}/,\n")
+	// The docs locations may not exist under /usr/share in the base snap,
+	// what will trigger a mimic to be created and the profile needs to
+	// allow it.
+	apparmor.GenWritableProfile(emit, "/usr/share/", 3)
 	return nil
 }
 
