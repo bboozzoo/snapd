@@ -854,6 +854,23 @@ func (d *disk) FindMatchingPartitionWithFsLabel(label string) (Partition, error)
 	}
 }
 
+func (d *disk) FindMatchingPartitionWithNode(node string) (Partition, error) {
+	if err := d.populatePartitions(); err != nil {
+		return Partition{}, err
+	}
+
+	for _, p := range d.partitions {
+		if p.KernelDeviceNode == node {
+			return p, nil
+		}
+	}
+
+	return Partition{}, PartitionNotFoundError{
+		SearchType:  "node",
+		SearchQuery: node,
+	}
+}
+
 // compatibility methods
 // TODO: eliminate these and use the more generic functions in callers
 func (d *disk) FindMatchingPartitionUUIDWithFsLabel(label string) (string, error) {

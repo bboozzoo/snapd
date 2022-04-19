@@ -45,6 +45,10 @@ type Disk interface {
 	// encoding scheme is performed on the label as in that function.
 	FindMatchingPartitionWithPartLabel(string) (Partition, error)
 
+	// FindMatchingPartitionWithNode searches for partition that has a
+	// matching device node.
+	FindMatchingPartitionWithNode(string) (Partition, error)
+
 	// FindMatchingPartitionUUIDWithFsLabel is like
 	// FindMatchingPartitionWithFsLabel, but returns specifically the
 	// PartitionUUID. This method will be eliminated soon in favor of all
