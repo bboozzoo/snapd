@@ -101,10 +101,15 @@ func recoveryBootChainsFileUnder(rootdir string) string {
 	return filepath.Join(dirs.SnapFDEDirUnder(rootdir), "recovery-boot-chains")
 }
 
+type sealKeyToModeenvFlags struct {
+	// TODO partial reprovision?
+	Reprovision bool
+}
+
 // sealKeyToModeenv seals the supplied keys to the parameters specified
 // in modeenv.
 // It assumes to be invoked in install mode.
-func sealKeyToModeenv(key, saveKey keys.EncryptionKey, model *asserts.Model, modeenv *Modeenv) error {
+func sealKeyToModeenv(key, saveKey keys.EncryptionKey, model *asserts.Model, modeenv *Modeenv, flags sealKeyToModeenvFlags) error {
 	// make sure relevant locations exist
 	for _, p := range []string{
 		InitramfsSeedEncryptionKeyDir,
@@ -126,7 +131,7 @@ func sealKeyToModeenv(key, saveKey keys.EncryptionKey, model *asserts.Model, mod
 		return sealKeyToModeenvUsingFDESetupHook(key, saveKey, modeenv)
 	}
 
-	return sealKeyToModeenvUsingSecboot(key, saveKey, modeenv)
+	return sealKeyToModeenvUsingSecboot(key, saveKey, modeenv, flags)
 }
 
 func runKeySealRequests(key keys.EncryptionKey) []secboot.SealKeyRequest {
@@ -182,7 +187,7 @@ func sealKeyToModeenvUsingFDESetupHook(key, saveKey keys.EncryptionKey, modeenv 
 	return nil
 }
 
-func sealKeyToModeenvUsingSecboot(key, saveKey keys.EncryptionKey, modeenv *Modeenv) error {
+func sealKeyToModeenvUsingSecboot(key, saveKey keys.EncryptionKey, modeenv *Modeenv, flags sealKeyToModeenvFlags) error {
 	// build the recovery mode boot chain
 	rbl, err := bootloader.Find(InitramfsUbuntuSeedDir, &bootloader.Options{
 		Role: bootloader.RoleRecovery,
@@ -234,17 +239,18 @@ func sealKeyToModeenvUsingSecboot(key, saveKey keys.EncryptionKey, modeenv *Mode
 	// the boot chains we seal the fallback object to
 	rpbc := toPredictableBootChains(recoveryBootChains)
 
+	// TODO: replace old policy auth key
 	// gets written to a file by sealRunObjectKeys()
 	authKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return fmt.Errorf("cannot generate key for signing dynamic authorization policies: %v", err)
 	}
 
-	if err := sealRunObjectKeys(key, pbc, authKey, roleToBlName); err != nil {
+	if err := sealRunObjectKeys(key, pbc, authKey, roleToBlName, flags.Reprovision); err != nil {
 		return err
 	}
 
-	if err := sealFallbackObjectKeys(key, saveKey, rpbc, authKey, roleToBlName); err != nil {
+	if err := sealFallbackObjectKeys(key, saveKey, rpbc, authKey, roleToBlName, flags.Reprovision); err != nil {
 		return err
 	}
 
@@ -265,18 +271,20 @@ func sealKeyToModeenvUsingSecboot(key, saveKey keys.EncryptionKey, modeenv *Mode
 	return nil
 }
 
-func sealRunObjectKeys(key keys.EncryptionKey, pbc predictableBootChains, authKey *ecdsa.PrivateKey, roleToBlName map[bootloader.Role]string) error {
+func sealRunObjectKeys(key keys.EncryptionKey, pbc predictableBootChains, authKey *ecdsa.PrivateKey, roleToBlName map[bootloader.Role]string, partialReprovisionTPM bool) error {
 	modelParams, err := sealKeyModelParams(pbc, roleToBlName)
 	if err != nil {
 		return fmt.Errorf("cannot prepare for key sealing: %v", err)
 	}
 
+	// TODO verify that lockout
 	sealKeyParams := &secboot.SealKeysParams{
 		ModelParams:            modelParams,
 		TPMPolicyAuthKey:       authKey,
 		TPMPolicyAuthKeyFile:   filepath.Join(InstallHostFDESaveDir, "tpm-policy-auth-key"),
 		TPMLockoutAuthFile:     filepath.Join(InstallHostFDESaveDir, "tpm-lockout-auth"),
 		TPMProvision:           true,
+		TPMPartialReprovision:  partialReprovisionTPM,
 		PCRPolicyCounterHandle: secboot.RunObjectPCRPolicyCounterHandle,
 	}
 	// The run object contains only the ubuntu-data key; the ubuntu-save key
@@ -291,7 +299,7 @@ func sealRunObjectKeys(key keys.EncryptionKey, pbc predictableBootChains, authKe
 	return nil
 }
 
-func sealFallbackObjectKeys(key, saveKey keys.EncryptionKey, pbc predictableBootChains, authKey *ecdsa.PrivateKey, roleToBlName map[bootloader.Role]string) error {
+func sealFallbackObjectKeys(key, saveKey keys.EncryptionKey, pbc predictableBootChains, authKey *ecdsa.PrivateKey, roleToBlName map[bootloader.Role]string, partialReprovisionTPM bool) error {
 	// also seal the keys to the recovery bootchains as a fallback
 	modelParams, err := sealKeyModelParams(pbc, roleToBlName)
 	if err != nil {
@@ -301,6 +309,7 @@ func sealFallbackObjectKeys(key, saveKey keys.EncryptionKey, pbc predictableBoot
 		ModelParams:            modelParams,
 		TPMPolicyAuthKey:       authKey,
 		PCRPolicyCounterHandle: secboot.FallbackObjectPCRPolicyCounterHandle,
+		TPMPartialReprovision:  partialReprovisionTPM,
 	}
 	// The fallback object contains the ubuntu-data and ubuntu-save keys. The
 	// key files are stored on ubuntu-seed, separate from ubuntu-data so they
