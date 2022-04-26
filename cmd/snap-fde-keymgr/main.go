@@ -25,6 +25,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"regexp"
 
 	"github.com/jessevdk/go-flags"
 
@@ -65,16 +66,56 @@ var (
 	keymgrChangeLUKSDeviceEncryptionKey   = keymgr.ChangeLUKSDeviceEncryptionKey
 )
 
+func writeIfNotExists(p string, data []byte) (alreadyExists bool, err error) {
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		if os.IsExist(err) {
+			// assuming that the file is identical
+			return true, nil
+		}
+		return false, err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return false, err
+	}
+	return false, f.Close()
+}
+
+var keyslotFull = regexp.MustCompile(`^.* cryptsetup failed with: Key slot [0-9]+ is full, please select another one\.$`)
+
+func isKeyslotFull(err error) bool {
+	if err == nil {
+		return false
+	}
+	return keyslotFull.MatchString(err.Error())
+}
+
 func (c *cmdAddRecoveryKey) Execute(args []string) error {
 	recoveryKey, err := keys.NewRecoveryKey()
 	if err != nil {
 		return fmt.Errorf("cannot create recovery key: %v", err)
 	}
-	if err := keymgrAddRecoveryKeyToLUKSDevice(recoveryKey, c.Device); err != nil {
-		return fmt.Errorf("cannot add recovery key to LUKS device: %v", err)
-	}
-	if err := ioutil.WriteFile(c.KeyFile, recoveryKey[:], 0600); err != nil {
+	alreadyExists, err := writeIfNotExists(c.KeyFile, recoveryKey[:])
+	if err != nil {
 		return fmt.Errorf("cannot write recovery key to file: %v", err)
+	}
+	if alreadyExists {
+		// we already have the recovery key, read it back
+		maybeKey, err := ioutil.ReadFile(c.KeyFile)
+		if err != nil {
+			return fmt.Errorf("cannot read existing file: %v", err)
+		}
+		// TODO: verify that the size if non 0 and try again otherwise?
+		if len(maybeKey) != len(recoveryKey) {
+			return fmt.Errorf("cannot use current recovery key of size %v", len(maybeKey))
+		}
+		copy(recoveryKey[:], maybeKey[:len(recoveryKey)])
+	}
+	if err := keymgrAddRecoveryKeyToLUKSDevice(recoveryKey, c.Device); err != nil {
+		if !alreadyExists || !isKeyslotFull(err) {
+			return fmt.Errorf("cannot add recovery key to LUKS device: %v", err)
+		}
 	}
 	return nil
 }
