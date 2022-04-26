@@ -69,25 +69,53 @@ var (
 	keymgrChangeLUKSDeviceEncryptionKey           = keymgr.ChangeLUKSDeviceEncryptionKey
 )
 
+func writeIfNotExists(p string, data []byte) (alreadyExists bool, err error) {
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		if os.IsExist(err) {
+			// assuming that the file is identical
+			return true, nil
+		}
+		return false, err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return false, err
+	}
+	return false, f.Close()
+}
+
 func (c *cmdAddRecoveryKey) Execute(args []string) error {
 	recoveryKey, err := keys.NewRecoveryKey()
 	if err != nil {
 		return fmt.Errorf("cannot create recovery key: %v", err)
 	}
-	// TODO make this idempotent, possible solution is:
-	// 1. write the key file if none is present
-	// 2. if the key file was present, read it back
-	// 3. add the key
-	// 4. if adding failed with keyslot already in used and the file was
-	// present assume it's correct
 	if len(c.Authorization) != len(c.Device) {
 		return fmt.Errorf("cannot add recovery key with mismatched devices and authorization")
+	}
+	alreadyExists, err := writeIfNotExists(c.KeyFile, recoveryKey[:])
+	if err != nil {
+		return fmt.Errorf("cannot write recovery key to file: %v", err)
+	}
+	if alreadyExists {
+		// we already have the recovery key, read it back
+		maybeKey, err := ioutil.ReadFile(c.KeyFile)
+		if err != nil {
+			return fmt.Errorf("cannot read existing file: %v", err)
+		}
+		// TODO: verify that the size if non 0 and try again otherwise?
+		if len(maybeKey) != len(recoveryKey) {
+			return fmt.Errorf("cannot use current recovery key of size %v", len(maybeKey))
+		}
+		copy(recoveryKey[:], maybeKey[:])
 	}
 	for i, dev := range c.Device {
 		authz := c.Authorization[i]
 		if authz == "keyring" {
 			if err := keymgrAddRecoveryKeyToLUKSDevice(recoveryKey, dev); err != nil {
-				return fmt.Errorf("cannot add recovery key to LUKS device: %v", err)
+				if !alreadyExists || !keymgr.IsKeyslotAlreadyUsed(err) {
+					return fmt.Errorf("cannot add recovery key to LUKS device: %v", err)
+				}
 			}
 		} else if strings.HasPrefix(authz, "file:") {
 			authzKey, err := ioutil.ReadFile(authz[len("file:"):])
@@ -95,12 +123,11 @@ func (c *cmdAddRecoveryKey) Execute(args []string) error {
 				return fmt.Errorf("cannot load authorization key: %v", err)
 			}
 			if err := keymgrAddRecoveryKeyToLUKSDeviceUsingKey(recoveryKey, authzKey, dev); err != nil {
-				return fmt.Errorf("cannot add recovery key to LUKS device using authorization key: %v", err)
+				if !alreadyExists || !keymgr.IsKeyslotAlreadyUsed(err) {
+					return fmt.Errorf("cannot add recovery key to LUKS device using authorization key: %v", err)
+				}
 			}
 		}
-	}
-	if err := ioutil.WriteFile(c.KeyFile, recoveryKey[:], 0600); err != nil {
-		return fmt.Errorf("cannot write recovery key to file: %v", err)
 	}
 	return nil
 }
