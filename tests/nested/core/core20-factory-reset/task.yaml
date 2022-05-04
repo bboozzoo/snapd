@@ -6,8 +6,8 @@ details: |
 systems: [ubuntu-20.04-64, ubuntu-22.04-64]
 
 environment:
-    NESTED_ENABLE_SECURE_BOOT: false
-    NESTED_ENABLE_TPM: false
+    NESTED_ENABLE_SECURE_BOOT: true
+    NESTED_ENABLE_TPM: true
 
 execute: |
     echo "Wait for the system to be seeded first"
@@ -59,8 +59,8 @@ execute: |
     test "$old_ubuntu_seed" = "$new_ubuntu_seed"
 
     # check ubuntu-save
-    old_ubuntu_save="$(grep LABEL=\"ubuntu-save\" < initial-disk)"
-    new_ubuntu_save="$(grep LABEL=\"ubuntu-save\" < current-disk)"
+    old_ubuntu_save="$(grep ' LABEL="ubuntu-save-enc"' < initial-disk)"
+    new_ubuntu_save="$(grep ' LABEL="ubuntu-save-enc"' < current-disk)"
     # ubuntu save is identical
     test "$old_ubuntu_save" = "$new_ubuntu_save"
 
@@ -73,8 +73,8 @@ execute: |
     test "$old_ubuntu_boot" != "$new_ubuntu_boot"
 
     # check ubuntu-data
-    old_ubuntu_data="$(grep LABEL=\"ubuntu-data\" < initial-disk)"
-    new_ubuntu_data="$(grep LABEL=\"ubuntu-data\" < current-disk)"
+    old_ubuntu_data="$(grep ' LABEL="ubuntu-data-enc"' < initial-disk)"
+    new_ubuntu_data="$(grep ' LABEL="ubuntu-data-enc"' < current-disk)"
     # again same device
     test "$(echo "$old_ubuntu_data" | cut -f1 -d:)" = "$(echo "$new_ubuntu_data" | cut -f1 -d:)"
     # again, the UUIDs are different
