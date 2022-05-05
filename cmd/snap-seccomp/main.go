@@ -562,6 +562,7 @@ func parseLine(line string, secFilter *seccomp.ScmpFilter) error {
 		var cmpOp seccomp.ScmpCompareOp
 		var value uint64
 		var err error
+		var isInt bool
 
 		if arg == "-" { // skip arg
 			continue
@@ -597,6 +598,10 @@ func parseLine(line string, secFilter *seccomp.ScmpFilter) error {
 			if err != nil {
 				return fmt.Errorf("cannot parse token %q (line %q): %v", arg, line, err)
 			}
+		} else if strings.HasPrefix(arg, "int:") {
+			cmpOp = seccomp.CompareEqual
+			value, err = readNumber(arg[4:], syscallName)
+			isInt = true
 		} else {
 			cmpOp = seccomp.CompareEqual
 			value, err = readNumber(arg, syscallName)
@@ -620,7 +625,16 @@ func parseLine(line string, secFilter *seccomp.ScmpFilter) error {
 		} else if syscallsWithNegArgsMaskHi32[syscallName] {
 			scmpCond, err = seccomp.MakeCondition(uint(pos), seccomp.CompareMaskedEqual, 0xFFFFFFFF, value)
 		} else {
-			scmpCond, err = seccomp.MakeCondition(uint(pos), cmpOp, value)
+			if !isInt {
+				scmpCond, err = seccomp.MakeCondition(uint(pos), cmpOp, value)
+			} else {
+				// the value is an int (according to the
+				// syscall's manpage), in which case the higher
+				// bits may have not been cleared and contain
+				// garbage, make sure that the comparison uses a
+				// masked value
+				scmpCond, err = seccomp.MakeCondition(uint(pos), seccomp.CompareMaskedEqual, 0xFFFFFFFF, value)
+			}
 		}
 		if err != nil {
 			return fmt.Errorf("cannot parse line %q: %s", line, err)
