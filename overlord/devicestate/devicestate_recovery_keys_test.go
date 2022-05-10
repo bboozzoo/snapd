@@ -74,12 +74,32 @@ func mockSystemRecoveryKeys(c *C, alsoReinstall bool) {
 func (s *deviceMgrRecoveryKeysSuite) TestEnsureRecoveryKeysBackwardCompat(c *C) {
 	mockSystemRecoveryKeys(c, true)
 
+	defer devicestate.MockSecbootEnsureRecoveryKey(func(keyFile string, rkeyDevs []secboot.RecoveryKeyDevice) (keys.RecoveryKey, error) {
+		c.Fail()
+		return keys.RecoveryKey{}, fmt.Errorf("unexpected call")
+	})()
+
 	keys, err := s.mgr.EnsureRecoveryKeys()
 	c.Assert(err, IsNil)
 
 	c.Assert(keys, DeepEquals, &client.SystemRecoveryKeysResponse{
 		RecoveryKey:  "61665-00531-54469-09783-47273-19035-40077-28287",
 		ReinstallKey: "12849-13363-13877-14391-12345-12849-13363-13877",
+	})
+}
+
+func (s *deviceMgrRecoveryKeysSuite) TestEnsureRecoveryKeyIdempotent(c *C) {
+	defer devicestate.MockSecbootEnsureRecoveryKey(func(keyFile string, rkeyDevs []secboot.RecoveryKeyDevice) (keys.RecoveryKey, error) {
+		c.Fail()
+		return keys.RecoveryKey{}, fmt.Errorf("unexpected call")
+	})()
+	mockSystemRecoveryKeys(c, false)
+
+	keys, err := s.mgr.EnsureRecoveryKeys()
+	c.Assert(err, IsNil)
+
+	c.Assert(keys, DeepEquals, &client.SystemRecoveryKeysResponse{
+		RecoveryKey: "61665-00531-54469-09783-47273-19035-40077-28287",
 	})
 }
 

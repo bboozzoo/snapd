@@ -2066,8 +2066,9 @@ func (m *DeviceManager) EnsureRecoveryKeys() (*client.SystemRecoveryKeysResponse
 	sysKeys := &client.SystemRecoveryKeysResponse{}
 	// backward compatibility
 	reinstallKeyFile := filepath.Join(fdeDir, "reinstall.key")
+	recoveryKeyFile := filepath.Join(fdeDir, "recovery.key")
 	if osutil.FileExists(reinstallKeyFile) {
-		rkey, err := keys.RecoveryKeyFromFile(filepath.Join(fdeDir, "recovery.key"))
+		rkey, err := keys.RecoveryKeyFromFile(recoveryKeyFile)
 		if err != nil {
 			return nil, err
 		}
@@ -2078,6 +2079,14 @@ func (m *DeviceManager) EnsureRecoveryKeys() (*client.SystemRecoveryKeysResponse
 			return nil, err
 		}
 		sysKeys.ReinstallKey = reinstallKey.String()
+		return sysKeys, nil
+	}
+	if osutil.FileExists(recoveryKeyFile) {
+		rkey, err := keys.RecoveryKeyFromFile(recoveryKeyFile)
+		if err != nil {
+			return nil, err
+		}
+		sysKeys.RecoveryKey = rkey.String()
 		return sysKeys, nil
 	}
 	// XXX have a helper somewhere for this? gadget or secboot?
