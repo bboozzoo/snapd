@@ -351,10 +351,15 @@ int main(int argc, char **argv)
 	debug("rgid: %d, egid: %d, sgid: %d",
 	      real_gid, effective_gid, saved_gid);
 
+    cap_t caps = cap_get_proc();
+    char *caps_as_str = cap_to_text(caps, NULL);
+    debug("caps: %s", caps_as_str);
+    cap_free(caps_as_str);
+    cap_free(caps);
 	// snap-confine needs to run as root for cgroup/udev/mount/apparmor/etc setup.
-	if (effective_uid != 0) {
-		die("need to run as root or suid");
-	}
+	/* if (effective_uid != 0) { */
+	/* 	die("need to run as root or suid"); */
+	/* } */
 
 	char *snap_context SC_CLEANUP(sc_cleanup_string) = NULL;
 	// Do no get snap context value if running a hook (we don't want to overwrite hook's SNAP_COOKIE)
