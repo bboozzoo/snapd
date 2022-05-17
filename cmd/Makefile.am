@@ -102,7 +102,7 @@ fmt:: $(filter-out $(addprefix %,$(new_format)),$(foreach dir,$(subdirs),$(wildc
 .PHONY: hack
 hack: snap-confine/snap-confine-debug snap-confine/snap-confine.apparmor snap-update-ns/snap-update-ns snap-seccomp/snap-seccomp snap-discard-ns/snap-discard-ns snap-device-helper/snap-device-helper
 	sudo install -D -m 755 snap-confine/snap-confine-debug $(DESTDIR)$(libexecdir)/snap-confine
-	sudo setcap 'cap_chown=ep cap_bpf,cap_sys_admin,cap_dac_override,cap_dac_read_search,cap_sys_ptrace,cap_setuid=ep' $(DESTDIR)$(libexecdir)/snap-confine
+	sudo setcap 'cap_chown=ep cap_bpf,cap_sys_admin,cap_dac_override,cap_dac_read_search,cap_sys_ptrace,cap_setuid,cap_fowner,cap_fsetid,cap_setuid,cap_setgid=eip' $(DESTDIR)$(libexecdir)/snap-confine
 	if [ -d /etc/apparmor.d ]; then sudo install -m 644 snap-confine/snap-confine.apparmor $(DESTDIR)/etc/apparmor.d/$(patsubst .%,%,$(subst /,.,$(libexecdir))).snap-confine.real; fi
 	sudo install -d -m 755 $(DESTDIR)/var/lib/snapd/apparmor/snap-confine/
 	if [ "$$(command -v apparmor_parser)" != "" ]; then sudo apparmor_parser -r snap-confine/snap-confine.apparmor; fi

@@ -705,13 +705,14 @@ static int sc_udev_open_cgroup_v1(const char *security_tag, int flags, sc_cgroup
         /* Open snap.$SNAP_NAME.$APP_NAME relative to /sys/fs/cgroup/devices,
          * creating the directory if necessary. Note that we always chown the
          * resulting directory to root:root. */
-        sc_identity old = sc_set_effective_identity(sc_root_group_identity());
+        /* sc_identity old = sc_set_effective_identity(sc_root_group_identity()); */
         if (mkdirat(devices_fd, security_tag_relpath, 0755) < 0) {
             if (errno != EEXIST) {
                 die("cannot create directory %s/%s/%s", cgroup_path, devices_relpath, security_tag_relpath);
             }
         }
-        (void)sc_set_effective_identity(old);
+        /* XXX chown */
+        /* (void)sc_set_effective_identity(old); */
     }
 
     int SC_CLEANUP(sc_cleanup_close) security_tag_fd = -1;

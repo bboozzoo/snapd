@@ -192,10 +192,11 @@ static void setup_private_mount(const char *snap_name)
 		die("cannot chown private tmp directory %s/tmp to root.root",
 		    base_dir);
 	}
-	if (fchmod(tmp_dir_fd, 01777) < 0) {
-		die("cannot chmod private tmp directory %s/tmp to 01777",
-		    base_dir);
-	}
+    /* XXX does not work despite CAP_FOWNER & CAP_FSETID? */
+	/* if (fchmod(tmp_dir_fd, 01777) < 0) { */
+	/* 	die("cannot chmod private tmp directory %s/tmp to 01777", */
+	/* 	    base_dir); */
+	/* } */
 	sc_do_mount(tmp_dir, "/tmp", NULL, MS_BIND, NULL);
 	sc_do_mount("none", "/tmp", NULL, MS_PRIVATE, NULL);
 }
