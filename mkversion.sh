@@ -1,5 +1,6 @@
 #!/bin/sh
 set -e
+set -x
 
 # debugging if anything fails is tricky as dh-golang eats up all output
 # uncomment the lines below to get a useful trace if you have to touch
@@ -138,6 +139,10 @@ elif [ ! -d "$GO_GENERATE_BUILDDIR/vendor/github.com"  ] ; then
     MOD=--
 fi
 fmts=$(cd "$GO_GENERATE_BUILDDIR" ; go run $MOD ./asserts/info)
+if [ -z "$fmts" ]; then
+    echo "asserts info is empty"
+    exit 1
+fi
 
 cat <<EOF > "$PKG_BUILDDIR/data/info"
 VERSION=$v

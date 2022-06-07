@@ -119,7 +119,7 @@ build_rpm() {
 
     # Build our source package
     unshare -n -- \
-            rpmbuild --with testkeys -bs "$packaging_path/snapd.spec"
+            rpmbuild --with testkeys -bs "$packaging_path/snapd.spec" 2>&1 | tee /tmp/build-srpm.log
 
     # .. and we need all necessary build dependencies available
     deps=()
@@ -138,7 +138,7 @@ build_rpm() {
             --with testkeys \
             --nocheck \
             -ba \
-            "$packaging_path/snapd.spec"
+            "$packaging_path/snapd.spec" 2>&1 | tee /tmp/build-rpm.log
 
     find "$rpm_dir"/RPMS -name '*.rpm' -exec cp -v {} "${GOPATH%%:*}" \;
 }
