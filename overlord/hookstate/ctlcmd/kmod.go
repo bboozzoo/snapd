@@ -27,8 +27,6 @@ import (
 	"github.com/snapcore/snapd/osutil/kmod"
 	"github.com/snapcore/snapd/overlord/hookstate"
 	"github.com/snapcore/snapd/overlord/ifacestate"
-	"github.com/snapcore/snapd/overlord/snapstate"
-	"github.com/snapcore/snapd/snap"
 )
 
 var (
@@ -40,38 +38,35 @@ The kmod command handles loading and unloading of kernel modules.`)
 func init() {
 	addCommand("kmod", shortKmodHelp, longKmodHelp, func() command {
 		cmd := &kmodCommand{}
-		cmd.InsertCmd.kmodBaseCommand = cmd
-		cmd.RemoveCmd.kmodBaseCommand = cmd
+		cmd.InsertCmd.kmod = cmd
+		cmd.RemoveCmd.kmod = cmd
 		return cmd
 	})
 }
 
 type kmodCommand struct {
 	baseCommand
+	kmodNopExecuteMixin
 	InsertCmd KModInsertCmd `command:"insert" description:"load a kernel module"`
 	RemoveCmd KModRemoveCmd `command:"remove" description:"unload a kernel module"`
 }
 
-type kmodSubcommand struct {
-	kmodBaseCommand *kmodCommand
-	snapInfo        *snap.Info
-}
-
 type KModInsertCmd struct {
-	kmodSubcommand
+	kmodNopExecuteMixin
 	Positional struct {
 		Module  string   `positional-arg-name:"<module>" required:"yes" description:"name of the kernel module to be loaded"`
 		Options []string `positional-arg-name:"<options>" description:"kernel module options"`
 	} `positional-args:"yes" required:"yes"`
+	kmod *kmodCommand
 }
 
 func (k *KModInsertCmd) Execute([]string) error {
-	context, err := k.kmodBaseCommand.ensureContext()
+	context, err := k.kmod.ensureContext()
 	if err != nil {
 		return err
 	}
 
-	attributes, err := k.findConnection(context, k.Positional.Module, k.Positional.Options)
+	attributes, err := findConnection(context, k.Positional.Module, k.Positional.Options)
 	if err != nil {
 		return fmt.Errorf("cannot load module %q: %v", k.Positional.Module, err)
 	}
@@ -89,19 +84,20 @@ func (k *KModInsertCmd) Execute([]string) error {
 }
 
 type KModRemoveCmd struct {
-	kmodSubcommand
+	kmodNopExecuteMixin
 	Positional struct {
 		Module string `positional-arg-name:"<module>" required:"yes" description:"name of the kernel module to be unloaded"`
 	} `positional-args:"yes" required:"yes"`
+	kmod *kmodCommand
 }
 
 func (k *KModRemoveCmd) Execute([]string) error {
-	context, err := k.kmodBaseCommand.ensureContext()
+	context, err := k.kmod.ensureContext()
 	if err != nil {
 		return err
 	}
 
-	attributes, err := k.findConnection(context, k.Positional.Module, []string{})
+	attributes, err := findConnection(context, k.Positional.Module, []string{})
 	if err != nil {
 		return fmt.Errorf("cannot unload module %q: %v", k.Positional.Module, err)
 	}
@@ -120,7 +116,7 @@ func (k *KModRemoveCmd) Execute([]string) error {
 
 // matchConnection checks whether the given kmod connection attributes give
 // the snap permission to execute the kmod command
-func (k *kmodSubcommand) matchConnection(attributes map[string]interface{}, moduleName string, moduleOptions []string) bool {
+func matchConnection(attributes map[string]interface{}, moduleName string, moduleOptions []string) bool {
 	if attributes["load"].(string) != "dynamic" {
 		return false
 	}
@@ -144,7 +140,7 @@ func (k *kmodSubcommand) matchConnection(attributes map[string]interface{}, modu
 // findConnections walks through the established connections to find one which
 // is compatible with a kmod operation on the given moduleName and
 // moduleOptions. If found, it returns the connection's attributes.
-func (k *kmodSubcommand) findConnection(context *hookstate.Context, moduleName string, moduleOptions []string) (attributes map[string]interface{}, err error) {
+func findConnection(context *hookstate.Context, moduleName string, moduleOptions []string) (attributes map[string]interface{}, err error) {
 	snapName := context.InstanceName()
 
 	st := context.State()
@@ -155,12 +151,6 @@ func (k *kmodSubcommand) findConnection(context *hookstate.Context, moduleName s
 	if err != nil {
 		return nil, fmt.Errorf("internal error: cannot get connections: %s", err)
 	}
-
-	snapInfo, err := snapstate.CurrentInfo(st, snapName)
-	if err != nil {
-		return nil, fmt.Errorf("internal error: cannot get snap info: %s", err)
-	}
-	k.snapInfo = snapInfo
 
 	for connId, connState := range conns {
 		if connState.Interface != "kernel-module-load" {
@@ -187,7 +177,7 @@ func (k *kmodSubcommand) findConnection(context *hookstate.Context, moduleName s
 
 		for _, moduleAttributes := range modules {
 			attributes := moduleAttributes.(map[string]interface{})
-			if k.matchConnection(attributes, moduleName, moduleOptions) {
+			if matchConnection(attributes, moduleName, moduleOptions) {
 				return attributes, nil
 			}
 		}
@@ -195,7 +185,9 @@ func (k *kmodSubcommand) findConnection(context *hookstate.Context, moduleName s
 	return nil, nil
 }
 
-func (m *kmodCommand) Execute([]string) error {
+type kmodNopExecuteMixin struct{}
+
+func (m *kmodNopExecuteMixin) Execute([]string) error {
 	// This is needed in order to implement the interface, but it's never
 	// called.
 	return nil
