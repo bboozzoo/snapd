@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import cpu_count
 from pathlib import Path
 from threading import Lock
-from typing import Dict
+from typing import Dict, Any
 
 
 # default shell for shellcheck
@@ -111,7 +111,7 @@ class ShellcheckFailures(Exception):
         return iter(self.failures)
 
 
-def checksection(data, env: Dict[str, str]):
+def checksection(data, env: Dict[str, str], overrides: Dict[str, Any]):
     # spread shell snippets are executed under 'set -e' shell, make sure
     # shellcheck knows about that
     script_data = []
@@ -128,11 +128,17 @@ def checksection(data, env: Dict[str, str]):
         # quotes so that one value can refer to another value.
         if '"' in value:
             value = value.replace('"', '\"')
+            logging.debug("value: \"%s\"\"", value)
         # converts
         # FOO: "$(HOST: echo $foo)"     -> FOO="$(echo $foo)"
         # FOO: "$(HOST: echo \"$foo\")" -> FOO="$(echo \"$foo\")"
         # FOO: "foo"                    -> FOO="foo"
+        maybe_hint = overrides.get("env_prefix", {}).get(key, "")
+        if maybe_hint:
+            script_data.append(maybe_hint)
         script_data.append("{}=\"{}\"".format(key, value))
+        if maybe_hint:
+            script_data.append(maybe_hint)
         script_data.append("export {}".format(key))
     script_data.append(data)
     proc = subprocess.Popen("shellcheck -s {} -x -".format(SHELLCHECK_SHELL),
@@ -229,6 +235,7 @@ def checkfile(path, executor):
     # spread.yaml -> global env + backend env + suite env -> task.yaml (task
     # env + variant env).
     env = {}
+    overrides = data.get("spread_shellcheck", {})
     for key, value in data.get("environment", {}).items():
         if "/" in key:
             # TODO: re-check with each variant's value set.
@@ -239,7 +246,7 @@ def checkfile(path, executor):
             continue
         try:
             logging.debug("%s: checking section %s", path, section)
-            checksection(data[section], env)
+            checksection(data[section], env, overrides)
         except ShellcheckRunError as serr:
             errors.addfailure(section, serr.stderr.decode('utf-8'))
 
@@ -251,7 +258,7 @@ def checkfile(path, executor):
                 if section not in data['suites'][suite]:
                     continue
                 logging.debug("%s (suite %s): checking section %s", path, suite, section)
-                future = executor.submit(checksection, data['suites'][suite][section], env)
+                future = executor.submit(checksection, data['suites'][suite][section], env, overrides)
                 suites_sections_and_futures.append((suite, section, future))
         for item in suites_sections_and_futures:
             suite, section, future = item
