@@ -6,8 +6,13 @@ details: |
 
 systems: [ubuntu-20.04-64]
 
+spread_shellcheck:
+  env_prefix:
+    NESTED_UBUNTU_IMAGE_PRESEED_KEY: |
+      # shellcheck disable=SC2090,SC2089
+
 environment:
-  NESTED_UBUNTU_IMAGE_PRESEED_KEY: "\" (test)\""
+  NESTED_UBUNTU_IMAGE_PRESEED_KEY: '" (test)"'
   NESTED_IMAGE_ID: core20-preseeding
   NESTED_ENABLE_TPM: false
   NESTED_ENABLE_SECURE_BOOT: true
