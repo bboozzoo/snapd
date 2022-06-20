@@ -332,6 +332,16 @@ func (m *InterfaceManager) undoSetupProfiles(task *state.Task, tomb *tomb.Tomb) 
 	if err != nil {
 		return err
 	}
+
+	// The previous task (undo link-snap) may have triggered a restart,
+	// if this is the case we can only proceed once the restart
+	// has happened or we may not have all the interfaces of the
+	// new core/base snap.
+	const undo = true
+	if err := snapstateFinishRestart(task, snapsup, undo); err != nil {
+		return err
+	}
+
 	snapName := snapsup.InstanceName()
 
 	// Get the name from SnapSetup and use it to find the current SideInfo
@@ -1204,7 +1214,8 @@ func (m *InterfaceManager) doAutoConnect(task *state.Task, _ *tomb.Tomb) error {
 	// if this is the case we can only proceed once the restart
 	// has happened or we may not have all the interfaces of the
 	// new core/base snap.
-	if err := snapstateFinishRestart(task, snapsup); err != nil {
+	const undo = false
+	if err := snapstateFinishRestart(task, snapsup, undo); err != nil {
 		return err
 	}
 

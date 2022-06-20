@@ -695,7 +695,7 @@ var generateSnapdWrappers = backend.GenerateSnapdWrappers
 // restarts).
 // For snapd snap updates this will also rerun wrappers generation to fully
 // catch up with any change.
-func FinishRestart(task *state.Task, snapsup *SnapSetup) (err error) {
+func FinishRestart(task *state.Task, snapsup *SnapSetup, undo bool) (err error) {
 	if snapdenv.Preseeding() {
 		// nothing to do when preseeding
 		return nil
@@ -749,6 +749,9 @@ func FinishRestart(task *state.Task, snapsup *SnapSetup) (err error) {
 		// get the name of the name relevant for booting
 		// based on the given type
 		model := deviceCtx.Model()
+		if deviceCtx.ForRemodeling() && undo {
+			model = deviceCtx.GroundContext().Model()
+		}
 		var bootName string
 		switch snapsup.Type {
 		case snap.TypeKernel:
