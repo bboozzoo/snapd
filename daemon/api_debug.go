@@ -336,6 +336,11 @@ func createRecovery(st *state.State, label string) Response {
 	return AsyncResponse(nil, chg.ID())
 }
 
+func forceAutoRefresh(c *Command) Response {
+	c.d.overlord.SnapManager().ForceAutoRefresh()
+	return SyncResponse(nil)
+}
+
 func getDebug(c *Command, r *http.Request, user *auth.UserState) Response {
 	query := r.URL.Query()
 	aspect := query.Get("aspect")
@@ -409,6 +414,8 @@ func postDebug(c *Command, r *http.Request, user *auth.UserState) Response {
 		return createRecovery(st, a.Params.RecoverySystemLabel)
 	case "migrate-home":
 		return migrateHome(st, a.Snaps)
+	case "force-auto-refresh":
+		return forceAutoRefresh(c)
 	default:
 		return BadRequest("unknown debug action: %v", a.Action)
 	}
