@@ -400,6 +400,16 @@ func (o *Overlord) StartupTimeout() (timeout time.Duration, reasoning string, er
 }
 
 func (o *Overlord) ensureTimerSetup() {
+	if intv := os.Getenv("SNAPD_ENSURE_INTERVAL"); intv != "" {
+		d, err := time.ParseDuration(intv)
+		if err != nil {
+			logger.Noticef("cannot parse ensure interval: %v", err)
+		} else {
+			logger.Noticef("overriding ensure interval to %v", d)
+			ensureInterval = d
+		}
+	}
+
 	o.ensureLock.Lock()
 	defer o.ensureLock.Unlock()
 	o.ensureTimer = time.NewTimer(ensureInterval)
