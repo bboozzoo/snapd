@@ -451,6 +451,7 @@ func (m *autoRefresh) restoreMonitoring() error {
 	for _, snap := range monitored {
 		done := make(chan string, 1)
 		snapName := snap.InstanceName()
+		logger.Noticef("monitoring applications of snap: %v", snapName)
 		if err := cgroupMonitorSnapEnded(snapName, done); err != nil {
 			logger.Noticef("cannot restore monitoring for snap %q closure: %v", snapName, err)
 			continue

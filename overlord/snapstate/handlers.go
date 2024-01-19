@@ -997,6 +997,7 @@ func continueRefreshOnSnapClose(st *state.State, snapName string, done <-chan st
 	var aborted bool
 	select {
 	case <-done:
+		logger.Noticef("snap %v no longer has any applications running", snapName)
 	case <-refreshCtx.Done():
 		aborted = true
 	}
