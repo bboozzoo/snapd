@@ -748,6 +748,12 @@ func (m *SnapManager) RefreshSchedule() (string, bool, error) {
 	return m.autoRefresh.RefreshSchedule()
 }
 
+// ForceAutoRefresh allows to force an auto refresh of snaps.
+func (m *SnapManager) ForceAutoRefresh() {
+	m.autoRefresh.ForceAutoRefresh()
+	m.state.EnsureBefore(0)
+}
+
 // EnsureAutoRefreshesAreDelayed will delay refreshes for the specified amount
 // of time, as well as return any active auto-refresh changes that are currently
 // not ready so that the client can wait for those.

@@ -291,6 +291,15 @@ func isStoreOnline(s *state.State) (bool, error) {
 	return access != "offline", nil
 }
 
+// ForceAutoRefresh changes the state such that the next Ensure() call will
+// start an auto refresh.
+func (m *autoRefresh) ForceAutoRefresh() {
+	m.state.Set("last-refresh", time.Now().Add(-365*24*time.Hour))
+	m.nextRefresh = time.Time{}
+	m.lastRefreshAttempt = time.Time{}
+	logger.Noticef("forcing auto refresh")
+}
+
 // Ensure ensures that we refresh all installed snaps periodically
 func (m *autoRefresh) Ensure() (err error) {
 	m.state.Lock()
