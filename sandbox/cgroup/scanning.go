@@ -20,6 +20,7 @@
 package cgroup
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -209,6 +210,7 @@ func PidsOfSnap(snapInstanceName string) (map[string][]int, error) {
 		ReturnCGroupPath: false,
 	}
 	paths, err := InstancePathsOfSnap(snapInstanceName, options)
+	fmt.Printf("instance paths of snap: %v err %v\n", paths, err)
 	if err != nil {
 		return nil, err
 	}

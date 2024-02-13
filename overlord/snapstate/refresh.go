@@ -42,6 +42,7 @@ var pidsOfSnap = cgroup.PidsOfSnap
 // services and aren't marked to be ignored (refresh-mode: "ignore-running").
 var refreshAppsCheck = func(info *snap.Info) error {
 	knownPids, err := pidsOfSnap(info.InstanceName())
+	fmt.Printf("known pids: %v, err: %v\n", knownPids, err)
 	if err != nil {
 		return err
 	}

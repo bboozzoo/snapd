@@ -752,6 +752,7 @@ func (e *timedBusySnapError) Is(err error) bool {
 // that period the refresh will go ahead despite application activity.
 func inhibitRefresh(st *state.State, snapst *SnapState, snapsup *SnapSetup, info *snap.Info) error {
 	checkerErr := refreshAppsCheck(info)
+	fmt.Printf("---- refresh apps check %v\n", checkerErr)
 	if checkerErr == nil {
 		return nil
 	}
@@ -762,9 +763,11 @@ func inhibitRefresh(st *state.State, snapst *SnapState, snapsup *SnapSetup, info
 	// if it's not a snap busy error or the refresh is manual, surface the error
 	// to the user instead of notifying or delaying the refresh
 	if !snapsup.IsAutoRefresh || !errors.As(checkerErr, &busyErr.err) {
+		fmt.Printf("----------- not auto refresh\n")
 		return checkerErr
 	}
 
+	fmt.Printf("------------++++ auto refresh\n")
 	// Decide on what to do depending on the state of the snap and the remaining
 	// inhibition time.
 	now := time.Now()

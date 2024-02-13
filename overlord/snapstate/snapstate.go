@@ -1782,6 +1782,8 @@ func ResolveValidationSetsEnforcementError(ctx context.Context, st *state.State,
 type updateFilter func(*snap.Info, *SnapState) bool
 
 func updateManyFiltered(ctx context.Context, st *state.State, names []string, revOpts []*RevisionOptions, userID int, filter updateFilter, flags *Flags, fromChange string) ([]string, *UpdateTaskSets, error) {
+
+	fmt.Printf("---- update many with names: %q\n", names)
 	if flags == nil {
 		flags = &Flags{}
 	}
@@ -1807,6 +1809,7 @@ func updateManyFiltered(ctx context.Context, st *state.State, names []string, re
 	// save the candidates so the auto-refresh can be continued if it's inhibited
 	// by a running snap.
 	if flags.IsAutoRefresh {
+		fmt.Printf("----------------------- update many auto refresh\n")
 		hints, err := refreshHintsFromCandidates(st, updates, ignoreValidation, deviceCtx)
 		if err != nil {
 			return nil, nil, err

@@ -273,6 +273,7 @@ func MonitorSnapEnded(snapName string, channel chan<- string) error {
 		ReturnCGroupPath: true,
 	}
 	paths, err := InstancePathsOfSnap(snapName, options)
+	fmt.Printf("paths; %v err %v\n", paths, err)
 	if err != nil {
 		return err
 	}

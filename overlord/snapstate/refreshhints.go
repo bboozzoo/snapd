@@ -64,9 +64,11 @@ func (r *refreshHints) needsUpdate() (bool, error) {
 	}
 
 	recentEnough := time.Now().Add(-refreshHintsDelay)
+	fmt.Printf("--------- times last %v last hints %v\n recent enough %v\n", tFull, tHints, recentEnough)
 	if tFull.After(recentEnough) || tFull.Equal(recentEnough) {
 		return false, nil
 	}
+	fmt.Printf("hints %v before %v\n", tHints, recentEnough)
 	return tHints.Before(recentEnough), nil
 }
 
@@ -99,6 +101,10 @@ func (r *refreshHints) refresh() error {
 		return fmt.Errorf("internal error: cannot get refresh-candidates: %v", err)
 	}
 
+	fmt.Printf("------____###### new hints: %+v\n", hints)
+	for _, h := range hints {
+		fmt.Printf("------____###### hint: %+v\n", h)
+	}
 	setNewRefreshCandidates(r.state, hints)
 	return nil
 }
@@ -141,6 +147,7 @@ func (r *refreshHints) Ensure() error {
 	}
 
 	needsUpdate, err := r.needsUpdate()
+	fmt.Printf("--------------- hints needs update %v %v\n", needsUpdate, err)
 	if err != nil {
 		return err
 	}
@@ -265,8 +272,11 @@ func pruneRefreshCandidates(st *state.State, snaps ...string) error {
 // sure that any snap that is no longer a candidate has its monitoring stopped.
 // Must always be used when replacing the full "refresh-candidates"
 func setNewRefreshCandidates(st *state.State, hints map[string]*refreshCandidate) {
+	fmt.Printf("-------- set new candidates: %+v\n", hints)
 	stopMonitoringOutdatedCandidates(st, hints)
 	if len(hints) == 0 {
+
+		fmt.Printf("------------ drop candidates!!!\n")
 		st.Set("refresh-candidates", nil)
 		return
 	}

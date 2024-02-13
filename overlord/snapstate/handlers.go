@@ -899,6 +899,7 @@ func (m *SnapManager) doPreDownloadSnap(t *state.Task, tomb *tomb.Tomb) error {
 func asyncRefreshOnSnapClose(st *state.State, snapName string, refreshInfo *userclient.PendingSnapRefreshInfo) error {
 	// there's already a goroutine waiting for this snap to close so just notify
 	if isSnapMonitored(st, snapName) {
+		fmt.Printf("|||||||||||||||| %q already monitored\n", snapName)
 		asyncPendingRefreshNotification(context.TODO(), userclient.New(), refreshInfo)
 		return nil
 	}
@@ -994,12 +995,14 @@ func removeMonitoring(st *state.State, snapName string) error {
 }
 
 func continueRefreshOnSnapClose(st *state.State, snapName string, done <-chan string, refreshCtx context.Context) {
+	fmt.Printf("------ async refresh wait\n")
 	var aborted bool
 	select {
 	case <-done:
 	case <-refreshCtx.Done():
 		aborted = true
 	}
+	fmt.Printf("--------### async refresh go\n")
 
 	st.Lock()
 	defer st.Unlock()
@@ -1032,6 +1035,8 @@ func continueInhibitedAutoRefresh(st *state.State, snapName string) error {
 	if !ok {
 		return fmt.Errorf("cannot get refresh-candidates for %q: not found", snapName)
 	}
+
+	fmt.Printf("================= continue with hint %q: %+v\n", snapName, hint)
 
 	flags := &Flags{IsAutoRefresh: true, IsContinuedAutoRefresh: true}
 	tss, err := autoRefreshPhase2(context.TODO(), st, []*refreshCandidate{hint}, flags, "")
@@ -1388,12 +1393,14 @@ func (m *SnapManager) doUnlinkCurrentSnap(t *state.Task, _ *tomb.Tomb) (err erro
 		// below, completes.
 		// XXX: should we skip it if type is snap.TypeSnapd?
 		lock, err := hardEnsureNothingRunningDuringRefresh(m.backend, st, snapst, snapsup, oldInfo)
+		fmt.Printf("--- ensur enothing running %v %v, %v\n", snapst.InstanceName(), lock, err)
 		if err != nil {
 			var busyErr *timedBusySnapError
 			if errors.As(err, &busyErr) {
 				// notify user to close the snap and trigger the auto-refresh once it's closed
 				refreshInfo := busyErr.PendingSnapRefreshInfo()
 				if err := asyncRefreshOnSnapClose(m.state, snapsup.InstanceName(), refreshInfo); err != nil {
+					fmt.Printf("--- err async refresh on close: %v\n", err)
 					return err
 				}
 			}
@@ -4356,6 +4363,10 @@ func (m *SnapManager) doCheckReRefresh(t *state.Task, tomb *tomb.Tomb) error {
 		return &state.Retry{After: reRefreshRetryTimeout, Reason: "pending refreshes"}
 	}
 
+	var candidates map[string]interface{}
+	st.Get("refresh-candidates", &candidates)
+	fmt.Printf("111111 candidates: %v\n", candidates)
+
 	snaps, failed, err := refreshedSnaps(t)
 	if err != nil {
 		return err
@@ -4415,6 +4426,10 @@ func (m *SnapManager) doCheckReRefresh(t *state.Task, tomb *tomb.Tomb) error {
 	if err != nil {
 		return err
 	}
+
+	candidates = nil
+	st.Get("refresh-candidates", &candidates)
+	fmt.Printf("222222  candidates: %v\n", candidates)
 
 	var newTasks bool
 	if len(updated) == 0 {
