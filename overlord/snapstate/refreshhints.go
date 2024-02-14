@@ -268,6 +268,36 @@ func pruneRefreshCandidates(st *state.State, snaps ...string) error {
 	return nil
 }
 
+// updateRefreshCandidates updates the current set of refresh candidates stored
+// in the state in such a way that entries which are not present currently get
+// added, but ones that do have their snap-setup updated, so that it reflects
+// the latest information obtained from the store
+func updateRefreshCandidates(st *state.State, hints map[string]*refreshCandidate) error {
+	var oldHints map[string]*refreshCandidate
+	if err := st.Get("refresh-candidates", &oldHints); err != nil {
+		if !errors.Is(err, &state.NoStateError{}) {
+			return err
+		}
+	}
+
+	if len(oldHints) == 0 {
+		st.Set("refresh-candidates", hints)
+		return nil
+	}
+
+	for newHintName, newHint := range hints {
+		old := oldHints[newHintName]
+		if old != nil {
+			// only override snap setup
+			old.SnapSetup = newHint.SnapSetup
+		} else {
+			oldHints[newHintName] = newHint
+		}
+	}
+	st.Set("refresh-candidates", oldHints)
+	return nil
+}
+
 // setNewRefreshCandidates is used to set/replace "refresh-candidates" making
 // sure that any snap that is no longer a candidate has its monitoring stopped.
 // Must always be used when replacing the full "refresh-candidates"

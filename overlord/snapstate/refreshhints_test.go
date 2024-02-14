@@ -579,3 +579,49 @@ func (s *refreshHintsTestSuite) TestSnapStoreOffline(c *C) {
 
 	c.Check(s.store.ops, DeepEquals, []string{"list-refresh"})
 }
+
+func (s *refreshHintsTestSuite) TestUpdateCandidates(c *C) {
+	s.state.Lock()
+	defer s.state.Unlock()
+
+	var hints map[string]*snapstate.RefreshCandidate
+
+	err := snapstate.UpdateRefreshCandidates(s.state, nil)
+	c.Assert(err, IsNil)
+	s.state.Get("refresh-candidates", &hints)
+	c.Check(hints, HasLen, 0)
+
+	err = snapstate.UpdateRefreshCandidates(s.state, map[string]*snapstate.RefreshCandidate{
+		"foo": {SnapSetup: snapstate.SnapSetup{SideInfo: &snap.SideInfo{RealName: "foo", Revision: snap.R(1)}}},
+		"bar": {
+			SnapSetup: snapstate.SnapSetup{SideInfo: &snap.SideInfo{RealName: "bar", Revision: snap.R(1)}},
+			Monitored: true,
+		},
+	})
+	c.Assert(err, IsNil)
+
+	hints = nil
+	s.state.Get("refresh-candidates", &hints)
+	c.Check(hints, HasLen, 2)
+	c.Check(hints["foo"], NotNil)
+	c.Assert(hints["bar"], NotNil)
+	c.Check(hints["bar"].SideInfo.Revision, Equals, snap.R(1))
+	c.Check(hints["bar"].Monitored, Equals, true)
+
+	err = snapstate.UpdateRefreshCandidates(s.state, map[string]*snapstate.RefreshCandidate{
+		// bar without Monitored flag
+		"bar": {SnapSetup: snapstate.SnapSetup{SideInfo: &snap.SideInfo{RealName: "bar", Revision: snap.R(2)}}},
+		"baz": {SnapSetup: snapstate.SnapSetup{SideInfo: &snap.SideInfo{RealName: "baz", Revision: snap.R(4)}}},
+	})
+	c.Assert(err, IsNil)
+
+	hints = nil
+	s.state.Get("refresh-candidates", &hints)
+	c.Check(hints, HasLen, 3)
+	c.Check(hints["foo"], NotNil)
+	c.Assert(hints["bar"], NotNil)
+	c.Check(hints["bar"].SideInfo.Revision, Equals, snap.R(2))
+	c.Check(hints["bar"].Monitored, Equals, true)
+	c.Check(hints["baz"], NotNil)
+
+}
