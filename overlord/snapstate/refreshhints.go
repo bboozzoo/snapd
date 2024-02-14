@@ -105,7 +105,7 @@ func (r *refreshHints) refresh() error {
 	for _, h := range hints {
 		fmt.Printf("------____###### hint: %+v\n", h)
 	}
-	setNewRefreshCandidates(r.state, hints)
+	updateRefreshCandidates(r.state, hints)
 	return nil
 }
 
