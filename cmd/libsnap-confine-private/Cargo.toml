@@ -6,3 +6,6 @@ edition = "2021"
 [lib]
 name = "libsnap_confine_private"
 crate-type = ["staticlib"]
+
+[dependencies]
+regex = "1"
