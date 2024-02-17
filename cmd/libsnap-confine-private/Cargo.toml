@@ -1,0 +1,8 @@
+[package]
+name = "libsnap-confine-private"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "libsnap_confine_private"
+crate-type = ["staticlib"]
