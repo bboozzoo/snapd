@@ -8,4 +8,5 @@ name = "libsnap_confine_private"
 crate-type = ["staticlib"]
 
 [dependencies]
+libc = "0.2"
 regex = "1"
