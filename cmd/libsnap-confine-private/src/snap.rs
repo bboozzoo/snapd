@@ -15,6 +15,8 @@
  *
  */
 use regex::Regex;
+use std::ffi::{self, CStr, CString};
+use std::os::raw::c_char;
 
 const SNAP_NAME_LEN: usize = 40;
 const SNAP_INSTANCE_KEY_LEN: usize = 10;
@@ -22,10 +24,12 @@ const SNAP_SECURITY_TAG_MAX_LEN: usize = 256;
 
 // TODO mediate between FFI cand pure Rust
 
-#[no_mangle]
-pub extern "C" fn sc_instance_name_validate(instance_name: &str) -> Result<(), &str> {
-    sc_instance_name_validate_safe(instance_name)
-}
+// #[no_mangle]
+// pub extern "C" fn sc_instance_name_validate(instance_name: *const c_char) -> bool {
+//     let cinstance_name = unsafe { CStr::from_ptr(instance_name) };
+//     cinstance_name.to_str()
+//     sc_instance_name_validate_safe(instance_name)
+// }
 
 pub fn sc_instance_name_validate_safe(instance_name: &str) -> Result<(), &str> {
     let mut it = instance_name.split("_");
