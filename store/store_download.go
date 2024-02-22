@@ -181,6 +181,11 @@ func (e HashError) Error() string {
 	return fmt.Sprintf("sha3-384 mismatch for %q: got %s but expected %s", e.name, e.sha3_384, e.targetSha3_384)
 }
 
+func (e HashError) Is(other error) bool {
+	_, ok := other.(HashError)
+	return ok
+}
+
 type DownloadOptions struct {
 	RateLimit           int64
 	Scheduled           bool
@@ -238,7 +243,9 @@ func (s *Store) Download(ctx context.Context, name string, targetPath string, do
 		if err == nil {
 			return
 		}
-		if dlOpts == nil || !dlOpts.LeavePartialOnError || fi == nil || fi.Size() == 0 {
+		if dlOpts == nil || !dlOpts.LeavePartialOnError ||
+			fi == nil || fi.Size() == 0 ||
+			errors.Is(err, HashError{}) {
 			os.Remove(w.Name())
 		}
 	}()
@@ -269,7 +276,7 @@ func (s *Store) Download(ctx context.Context, name string, targetPath string, do
 		}
 	}
 	// If hashsum is incorrect retry once
-	if _, ok := err.(HashError); ok {
+	if errors.Is(err, HashError{}) {
 		logger.Debugf("Hashsum error on download: %v", err.Error())
 		logger.Debugf("Truncating and trying again from scratch.")
 		err = w.Truncate(0)

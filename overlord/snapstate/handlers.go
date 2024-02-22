@@ -743,8 +743,9 @@ func (m *SnapManager) doDownloadSnap(t *state.Task, tomb *tomb.Tomb) error {
 	targetFn := snapsup.MountFile()
 
 	dlOpts := &store.DownloadOptions{
-		Scheduled: snapsup.IsAutoRefresh,
-		RateLimit: rate,
+		Scheduled:           snapsup.IsAutoRefresh,
+		RateLimit:           rate,
+		LeavePartialOnError: true,
 	}
 	if snapsup.DownloadInfo == nil {
 		var storeInfo store.SnapActionResult
@@ -769,7 +770,7 @@ func (m *SnapManager) doDownloadSnap(t *state.Task, tomb *tomb.Tomb) error {
 	}
 
 	snapsup.SnapPath = targetFn
-
+	m
 	// update the snap setup for the follow up tasks
 	st.Lock()
 	t.Set("snap-setup", snapsup)
@@ -826,8 +827,9 @@ func (m *SnapManager) doPreDownloadSnap(t *state.Task, tomb *tomb.Tomb) error {
 	targetFn := snapsup.MountFile()
 	dlOpts := &store.DownloadOptions{
 		// pre-downloads are only triggered in auto-refreshes
-		Scheduled: true,
-		RateLimit: autoRefreshRateLimited(st),
+		Scheduled:           true,
+		RateLimit:           autoRefreshRateLimited(st),
+		LeavePartialOnError: true,
 	}
 
 	perfTimings := state.TimingsForTask(t)
