@@ -17,7 +17,17 @@
 use regex::Regex;
 use std::ffi::{self, CStr, CString};
 use std::os::raw::c_char;
+use std::ptr;
 
+use crate::error;
+
+enum Error {
+    SC_SNAP_INVALID_NAME = 1,
+    SC_SNAP_INVALID_INSTANCE_KEY = 2,
+    SC_SNAP_INVALID_INSTANCE_NAME = 3,
+}
+
+static SC_SNAP_DOMAIN: &str = "snap";
 const SNAP_NAME_LEN: usize = 40;
 const SNAP_INSTANCE_KEY_LEN: usize = 10;
 const SNAP_SECURITY_TAG_MAX_LEN: usize = 256;
@@ -41,17 +51,33 @@ pub fn sc_instance_name_validate_safe(instance_name: &str) -> Result<(), &str> {
         _ => (),
     }
     if let Some(snap_name) = maybe_snap_name {
-        sc_snap_name_validate(snap_name)?
+        sc_snap_name_validate_safe(snap_name)?
     }
     if let Some(instance_key) = maybe_instance_key {
-        sc_instance_key_validate(instance_key)?
+        sc_instance_key_validate_safe(instance_key)?
     }
     Ok(())
 }
 
 #[no_mangle]
-pub extern "C" fn sc_instance_key_validate(instance_key: &str) -> Result<(), &str> {
-    sc_instance_name_validate_safe(instance_key)
+pub extern "C" fn sc_instance_key_validate(
+    instance_key: *const c_char,
+    sc_err: *mut *mut error::sc_error,
+) {
+    unsafe {
+        if let Ok(s) = CStr::from_ptr(instance_key).to_str() {
+            if let Err(err) = sc_instance_key_validate_safe(s) {
+                *sc_err = error::new(
+                    SC_SNAP_DOMAIN,
+                    Error::SC_SNAP_INVALID_INSTANCE_KEY as i32,
+                    "snap name is not a valid string",
+                )
+                .into_boxed_ptr();
+            }
+        } else {
+            panic!("cannot convert C string")
+        }
+    }
 }
 
 pub fn sc_instance_key_validate_safe(instance_key: &str) -> Result<(), &str> {
@@ -69,15 +95,39 @@ pub fn sc_instance_key_validate_safe(instance_key: &str) -> Result<(), &str> {
 }
 
 #[no_mangle]
-pub extern "C" fn sc_snap_name_validate(snap_name: &str) -> Result<(), &str> {
-    // Ensure that name is not NULL
-    // if (snap_name == NULL) {
-    //     err = sc_error_init(SC_SNAP_DOMAIN, SC_SNAP_INVALID_NAME,
-    // 		                    "snap name cannot be NULL");
-    //     goto out;
-    // }
-
-    sc_snap_name_validate_safe(snap_name)
+pub extern "C" fn sc_snap_name_validate(
+    snap_name: *const c_char,
+    sc_err: *mut *mut error::sc_error,
+) {
+    if snap_name == ptr::null() {
+        unsafe {
+            *sc_err = error::new(
+                SC_SNAP_DOMAIN,
+                Error::SC_SNAP_INVALID_NAME as i32,
+                "snap name cannot be NULL",
+            )
+            .into_boxed_ptr();
+        }
+    } else {
+        unsafe {
+            if let Ok(s) = CStr::from_ptr(snap_name).to_str() {
+                if let Err(err) = sc_snap_name_validate_safe(s) {
+                    unsafe {
+                        *sc_err =
+                            error::new(SC_SNAP_DOMAIN, Error::SC_SNAP_INVALID_NAME as i32, err)
+                                .into_boxed_ptr();
+                    }
+                }
+            } else {
+                *sc_err = error::new(
+                    SC_SNAP_DOMAIN,
+                    Error::SC_SNAP_INVALID_NAME as i32,
+                    "snap name is not a valid string",
+                )
+                .into_boxed_ptr();
+            }
+        }
+    }
 }
 
 pub fn sc_snap_name_validate_safe(snap_name: &str) -> Result<(), &str> {
@@ -133,8 +183,11 @@ pub fn sc_snap_name_validate_safe(snap_name: &str) -> Result<(), &str> {
 }
 
 #[no_mangle]
-pub extern "C" fn sc_is_hook_security_tag(security_tag: &str) -> bool {
-    sc_is_hook_security_tag_safe(security_tag)
+pub extern "C" fn sc_is_hook_security_tag(security_tag: *const c_char) -> bool {
+    unsafe {
+        let s_security_tag = CStr::from_ptr(security_tag).to_str().unwrap_or("");
+        sc_is_hook_security_tag_safe(s_security_tag)
+    }
 }
 
 pub extern "C" fn sc_is_hook_security_tag_safe(security_tag: &str) -> bool {
@@ -145,8 +198,15 @@ pub extern "C" fn sc_is_hook_security_tag_safe(security_tag: &str) -> bool {
 }
 
 #[no_mangle]
-pub extern "C" fn sc_security_tag_validate(security_tag: &str, snap_name: &str) -> bool {
-    sc_security_tag_validate(security_tag, snap_name)
+pub extern "C" fn sc_security_tag_validate(
+    security_tag: *const c_char,
+    snap_name: *const c_char,
+) -> bool {
+    unsafe {
+        let s_security_tag = CStr::from_ptr(security_tag).to_str().unwrap_or("");
+        let s_snap_name = CStr::from_ptr(snap_name).to_str().unwrap_or("");
+        sc_security_tag_validate_safe(s_security_tag, s_snap_name)
+    }
 }
 
 pub extern "C" fn sc_security_tag_validate_safe(security_tag: &str, snap_name: &str) -> bool {
@@ -201,22 +261,24 @@ mod tests {
 
     #[test]
     fn test_sc_is_hook_security_tag() {
-        assert!(sc_is_hook_security_tag("snap.foo_instance.hook.bar-baz"));
-        assert!(sc_is_hook_security_tag("snap.foo_bar.hook.bar-baz"));
-        assert!(sc_is_hook_security_tag("snap.foo_bar.hook.f00"));
-        assert!(sc_is_hook_security_tag("snap.foo_bar.hook.f-0-0"));
+        assert!(sc_is_hook_security_tag_safe(
+            "snap.foo_instance.hook.bar-baz"
+        ));
+        assert!(sc_is_hook_security_tag_safe("snap.foo_bar.hook.bar-baz"));
+        assert!(sc_is_hook_security_tag_safe("snap.foo_bar.hook.f00"));
+        assert!(sc_is_hook_security_tag_safe("snap.foo_bar.hook.f-0-0"));
 
         // Now, test the names we know are not valid hook security tags
-        assert!(!sc_is_hook_security_tag("snap.foo_instance.bar-baz"));
-        assert!(!sc_is_hook_security_tag("snap.name.app!hook.foo"));
-        assert!(!sc_is_hook_security_tag("snap.name.app.hook!foo"));
-        assert!(!sc_is_hook_security_tag("snap.name.app.hook.-foo"));
-        assert!(!sc_is_hook_security_tag("snap.foo_bar.hook.0abcd"));
-        assert!(!sc_is_hook_security_tag("snap.foo.hook.abc--"));
-        assert!(!sc_is_hook_security_tag("snap.foo_bar.hook.!foo"));
-        assert!(!sc_is_hook_security_tag("snap.foo_bar.hook.-foo"));
-        assert!(!sc_is_hook_security_tag("snap.foo_bar.hook!foo"));
-        assert!(!sc_is_hook_security_tag("snap.foo_bar.!foo"));
+        assert!(!sc_is_hook_security_tag_safe("snap.foo_instance.bar-baz"));
+        assert!(!sc_is_hook_security_tag_safe("snap.name.app!hook.foo"));
+        assert!(!sc_is_hook_security_tag_safe("snap.name.app.hook!foo"));
+        assert!(!sc_is_hook_security_tag_safe("snap.name.app.hook.-foo"));
+        assert!(!sc_is_hook_security_tag_safe("snap.foo_bar.hook.0abcd"));
+        assert!(!sc_is_hook_security_tag_safe("snap.foo.hook.abc--"));
+        assert!(!sc_is_hook_security_tag_safe("snap.foo_bar.hook.!foo"));
+        assert!(!sc_is_hook_security_tag_safe("snap.foo_bar.hook.-foo"));
+        assert!(!sc_is_hook_security_tag_safe("snap.foo_bar.hook!foo"));
+        assert!(!sc_is_hook_security_tag_safe("snap.foo_bar.!foo"));
     }
 
     #[test]
