@@ -15,59 +15,100 @@
  *
  */
 
-use std::os::raw::{c_char, c_int};
-use std::ffi::{self, CString, Cstr};
-use std::Box;
-use std::ptr;
 use libc;
+use std::boxed::Box;
+use std::ffi::{self, CStr, CString};
+use std::os::raw::{c_char, c_int};
+use std::ptr;
 
-#[repr(C)]
 #[derive(Debug)]
-struct sc_error {
-    domain: *const c_char,
+pub struct sc_error {
+    domain: CString,
     code: c_int,
-    msg: *mut c_char,
+    msg: CString,
 }
 
 #[no_mangle]
-pub extern "C" fn sc_error_init(domain: *const c_char, code: int,
-                     msgfmt: *const c_char) -> *mut sc_error {
-    let mut err = sc_error{
-        domain,
-        code,
-    };
+pub extern "C" fn sc_error_init(
+    domain: *const c_char,
+    code: c_int,
+    msgfmt: *const c_char,
+) -> *mut sc_error {
+    // TODO error handling?
+    let s_domain = unsafe { CStr::from_ptr(domain).to_str().unwrap() };
+    let s_msg = unsafe { CStr::from_ptr(msgfmt).to_str().unwrap() };
+    let mut err = Box::new(new(s_domain, code, s_msg));
     Box::into_raw(err)
 }
 
-#[no_mangle]
-pub extern "C" fn sc_error_domain(self: *const sc_error) -> *const c_char {
-    self.domain
+pub fn new(domain: &str, code: i32, msg: &str) -> sc_error {
+    sc_error {
+        domain: CString::new(domain).unwrap(),
+        code,
+        msg: CString::new(msg).unwrap(),
+    }
+}
+
+impl sc_error {
+    pub fn into_boxed(self: Self) -> Box<Self> {
+        Box::new(self)
+    }
+
+    pub fn into_boxed_ptr(self: Self) -> *mut Self {
+        Box::into_raw(self.into_boxed())
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn sc_error_code(self: *const sc_error) -> c_int {
-    self.code
+pub extern "C" fn sc_error_free(self_err: *mut sc_error) {
+    let b = unsafe { Box::from_raw(self_err) };
+    drop(b)
 }
 
 #[no_mangle]
-pub extern "C" fn sc_error_msg(self: *const sc_error) -> *const c_char {
-    self.msg
+pub extern "C" fn sc_error_domain(self_err: *const sc_error) -> *const c_char {
+    unsafe { (*self_err).domain.as_ptr() }
 }
 
 #[no_mangle]
-pub extern "C" fn sc_error_forward(recipient: *mut sc_error, self: *const sc_error) {
-
+pub extern "C" fn sc_error_code(self_err: *const sc_error) -> c_int {
+    unsafe { (*self_err).code }
 }
 
 #[no_mangle]
-pub extern "C" fn sc_error_match(self: *const sc_error, domain: *const c_char, code: c_int) -> bool {
-
+pub extern "C" fn sc_error_msg(self_err: *const sc_error) -> *const c_char {
+    unsafe { (*self_err).msg.as_ptr() }
 }
 
 #[no_mangle]
-pub extern "C" fn sc_die_on_error(self: *const sc_error) {
-    if self != ptr::null() {
+pub extern "C" fn sc_error_forward(
+    recipient: *mut *const sc_error,
+    self_err: *const sc_error,
+) -> c_int {
+    if recipient != ptr::null_mut() {
+        unsafe {
+            *recipient = self_err;
+        }
+    }
+    if self_err != ptr::null() {
+        -1
+    } else {
+        0
+    }
+}
 
-        libc::exit(1)
+#[no_mangle]
+pub extern "C" fn sc_error_match(
+    self_err: *const sc_error,
+    domain: *const c_char,
+    code: c_int,
+) -> bool {
+    false
+}
+
+#[no_mangle]
+pub extern "C" fn sc_die_on_error(self_err: *const sc_error) {
+    if self_err != ptr::null() {
+        unsafe { libc::exit(1) }
     }
 }
