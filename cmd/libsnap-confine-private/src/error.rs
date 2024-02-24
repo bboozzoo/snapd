@@ -17,9 +17,11 @@
 
 use libc;
 use std::boxed::Box;
-use std::ffi::{self, CStr, CString};
+use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
 use std::ptr;
+
+use crate::utils::die;
 
 #[derive(Debug)]
 pub struct sc_error {
@@ -29,7 +31,7 @@ pub struct sc_error {
 }
 
 #[no_mangle]
-pub extern "C" fn sc_error_init(
+pub extern "C" fn sc_error_new(
     domain: *const c_char,
     code: c_int,
     msgfmt: *const c_char,
@@ -61,23 +63,42 @@ impl sc_error {
 
 #[no_mangle]
 pub extern "C" fn sc_error_free(self_err: *mut sc_error) {
-    let b = unsafe { Box::from_raw(self_err) };
-    drop(b)
+    if self_err.is_null() {
+        return;
+    }
+    let _ = unsafe { Box::from_raw(self_err) };
 }
 
 #[no_mangle]
 pub extern "C" fn sc_error_domain(self_err: *const sc_error) -> *const c_char {
-    unsafe { (*self_err).domain.as_ptr() }
+    unsafe {
+        if self_err.is_null() {
+            die!("cannot obtain domain from NULL error");
+        }
+        (*self_err).domain.as_ptr()
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn sc_error_code(self_err: *const sc_error) -> c_int {
-    unsafe { (*self_err).code }
+    unsafe {
+        if self_err.is_null() {
+            // TODO die
+            panic!("cannot obtain error code from NULL error");
+        }
+        (*self_err).code
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn sc_error_msg(self_err: *const sc_error) -> *const c_char {
-    unsafe { (*self_err).msg.as_ptr() }
+    unsafe {
+        if self_err == ptr::null() {
+            // TODO die
+            panic!("cannot obtain error message from NULL error");
+        }
+        (*self_err).msg.as_ptr()
+    }
 }
 
 #[no_mangle]
@@ -103,12 +124,19 @@ pub extern "C" fn sc_error_match(
     domain: *const c_char,
     code: c_int,
 ) -> bool {
-    false
+    if domain == ptr::null() {
+        die!("cannot match error to a NULL domain");
+    }
+    if self_err == ptr::null() {
+        return false;
+    }
+    let domain = unsafe { CStr::from_ptr(domain).to_str().unwrap() };
+    unsafe { domain == (*self_err).domain.to_str().unwrap() && code == (*self_err).code }
 }
 
-#[no_mangle]
-pub extern "C" fn sc_die_on_error(self_err: *const sc_error) {
-    if self_err != ptr::null() {
-        unsafe { libc::exit(1) }
-    }
-}
+// #[no_mangle]
+// pub extern "C" fn sc_die_on_error(self_err: *const sc_error) {
+//     if self_err != ptr::null() {
+//         unsafe { libc::exit(1) }
+//     }
+// }
