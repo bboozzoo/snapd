@@ -23,6 +23,8 @@ use std::ptr;
 
 use crate::utils::die;
 
+const SC_ERRNO_DOMAIN: &str = "errno";
+
 #[derive(Debug)]
 pub struct sc_error {
     domain: CString,
@@ -83,8 +85,7 @@ pub extern "C" fn sc_error_domain(self_err: *const sc_error) -> *const c_char {
 pub extern "C" fn sc_error_code(self_err: *const sc_error) -> c_int {
     unsafe {
         if self_err.is_null() {
-            // TODO die
-            panic!("cannot obtain error code from NULL error");
+            die!("cannot obtain error code from NULL error");
         }
         (*self_err).code
     }
@@ -94,8 +95,7 @@ pub extern "C" fn sc_error_code(self_err: *const sc_error) -> c_int {
 pub extern "C" fn sc_error_msg(self_err: *const sc_error) -> *const c_char {
     unsafe {
         if self_err == ptr::null() {
-            // TODO die
-            panic!("cannot obtain error message from NULL error");
+            die!("cannot obtain error message from NULL error");
         }
         (*self_err).msg.as_ptr()
     }
@@ -106,12 +106,14 @@ pub extern "C" fn sc_error_forward(
     recipient: *mut *const sc_error,
     self_err: *const sc_error,
 ) -> c_int {
-    if recipient != ptr::null_mut() {
+    if !recipient.is_null() {
         unsafe {
             *recipient = self_err;
         }
+    } else {
+        sc_die_on_error(self_err);
     }
-    if self_err != ptr::null() {
+    if !self_err.is_null() {
         -1
     } else {
         0
@@ -134,9 +136,23 @@ pub extern "C" fn sc_error_match(
     unsafe { domain == (*self_err).domain.to_str().unwrap() && code == (*self_err).code }
 }
 
-// #[no_mangle]
-// pub extern "C" fn sc_die_on_error(self_err: *const sc_error) {
-//     if self_err != ptr::null() {
-//         unsafe { libc::exit(1) }
-//     }
-// }
+#[no_mangle]
+pub extern "C" fn sc_die_on_error(self_err: *const sc_error) {
+    if !self_err.is_null() {
+        unsafe {
+            let msg = (*self_err).msg.to_str().unwrap();
+            if (*self_err).domain.to_str().unwrap() == SC_ERRNO_DOMAIN {
+                eprintln!(
+                    "{}: {}",
+                    msg,
+                    CStr::from_ptr(libc::strerror((*self_err).code))
+                        .to_str()
+                        .unwrap()
+                );
+            } else {
+                eprintln!("{}", msg);
+            }
+            libc::exit(1);
+        }
+    }
+}

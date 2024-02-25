@@ -15,7 +15,6 @@
  *
  */
 
-
 macro_rules! die {
     ($($arg:tt)*) => {{
         eprintln!($($arg)*);

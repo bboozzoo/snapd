@@ -19,7 +19,7 @@ use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::ptr;
 
-use crate::error;
+use crate::error::{self, sc_error_forward};
 
 enum Error {
     SC_SNAP_INVALID_NAME = 1,
@@ -37,42 +37,38 @@ const SNAP_SECURITY_TAG_MAX_LEN: usize = 256;
 #[no_mangle]
 pub extern "C" fn sc_instance_name_validate(
     instance_name: *const c_char,
-    sc_err: *mut *mut error::sc_error,
+    sc_err: *mut *const error::sc_error,
 ) {
-    if instance_name == ptr::null() {
-        unsafe {
-            *sc_err = error::new(
+    if instance_name.is_null() {
+        sc_error_forward(sc_err, error::new(
                 SC_SNAP_DOMAIN,
                 Error::SC_SNAP_INVALID_NAME as i32,
                 "snap instance name cannot be NULL",
             )
-            .into_boxed_ptr();
-        }
+            .into_boxed_ptr());
         return;
     }
     let instance_name = match unsafe { CStr::from_ptr(instance_name).to_str() } {
         Ok(s) => s,
         Err(_) => {
-            unsafe {
-                *sc_err = error::new(
+            sc_error_forward(sc_err, error::new(
                     SC_SNAP_DOMAIN,
                     Error::SC_SNAP_INVALID_INSTANCE_KEY as i32,
                     "snap instance name is not a valid string",
                 )
-                .into_boxed_ptr();
-            }
+                .into_boxed_ptr());
             return;
         }
     };
     if let Err(err) = sc_instance_name_validate_safe(instance_name) {
-        unsafe {
-            *sc_err = error::new(
+        sc_error_forward(sc_err, error::new(
                 SC_SNAP_DOMAIN,
                 Error::SC_SNAP_INVALID_INSTANCE_KEY as i32,
                 err,
             )
-            .into_boxed_ptr();
-        }
+            .into_boxed_ptr());
+    } else {
+        sc_error_forward(sc_err, ptr::null());
     }
 }
 
@@ -142,35 +138,40 @@ pub fn sc_instance_key_validate_safe(instance_key: &str) -> Result<(), &str> {
 #[no_mangle]
 pub extern "C" fn sc_snap_name_validate(
     snap_name: *const c_char,
-    sc_err: *mut *mut error::sc_error,
+    sc_err: *mut *const error::sc_error,
 ) {
-    if snap_name == ptr::null() {
-        unsafe {
-            *sc_err = error::new(
+    if snap_name.is_null() {
+        sc_error_forward(
+            sc_err,
+            error::new(
                 SC_SNAP_DOMAIN,
                 Error::SC_SNAP_INVALID_NAME as i32,
                 "snap name cannot be NULL",
             )
-            .into_boxed_ptr();
-        }
+            .into_boxed_ptr(),
+        );
     } else {
-        unsafe {
-            if let Ok(s) = CStr::from_ptr(snap_name).to_str() {
-                if let Err(err) = sc_snap_name_validate_safe(s) {
-                    unsafe {
-                        *sc_err =
-                            error::new(SC_SNAP_DOMAIN, Error::SC_SNAP_INVALID_NAME as i32, err)
-                                .into_boxed_ptr();
-                    }
-                }
+        let maybe_s = unsafe { CStr::from_ptr(snap_name).to_str() };
+        if let Ok(s) = maybe_s {
+            if let Err(err) = sc_snap_name_validate_safe(s) {
+                sc_error_forward(
+                    sc_err,
+                    error::new(SC_SNAP_DOMAIN, Error::SC_SNAP_INVALID_NAME as i32, err)
+                        .into_boxed_ptr(),
+                );
             } else {
-                *sc_err = error::new(
+                sc_error_forward(sc_err, ptr::null());
+            }
+        } else {
+            sc_error_forward(
+                sc_err,
+                error::new(
                     SC_SNAP_DOMAIN,
                     Error::SC_SNAP_INVALID_NAME as i32,
                     "snap name is not a valid string",
                 )
-                .into_boxed_ptr();
-            }
+                .into_boxed_ptr(),
+            );
         }
     }
 }
@@ -208,7 +209,7 @@ pub fn sc_snap_name_validate_safe(snap_name: &str) -> Result<(), &str> {
                 last = Some(c);
                 continue;
             }
-            _ => {
+            v => {
                 return Err("snap name must use lower case letters, digits or dashes");
             }
         }
@@ -270,10 +271,10 @@ pub fn sc_security_tag_validate_safe(security_tag: &str, snap_name: &str) -> boo
     }
 }
 
-#[no_mangle]
-pub extern "C" fn sc_snap_split_instance_name(instance_name: &str) -> (&str, Option<&str>) {
-    sc_snap_split_instance_name_safe(instance_name)
-}
+// #[no_mangle]
+// pub extern "C" fn sc_snap_split_instance_name(instance_name: &str) -> (&str, Option<&str>) {
+//     sc_snap_split_instance_name_safe(instance_name)
+// }
 
 pub fn sc_snap_split_instance_name_safe(instance_name: &str) -> (&str, Option<&str>) {
     match instance_name.find('_') {
@@ -286,10 +287,10 @@ pub fn sc_snap_split_instance_name_safe(instance_name: &str) -> (&str, Option<&s
     }
 }
 
-#[no_mangle]
-pub extern "C" fn sc_snap_drop_instance_key(instance_name: &str) -> Result<&str, &str> {
-    sc_snap_drop_instance_key_safe(instance_name)
-}
+// #[no_mangle]
+// pub extern "C" fn sc_snap_drop_instance_key(instance_name: &str) -> Result<&str, &str> {
+//     sc_snap_drop_instance_key_safe(instance_name)
+// }
 
 pub fn sc_snap_drop_instance_key_safe(instance_name: &str) -> Result<&str, &str> {
     Ok(instance_name.split("_").next().unwrap())
@@ -515,6 +516,13 @@ mod tests {
             info!("checking invalid snap name: >{}<", name);
             assert_ne!(validate(name), Ok(()));
         }
+
+        let good_bad_name = "u-94903713687486543234157734673284536758";
+        for i in 3..=good_bad_name.len() {
+            let name = &good_bad_name[..i];
+            info!("checking valid snap name: >{}<", name);
+            assert_eq!(validate(name), Ok(()))
+        }
     }
 
     #[test]
@@ -529,33 +537,39 @@ mod tests {
 
     #[test]
     fn test_sc_snap_drop_instance_key_basic() {
-        assert_eq!(sc_snap_drop_instance_key("foo_bar"), Ok("foo"));
-        assert_eq!(sc_snap_drop_instance_key("foo-bar_bar"), Ok("foo-bar"));
-        assert_eq!(sc_snap_drop_instance_key("foo-bar"), Ok("foo-bar"));
-        assert_eq!(sc_snap_drop_instance_key("_baz"), Ok(""));
-        assert_eq!(sc_snap_drop_instance_key("foo"), Ok("foo"));
+        assert_eq!(sc_snap_drop_instance_key_safe("foo_bar"), Ok("foo"));
+        assert_eq!(sc_snap_drop_instance_key_safe("foo-bar_bar"), Ok("foo-bar"));
+        assert_eq!(sc_snap_drop_instance_key_safe("foo-bar"), Ok("foo-bar"));
+        assert_eq!(sc_snap_drop_instance_key_safe("_baz"), Ok(""));
+        assert_eq!(sc_snap_drop_instance_key_safe("foo"), Ok("foo"));
         /* 40 chars - snap name length */
         assert_eq!(
-            sc_snap_drop_instance_key("0123456789012345678901234567890123456789"),
+            sc_snap_drop_instance_key_safe("0123456789012345678901234567890123456789"),
             Ok("0123456789012345678901234567890123456789")
         );
     }
 
     #[test]
     fn test_sc_snap_split_instance_name_basic() {
-        assert_eq!(sc_snap_split_instance_name("foo_bar"), ("foo", Some("bar")));
         assert_eq!(
-            sc_snap_split_instance_name("foo-bar_bar"),
+            sc_snap_split_instance_name_safe("foo_bar"),
+            ("foo", Some("bar"))
+        );
+        assert_eq!(
+            sc_snap_split_instance_name_safe("foo-bar_bar"),
             ("foo-bar", Some("bar"))
         );
-        assert_eq!(sc_snap_split_instance_name("foo-bar"), ("foo-bar", None));
-        assert_eq!(sc_snap_split_instance_name("_baz"), ("", Some("baz")));
-        assert_eq!(sc_snap_split_instance_name("foo"), ("foo", None));
         assert_eq!(
-            sc_snap_split_instance_name("hello_world_surprise"),
+            sc_snap_split_instance_name_safe("foo-bar"),
+            ("foo-bar", None)
+        );
+        assert_eq!(sc_snap_split_instance_name_safe("_baz"), ("", Some("baz")));
+        assert_eq!(sc_snap_split_instance_name_safe("foo"), ("foo", None));
+        assert_eq!(
+            sc_snap_split_instance_name_safe("hello_world_surprise"),
             ("hello", Some("world_surprise"))
         );
-        assert_eq!(sc_snap_split_instance_name("_"), ("", Some("")));
-        assert_eq!(sc_snap_split_instance_name("foo_"), ("foo", Some("")));
+        assert_eq!(sc_snap_split_instance_name_safe("_"), ("", Some("")));
+        assert_eq!(sc_snap_split_instance_name_safe("foo_"), ("foo", Some("")));
     }
 }
