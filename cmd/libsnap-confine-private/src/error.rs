@@ -73,7 +73,7 @@ pub extern "C" fn sc_error_free(self_err: *mut sc_error) {
 pub extern "C" fn sc_error_domain(self_err: *const sc_error) -> *const c_char {
     unsafe {
         if self_err.is_null() {
-            die!("cannot obtain domain from NULL error");
+            die!("cannot obtain error domain from NULL error");
         }
         (*self_err).domain.as_ptr()
     }
