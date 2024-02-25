@@ -89,84 +89,8 @@ sc_error *sc_error_init_api_misuse(const char *msgfmt, ...)
 	return err;
 }
 
-/* const char *sc_error_domain(sc_error * err) */
-/* { */
-/* 	// Set errno in case we die. */
-/* 	errno = 0; */
-/* 	if (err == NULL) { */
-/* 		die("cannot obtain error domain from NULL error"); */
-/* 	} */
-/* 	return err->domain; */
-/* } */
-
-/* int sc_error_code(sc_error * err) */
-/* { */
-/* 	// Set errno in case we die. */
-/* 	errno = 0; */
-/* 	if (err == NULL) { */
-/* 		die("cannot obtain error code from NULL error"); */
-/* 	} */
-/* 	return err->code; */
-/* } */
-
-/* const char *sc_error_msg(sc_error * err) */
-/* { */
-/* 	// Set errno in case we die. */
-/* 	errno = 0; */
-/* 	if (err == NULL) { */
-/* 		die("cannot obtain error message from NULL error"); */
-/* 	} */
-/* 	return err->msg; */
-/* } */
-
-/* void sc_error_free(sc_error * err) */
-/* { */
-/* 	if (err != NULL) { */
-/* 		free(err->msg); */
-/* 		err->msg = NULL; */
-/* 		free(err); */
-/* 	} */
-/* } */
-
 void sc_cleanup_error(sc_error ** ptr)
 {
 	sc_error_free(*ptr);
 	*ptr = NULL;
 }
-
-void sc_die_on_error(sc_error * error)
-{
-	if (error != NULL) {
-		if (strcmp(sc_error_domain(error), SC_ERRNO_DOMAIN) == 0) {
-			fprintf(stderr, "%s: %s\n", sc_error_msg(error), strerror(sc_error_code(error)));
-		} else {
-			fprintf(stderr, "%s\n", sc_error_msg(error));
-		}
-		sc_error_free(error);
-		exit(1);
-	}
-}
-
-/* int sc_error_forward(sc_error ** recipient, sc_error * error) */
-/* { */
-/* 	if (recipient != NULL) { */
-/* 		*recipient = error; */
-/* 	} else { */
-/* 		sc_die_on_error(error); */
-/* 	} */
-/* 	return error != NULL ? -1 : 0; */
-/* } */
-
-/* bool sc_error_match(sc_error * error, const char *domain, int code) */
-/* { */
-/* 	// Set errno in case we die. */
-/* 	errno = 0; */
-/* 	if (domain == NULL) { */
-/* 		die("cannot match error to a NULL domain"); */
-/* 	} */
-/* 	if (error == NULL) { */
-/* 		return false; */
-/* 	} */
-/* 	return strcmp(sc_error_domain(error), domain) == 0 */
-/* 	    && sc_error_code(error) == code; */
-/* } */

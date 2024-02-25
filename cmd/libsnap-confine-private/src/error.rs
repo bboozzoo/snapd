@@ -126,10 +126,10 @@ pub extern "C" fn sc_error_match(
     domain: *const c_char,
     code: c_int,
 ) -> bool {
-    if domain == ptr::null() {
+    if domain.is_null() {
         die!("cannot match error to a NULL domain");
     }
-    if self_err == ptr::null() {
+    if self_err.is_null() {
         return false;
     }
     let domain = unsafe { CStr::from_ptr(domain).to_str().unwrap() };

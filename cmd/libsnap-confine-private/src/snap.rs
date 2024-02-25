@@ -53,7 +53,7 @@ pub extern "C" fn sc_instance_name_validate(
         Err(_) => {
             sc_error_forward(sc_err, error::new(
                     SC_SNAP_DOMAIN,
-                    Error::SC_SNAP_INVALID_INSTANCE_KEY as i32,
+                    Error::SC_SNAP_INVALID_NAME as i32,
                     "snap instance name is not a valid string",
                 )
                 .into_boxed_ptr());
@@ -63,7 +63,7 @@ pub extern "C" fn sc_instance_name_validate(
     if let Err(err) = sc_instance_name_validate_safe(instance_name) {
         sc_error_forward(sc_err, error::new(
                 SC_SNAP_DOMAIN,
-                Error::SC_SNAP_INVALID_INSTANCE_KEY as i32,
+                Error::SC_SNAP_INVALID_NAME as i32,
                 err,
             )
             .into_boxed_ptr());
