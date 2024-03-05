@@ -114,36 +114,34 @@ bool sc_apply_seccomp_profile_for_security_tag(const char *security_tag)
 	debug("loading bpf program for security tag %s", security_tag);
 
 	char profile_path[PATH_MAX] = { 0 };
-	sc_must_snprintf(profile_path, sizeof(profile_path), "%s/%s.bin",
-			 filter_profile_dir, security_tag);
+	sc_seccomp_profile_for_security_tag(profile_path, sizeof(profile_path),
+					    security_tag);
 
 	// Wait some time for the security profile to show up. When
 	// the system boots snapd will created security profiles, but
 	// a service snap (e.g. network-manager) starts in parallel with
 	// snapd so for such snaps, the profiles may not be generated
 	// yet
-	long max_wait = 120;
+	size_t max_time = 120;
 	const char *MAX_PROFILE_WAIT = getenv("SNAP_CONFINE_MAX_PROFILE_WAIT");
 	if (MAX_PROFILE_WAIT != NULL) {
 		char *endptr = NULL;
 		errno = 0;
-		long env_max_wait = strtol(MAX_PROFILE_WAIT, &endptr, 10);
+		unsigned long env_max_wait =
+		    strtoul(MAX_PROFILE_WAIT, &endptr, 10);
 		if (errno != 0 || MAX_PROFILE_WAIT == endptr || *endptr != '\0'
 		    || env_max_wait <= 0) {
 			die("SNAP_CONFINE_MAX_PROFILE_WAIT invalid");
 		}
-		max_wait = env_max_wait > 0 ? env_max_wait : max_wait;
+		max_time = env_max_wait > 0 ? env_max_wait : max_time;
 	}
-	if (max_wait > 3600) {
-		max_wait = 3600;
-	}
-	for (long i = 0; i < max_wait; ++i) {
-		if (access(profile_path, F_OK) == 0) {
-			break;
-		}
-		sleep(1);
+	if (max_time > 3600) {
+		max_time = 3600;
 	}
 
+	if (!sc_wait_for_file(profile_path, max_time)) {
+		debug("profile path %s not present", profile_path);
+	}
 	// TODO: move over to open/openat as an additional hardening measure.
 
 	// validate '/' down to profile_path are root-owned and not
