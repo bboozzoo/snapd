@@ -18,6 +18,7 @@
 #define SNAP_CONFINE_SECCOMP_SUPPORT_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 /** 
  * sc_apply_seccomp_profile_for_security_tag applies a seccomp profile to the
@@ -46,5 +47,8 @@
 bool sc_apply_seccomp_profile_for_security_tag(const char *security_tag);
 
 void sc_apply_global_seccomp_profile(void);
+
+void sc_seccomp_profile_for_security_tag(char *buf, size_t size,
+					 const char *security_tag);
 
 #endif

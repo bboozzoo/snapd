@@ -191,3 +191,10 @@ void sc_apply_global_seccomp_profile(void)
 	};
 	sc_apply_seccomp_filter(&prog);
 }
+
+void sc_seccomp_profile_for_security_tag(char *profile_path, size_t size,
+					 const char *security_tag)
+{
+	sc_must_snprintf(profile_path, size, "%s/%s.bin", filter_profile_dir,
+			 security_tag);
+}
