@@ -39,8 +39,10 @@ func All() []interfaces.SecurityBackend {
 		// Because of how the GPIO interface is implemented the systemd backend
 		// must be earlier in the sequence than the apparmor backend.
 		&systemd.Backend{},
-		&seccomp.Backend{},
 		&dbus.Backend{},
+		// Due to support of optionally present *.device file, the udev
+		// backend must run before backends that provide a checkpoint
+		// for snapd.
 		&udev.Backend{},
 		&mount.Backend{},
 		&kmod.Backend{},
@@ -68,5 +70,11 @@ func All() []interfaces.SecurityBackend {
 	case apparmor_sandbox.Partial, apparmor_sandbox.Full:
 		all = append(all, &apparmor.Backend{})
 	}
+
+	// Make sure that the seccomp backend runs last. The presence of
+	// seccomp profile (which is mandatory for every snap) is used
+	// as a checkpoint in snap-confine.
+	all = append(all, &seccomp.Backend{})
+
 	return all
 }
