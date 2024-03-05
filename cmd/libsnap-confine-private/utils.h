@@ -117,4 +117,10 @@ int sc_nonfatal_mkpath(const char *const path, mode_t mode);
  **/
 __attribute__((warn_unused_result))
 bool sc_is_expected_path(const char *path);
+
+/**
+ * Wait for file to appear. Returns true once the file is present.
+ */
+bool sc_wait_for_file(const char *path, size_t timeout);
+
 #endif
