@@ -57,6 +57,19 @@
 #include "selinux-support.h"
 #endif
 
+static void sc_wait_for_security_backends_complete(sc_invocation *inv)
+{
+	/* override through env? */
+	size_t timeout = 10 * 60;	/* 10 minutes */
+	char profile_path[PATH_MAX] = { 0 };
+	sc_seccomp_profile_for_security_tag(profile_path, sizeof(profile_path),
+					    inv->security_tag);
+    debug("waiting for security profile setup complete for %s", inv->security_tag);
+	if (!sc_wait_for_file(profile_path, timeout)) {
+        die("cannot wait for securiity backends to finish processing for %s", inv->security_tag);
+    }
+}
+
 // sc_maybe_fixup_permissions fixes incorrect permissions
 // inside the mount namespace for /var/lib. Before 1ccce4
 // this directory was created with permissions 1777.
@@ -400,6 +413,9 @@ int main(int argc, char **argv)
 		    " permission escalation attacks\n"
 		    "Please make sure that the snapd.apparmor service is enabled and started.");
 	}
+
+/* wait for security backends setup to be complete */
+	sc_wait_for_security_backends_complete(&invocation);
 
 	log_startup_stage("snap-confine mount namespace start");
 
