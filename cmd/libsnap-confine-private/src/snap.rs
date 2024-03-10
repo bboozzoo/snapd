@@ -21,7 +21,7 @@ use std::ptr;
 
 use crate::error::{self, sc_error_forward};
 
-enum Error {
+enum ErrorCode {
     SC_SNAP_INVALID_NAME = 1,
     SC_SNAP_INVALID_INSTANCE_KEY = 2,
     SC_SNAP_INVALID_INSTANCE_NAME = 3,
@@ -32,6 +32,46 @@ const SNAP_NAME_LEN: usize = 40;
 const SNAP_INSTANCE_KEY_LEN: usize = 10;
 const SNAP_SECURITY_TAG_MAX_LEN: usize = 256;
 
+#[derive(Debug,PartialEq)]
+pub enum ErrorKind {
+    InvalidName,
+    InvalidInstanceKey,
+    InvalidInstanceName,
+}
+
+#[derive(Debug,PartialEq)]
+pub struct Error<'a> {
+    error_kind: ErrorKind,
+    msg: &'a str,
+}
+
+impl Error<'_> {
+    pub fn new(kind: ErrorKind, msg: &str) -> Error {
+        Error {
+            error_kind: kind,
+            msg,
+        }
+    }
+
+    pub fn kind(self) -> ErrorKind {
+        self.error_kind
+    }
+}
+
+impl From<Error<'_>> for error::sc_error {
+    fn from(err: Error) -> error::sc_error {
+        error::new(
+            SC_SNAP_DOMAIN,
+            match err.kind() {
+                ErrorKind::InvalidName => ErrorCode::SC_SNAP_INVALID_NAME,
+                ErrorKind::InvalidInstanceName => ErrorCode::SC_SNAP_INVALID_INSTANCE_NAME,
+                ErrorKind::InvalidInstanceKey => ErrorCode::SC_SNAP_INVALID_INSTANCE_KEY,
+            } as i32,
+            err.msg,
+        )
+    }
+}
+
 // TODO mediate between FFI cand pure Rust
 
 #[no_mangle]
@@ -40,45 +80,51 @@ pub extern "C" fn sc_instance_name_validate(
     sc_err: *mut *const error::sc_error,
 ) {
     if instance_name.is_null() {
-        sc_error_forward(sc_err, error::new(
+        sc_error_forward(
+            sc_err,
+            error::new(
                 SC_SNAP_DOMAIN,
-                Error::SC_SNAP_INVALID_NAME as i32,
+                ErrorCode::SC_SNAP_INVALID_NAME as i32,
                 "snap instance name cannot be NULL",
             )
-            .into_boxed_ptr());
+            .into_boxed_ptr(),
+        );
         return;
     }
     let instance_name = match unsafe { CStr::from_ptr(instance_name).to_str() } {
         Ok(s) => s,
         Err(_) => {
-            sc_error_forward(sc_err, error::new(
+            sc_error_forward(
+                sc_err,
+                error::new(
                     SC_SNAP_DOMAIN,
-                    Error::SC_SNAP_INVALID_NAME as i32,
+                    ErrorCode::SC_SNAP_INVALID_NAME as i32,
                     "snap instance name is not a valid string",
                 )
-                .into_boxed_ptr());
+                .into_boxed_ptr(),
+            );
             return;
         }
     };
     if let Err(err) = sc_instance_name_validate_safe(instance_name) {
-        sc_error_forward(sc_err, error::new(
-                SC_SNAP_DOMAIN,
-                Error::SC_SNAP_INVALID_NAME as i32,
-                err,
-            )
-            .into_boxed_ptr());
+        sc_error_forward(sc_err, error::sc_error::from(err).into_boxed_ptr());
     } else {
         sc_error_forward(sc_err, ptr::null());
     }
 }
 
-pub fn sc_instance_name_validate_safe(instance_name: &str) -> Result<(), &str> {
+pub fn sc_instance_name_validate_safe(instance_name: &str) -> Result<(), Error> {
     let mut it = instance_name.split("_");
     let maybe_snap_name = it.next();
     let maybe_instance_key = it.next();
     match it.next() {
         // do we have more?
-        Some(_) => return Err("snap instance name can contain only one underscore"),
+        Some(_) => {
+            return Err(Error::new(
+                ErrorKind::InvalidInstanceName,
+                "snap instance name can contain only one underscore",
+            ))
+        }
         _ => (),
     }
     if let Some(snap_name) = maybe_snap_name {
@@ -101,7 +147,7 @@ pub extern "C" fn sc_instance_key_validate(
             unsafe {
                 *sc_err = error::new(
                     SC_SNAP_DOMAIN,
-                    Error::SC_SNAP_INVALID_INSTANCE_KEY as i32,
+                    ErrorCode::SC_SNAP_INVALID_INSTANCE_KEY as i32,
                     "snap name is not a valid string",
                 )
                 .into_boxed_ptr();
@@ -111,28 +157,32 @@ pub extern "C" fn sc_instance_key_validate(
     };
     if let Err(err) = sc_instance_key_validate_safe(instance_key) {
         unsafe {
-            *sc_err = error::new(
-                SC_SNAP_DOMAIN,
-                Error::SC_SNAP_INVALID_INSTANCE_KEY as i32,
-                err,
-            )
-            .into_boxed_ptr();
+            *sc_err = error::sc_error::from(err).into_boxed_ptr();
         }
     }
 }
 
-pub fn sc_instance_key_validate_safe(instance_key: &str) -> Result<(), &str> {
-    for c in instance_key.chars() {
-        match c {
-            'a'..='z' => (),
-            '0'..='9' => (),
-            _ => return Err("instance key must use lower case letters or digits"),
+pub fn sc_instance_key_validate_safe(instance_key: &str) -> Result<(), Error> {
+    fn validate(instance_key: &str) -> Result<(), &str> {
+        for c in instance_key.chars() {
+            match c {
+                'a'..='z' => (),
+                '0'..='9' => (),
+                _ => return Err("instance key must use lower case letters or digits"),
+            }
         }
+        if instance_key.len() == 0 {
+            return Err("instance key must contain at least one letter or digit");
+        }
+        if instance_key.len() > SNAP_INSTANCE_KEY_LEN {
+            return Err("instance key must be shorter than 10 characters");
+        }
+        Ok(())
     }
-    if instance_key.len() > SNAP_INSTANCE_KEY_LEN {
-        return Err("instance key must be shorter than 10 characters");
+    match validate(instance_key) {
+        Ok(()) => Ok(()),
+        Err(err) => Err(Error::new(ErrorKind::InvalidInstanceKey, err)),
     }
-    Ok(())
 }
 
 #[no_mangle]
@@ -145,7 +195,7 @@ pub extern "C" fn sc_snap_name_validate(
             sc_err,
             error::new(
                 SC_SNAP_DOMAIN,
-                Error::SC_SNAP_INVALID_NAME as i32,
+                ErrorCode::SC_SNAP_INVALID_NAME as i32,
                 "snap name cannot be NULL",
             )
             .into_boxed_ptr(),
@@ -154,11 +204,7 @@ pub extern "C" fn sc_snap_name_validate(
         let maybe_s = unsafe { CStr::from_ptr(snap_name).to_str() };
         if let Ok(s) = maybe_s {
             if let Err(err) = sc_snap_name_validate_safe(s) {
-                sc_error_forward(
-                    sc_err,
-                    error::new(SC_SNAP_DOMAIN, Error::SC_SNAP_INVALID_NAME as i32, err)
-                        .into_boxed_ptr(),
-                );
+                sc_error_forward(sc_err, error::sc_error::from(err).into_boxed_ptr());
             } else {
                 sc_error_forward(sc_err, ptr::null());
             }
@@ -167,7 +213,7 @@ pub extern "C" fn sc_snap_name_validate(
                 sc_err,
                 error::new(
                     SC_SNAP_DOMAIN,
-                    Error::SC_SNAP_INVALID_NAME as i32,
+                    ErrorCode::SC_SNAP_INVALID_NAME as i32,
                     "snap name is not a valid string",
                 )
                 .into_boxed_ptr(),
@@ -176,7 +222,7 @@ pub extern "C" fn sc_snap_name_validate(
     }
 }
 
-pub fn sc_snap_name_validate_safe(snap_name: &str) -> Result<(), &str> {
+pub fn sc_snap_name_validate_safe(snap_name: &str) -> Result<(), Error> {
     // NOTE: This function should be synchronized with the two other
     // implementations: validate_snap_name and snap.ValidateName.
 
@@ -187,45 +233,50 @@ pub fn sc_snap_name_validate_safe(snap_name: &str) -> Result<(), &str> {
     // The only motivation for not using regular expressions is so that we
     // don't run untrusted input against a potentially complex regular
     // expression engine.
-    let mut got_letter = false;
-    let mut last: Option<char> = None;
-    for c in snap_name.chars() {
-        match c {
-            'a'..='z' => {
-                got_letter = true;
-                last = Some(c);
-                continue;
-            }
-            '0'..='9' => {
-                last = Some(c);
-                continue;
-            }
-            '-' => {
-                match last {
-                    Some('-') => return Err("snap name cannot contain two consecutive dashes"),
-                    None => return Err("snap name cannot start with a dash"),
-                    _ => (),
+    fn validate(snap_name: &str) -> Result<(), &str> {
+        let mut got_letter = false;
+        let mut last: Option<char> = None;
+        for c in snap_name.chars() {
+            match c {
+                'a'..='z' => {
+                    got_letter = true;
+                    last = Some(c);
+                    continue;
                 }
-                last = Some(c);
-                continue;
-            }
-            v => {
-                return Err("snap name must use lower case letters, digits or dashes");
+                '0'..='9' => {
+                    last = Some(c);
+                    continue;
+                }
+                '-' => {
+                    match last {
+                        Some('-') => return Err("snap name cannot contain two consecutive dashes"),
+                        None => return Err("snap name cannot start with a dash"),
+                        _ => (),
+                    }
+                    last = Some(c);
+                    continue;
+                }
+                v => {
+                    return Err("snap name must use lower case letters, digits or dashes");
+                }
             }
         }
+        if last == Some('-') {
+            return Err("snap name cannot end with a dash");
+        }
+        if !got_letter {
+            return Err("snap name must contain at least one letter");
+        }
+        match snap_name.len() {
+            0..=1 => return Err("snap name must be longer than 1 character"),
+            2..=SNAP_NAME_LEN => Ok(()),
+            _ => return Err("snap name must be shorter than 40 characters"),
+        }
     }
-    if last == Some('-') {
-        return Err("snap name cannot end with a dash");
+    match validate(snap_name) {
+        Ok(()) => Ok(()),
+        Err(err) => Err(Error::new(ErrorKind::InvalidName, err)),
     }
-    if !got_letter {
-        return Err("snap name must contain at least one letter");
-    }
-    match snap_name.len() {
-        0..=1 => return Err("snap name must be longer than 1 character"),
-        2..=SNAP_NAME_LEN => (),
-        _ => return Err("snap name must be shorter than 40 characters"),
-    }
-    Ok(())
 }
 
 #[no_mangle]
@@ -455,15 +506,15 @@ mod tests {
         // assert!(sc_security_tag_validate_safe(long_tag, "foo"));
     }
 
-    fn test_snap_or_instance_name_validate(validate: fn(&str) -> Result<(), &str>) {
+    fn test_snap_or_instance_name_validate(validate: fn(&str) -> Result<(), Error>) {
         assert_eq!(validate("hello-world"), Ok(()));
         assert_eq!(
             validate("hello world"),
-            Err("snap name must use lower case letters, digits or dashes")
+            Err(Error{error_kind: ErrorKind::InvalidName, msg: "snap name must use lower case letters, digits or dashes"})
         );
         assert_eq!(
             validate(""),
-            Err("snap name must contain at least one letter")
+            Err(Error{error_kind: ErrorKind::InvalidName, msg: "snap name must contain at least one letter"})
         );
         assert_eq!(validate("-foo"), Err("snap name cannot start with a dash"));
         assert_eq!(validate("foo-"), Err("snap name cannot end with a dash"));
@@ -517,6 +568,10 @@ mod tests {
             assert_ne!(validate(name), Ok(()));
         }
 
+        // Regression test: 12to8 and 123test
+        assert_eq!(validate("12to8"), Ok(()));
+        assert_eq!(validate("123test"), Ok(()));
+
         let good_bad_name = "u-94903713687486543234157734673284536758";
         for i in 3..=good_bad_name.len() {
             let name = &good_bad_name[..i];
@@ -526,13 +581,87 @@ mod tests {
     }
 
     #[test]
-    fn test_sc_instance_name_validate() {
+    fn test_shared_sc_instance_name_validate() {
         test_snap_or_instance_name_validate(sc_instance_name_validate_safe);
     }
 
     #[test]
-    fn test_sc_snap_name_validate() {
+    fn test_shared_sc_snap_name_validate() {
         test_snap_or_instance_name_validate(sc_snap_name_validate_safe);
+    }
+
+    #[test]
+    fn test_sc_instance_name_validate() {
+        assert_eq!(sc_instance_name_validate_safe("hello-world"), Ok(()));
+        assert_eq!(sc_instance_name_validate_safe("hello-world_foo"), Ok(()));
+
+        // just the separator
+        assert_eq!(
+            sc_instance_name_validate_safe("_"),
+            Err("snap name must contain at least one letter")
+        );
+
+        // just name, with separator, missing instance key
+        assert_eq!(
+            sc_instance_name_validate_safe("hello-world_"),
+            Err("instance key must contain at least one letter or digit")
+        );
+
+        // only separator and instance key, missing name
+        assert_eq!(
+            sc_instance_name_validate_safe("_bar"),
+            Err("snap name must contain at least one letter")
+        );
+
+        assert_eq!(
+            sc_instance_name_validate_safe(""),
+            Err("snap name must contain at least one letter")
+        );
+
+        // third separator
+        assert_eq!(
+            sc_instance_name_validate_safe("foo_bar_baz"),
+            Err("snap instance name can contain only one underscore")
+        );
+
+        let valid_names = [
+            "aa",
+            "aaa",
+            "aaaa",
+            "aa_a",
+            "aa_1",
+            "aa_123",
+            "aa_0123456789",
+        ];
+        for name in valid_names {
+            info!("checking valid instance name: {}", name);
+            assert_eq!(sc_instance_name_validate_safe(name), Ok(()));
+        }
+        let invalid_names = [
+            // too short
+            "a",
+            // only letters and digits in the instance key
+            "a_--23))",
+            "a_ ",
+            "a_091234#",
+            "a_123_456",
+            // up to 10 characters for the instance key
+            "a_01234567891",
+            "a_0123456789123",
+            // snap name must not be more than 40 characters, regardless of instance
+            // key
+            "01234567890123456789012345678901234567890_foobar",
+            "01234567890123456789-01234567890123456789_foobar",
+            // instance key  must be plain ASCII
+            "foobar_日本語",
+            // way too many underscores
+            "foobar_baz_zed_daz",
+            "foobar______",
+        ];
+        for name in invalid_names {
+            info!("checking invalid instance name: >{}<", name);
+            assert_ne!(sc_instance_name_validate_safe(name), Ok(()));
+        }
     }
 
     #[test]
