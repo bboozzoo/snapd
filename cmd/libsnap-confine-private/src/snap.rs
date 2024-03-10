@@ -32,14 +32,14 @@ const SNAP_NAME_LEN: usize = 40;
 const SNAP_INSTANCE_KEY_LEN: usize = 10;
 const SNAP_SECURITY_TAG_MAX_LEN: usize = 256;
 
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum ErrorKind {
     InvalidName,
     InvalidInstanceKey,
     InvalidInstanceName,
 }
 
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Error<'a> {
     error_kind: ErrorKind,
     msg: &'a str,
@@ -352,6 +352,15 @@ mod tests {
     use super::*;
     use std::println as info;
 
+    macro_rules! exp_error {
+        ($kind:expr, $msg:expr) => {
+            Err(Error {
+                error_kind: $kind,
+                msg: $msg,
+            })
+        };
+    }
+
     #[test]
     fn test_sc_is_hook_security_tag() {
         assert!(sc_is_hook_security_tag_safe(
@@ -510,17 +519,32 @@ mod tests {
         assert_eq!(validate("hello-world"), Ok(()));
         assert_eq!(
             validate("hello world"),
-            Err(Error{error_kind: ErrorKind::InvalidName, msg: "snap name must use lower case letters, digits or dashes"})
+            exp_error!(
+                ErrorKind::InvalidName,
+                "snap name must use lower case letters, digits or dashes"
+            )
         );
         assert_eq!(
             validate(""),
-            Err(Error{error_kind: ErrorKind::InvalidName, msg: "snap name must contain at least one letter"})
+            exp_error!(
+                ErrorKind::InvalidName,
+                "snap name must contain at least one letter"
+            )
         );
-        assert_eq!(validate("-foo"), Err("snap name cannot start with a dash"));
-        assert_eq!(validate("foo-"), Err("snap name cannot end with a dash"));
+        assert_eq!(
+            validate("-foo"),
+            exp_error!(ErrorKind::InvalidName, "snap name cannot start with a dash")
+        );
+        assert_eq!(
+            validate("foo-"),
+            exp_error!(ErrorKind::InvalidName, "snap name cannot end with a dash")
+        );
         assert_eq!(
             validate("f--oo"),
-            Err("snap name cannot contain two consecutive dashes")
+            exp_error!(
+                ErrorKind::InvalidName,
+                "snap name cannot contain two consecutive dashes"
+            )
         );
 
         let valid_names = [
