@@ -10,3 +10,4 @@ crate-type = ["staticlib"]
 [dependencies]
 libc = "0.2"
 regex = "1"
+libsnap-confine-private-rs = { path = "../libsnap-confine-private-rs" }
