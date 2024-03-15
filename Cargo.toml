@@ -2,6 +2,6 @@
 resolver = "2"
 
 members = [
-        "cmd/libsnap-confine-private",
         "cmd/libsnap-confine-private-rs",
+        "cmd/libsnap-confine-private-sys",
         ]

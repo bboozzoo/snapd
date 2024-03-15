@@ -1,10 +1,10 @@
 [package]
-name = "libsnap-confine-private"
+name = "libsnap-confine-private-sys"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "snap_confine_private"
+name = "snap_confine_private_sys"
 crate-type = ["staticlib"]
 
 [dependencies]
