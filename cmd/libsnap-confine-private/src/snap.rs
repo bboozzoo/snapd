@@ -32,7 +32,7 @@ const SNAP_NAME_LEN: usize = 40;
 const SNAP_INSTANCE_KEY_LEN: usize = 10;
 const SNAP_SECURITY_TAG_MAX_LEN: usize = 256;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ErrorKind {
     InvalidName,
     InvalidInstanceKey,
@@ -53,7 +53,7 @@ impl Error<'_> {
         }
     }
 
-    pub fn kind(self) -> ErrorKind {
+    pub fn kind(&self) -> ErrorKind {
         self.error_kind
     }
 }
@@ -622,30 +622,45 @@ mod tests {
         // just the separator
         assert_eq!(
             sc_instance_name_validate_safe("_"),
-            Err("snap name must contain at least one letter")
+            exp_error!(
+                ErrorKind::InvalidName,
+                "snap name must contain at least one letter"
+            )
         );
 
         // just name, with separator, missing instance key
         assert_eq!(
             sc_instance_name_validate_safe("hello-world_"),
-            Err("instance key must contain at least one letter or digit")
+            exp_error!(
+                ErrorKind::InvalidInstanceKey,
+                "instance key must contain at least one letter or digit"
+            )
         );
 
         // only separator and instance key, missing name
         assert_eq!(
             sc_instance_name_validate_safe("_bar"),
-            Err("snap name must contain at least one letter")
+            exp_error!(
+                ErrorKind::InvalidName,
+                "snap name must contain at least one letter"
+            )
         );
 
         assert_eq!(
             sc_instance_name_validate_safe(""),
-            Err("snap name must contain at least one letter")
+            exp_error!(
+                ErrorKind::InvalidName,
+                "snap name must contain at least one letter"
+            )
         );
 
         // third separator
         assert_eq!(
             sc_instance_name_validate_safe("foo_bar_baz"),
-            Err("snap instance name can contain only one underscore")
+            exp_error!(
+                ErrorKind::InvalidInstanceName,
+                "snap instance name can contain only one underscore"
+            )
         );
 
         let valid_names = [
