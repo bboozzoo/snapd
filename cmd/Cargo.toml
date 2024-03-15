@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+
+members = [
+        "libsnap-confine-private-rs",
+        "libsnap-confine-private-sys",
+        ]
