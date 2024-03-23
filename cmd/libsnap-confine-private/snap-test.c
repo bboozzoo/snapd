@@ -17,8 +17,7 @@
 
 #include "snap.h"
 #include "cleanup-funcs.h"
-
-#include "snap.c"
+#include "utils.h"
 
 #include <glib.h>
 
