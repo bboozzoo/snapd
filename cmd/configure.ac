@@ -173,6 +173,12 @@ AC_PATH_PROG([HAVE_VALGRIND],[valgrind])
 AM_CONDITIONAL([HAVE_VALGRIND], [test "x${HAVE_VALGRIND}" != "x"])
 AS_IF([test "x$HAVE_VALGRIND" = "x"], [AC_MSG_WARN(["cannot find the valgrind tool, will not run unit tests through valgrind"])])
 
+AC_CHECK_PROG([CARGO],[cargo],[yes],[no])
+AC_CHECK_PROG([RUSTC],[rustc],[yes],[no])
+AS_IF([test "x$CARGO" != "xyes" -o "x$RUSTC" != "xyes"], [
+            AC_MSG_FAILURE(["cannot find cargo or rustc"])
+])
+
 # Allow linking selected libraries statically for reexec.
 AC_ARG_ENABLE([static-libcap],
     AS_HELP_STRING([--enable-static-libcap], [Link libcap statically]),
