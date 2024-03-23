@@ -1,0 +1,13 @@
+[package]
+name = "libsnap-confine-private-sys"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "snap_confine_private_sys"
+crate-type = ["staticlib"]
+
+[dependencies]
+libc = "0.2"
+regex = "1"
+libsnap-confine-private-rs = { path = "../libsnap-confine-private-rs" }
