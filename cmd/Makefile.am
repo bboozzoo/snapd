@@ -115,6 +115,15 @@ snapd-apparmor/snapd-apparmor: snapd-apparmor/*.go
 	cd snapd-apparmor && go build -v
 
 ##
+## libsnap-confine-private-sys.a
+##
+
+noinst_LIBRARIES += rust-targets/release/libsnap_confine_private_sys.a
+
+rust-targets/release/libsnap_confine_private_sys.a: $(wildcard $(srcdir)/libsnap-confine-private-sys/src/*.rs) $(srcdir)/libsnap-confine-private-sys/Cargo.toml
+	cargo build --release --target-dir rust-targets --package libsnap-confine-private-sys
+
+##
 ## libsnap-confine-private.a
 ##
 
@@ -152,7 +161,6 @@ libsnap_confine_private_a_SOURCES = \
 	libsnap-confine-private/privs.h \
 	libsnap-confine-private/secure-getenv.c \
 	libsnap-confine-private/secure-getenv.h \
-	libsnap-confine-private/snap.c \
 	libsnap-confine-private/snap.h \
 	libsnap-confine-private/string-utils.c \
 	libsnap-confine-private/string-utils.h \
@@ -197,7 +205,7 @@ libsnap_confine_private_unit_tests_SOURCES = \
 	libsnap-confine-private/utils-test.c
 
 libsnap_confine_private_unit_tests_CFLAGS = $(AM_CFLAGS) $(VENDOR_BPF_HEADERS_CFLAGS) $(GLIB_CFLAGS)
-libsnap_confine_private_unit_tests_LDADD = $(GLIB_LIBS)
+libsnap_confine_private_unit_tests_LDADD = $(GLIB_LIBS) rust-targets/release/libsnap_confine_private_sys.a
 libsnap_confine_private_unit_tests_CFLAGS += -D_ENABLE_FAULT_INJECTION
 libsnap_confine_private_unit_tests_STATIC =
 
@@ -223,7 +231,7 @@ noinst_PROGRAMS += decode-mount-opts/decode-mount-opts
 
 decode_mount_opts_decode_mount_opts_SOURCES = \
 	decode-mount-opts/decode-mount-opts.c
-decode_mount_opts_decode_mount_opts_LDADD = libsnap-confine-private.a
+decode_mount_opts_decode_mount_opts_LDADD = libsnap-confine-private.a rust-targets/release/libsnap_confine_private_sys.a
 decode_mount_opts_decode_mount_opts_STATIC =
 
 if STATIC_LIBCAP
@@ -279,7 +287,7 @@ snap_confine_snap_confine_SOURCES = \
 
 snap_confine_snap_confine_CFLAGS = $(AM_CFLAGS) -DLIBEXECDIR=\"$(libexecdir)\" -DNATIVE_LIBDIR=\"$(libdir)\"
 snap_confine_snap_confine_LDFLAGS = $(AM_LDFLAGS)
-snap_confine_snap_confine_LDADD = libsnap-confine-private.a
+snap_confine_snap_confine_LDADD = libsnap-confine-private.a rust-targets/release/libsnap_confine_private_sys.a
 snap_confine_snap_confine_CFLAGS += $(LIBUDEV_CFLAGS)
 snap_confine_snap_confine_LDADD += $(snap_confine_snap_confine_extra_libs)
 # _STATIC is where we collect statically linked in libraries
@@ -335,7 +343,7 @@ noinst_PROGRAMS += snap-confine/snap-confine-debug
 snap_confine_snap_confine_debug_SOURCES = $(snap_confine_snap_confine_SOURCES)
 snap_confine_snap_confine_debug_CFLAGS = $(snap_confine_snap_confine_CFLAGS)
 snap_confine_snap_confine_debug_LDFLAGS = $(snap_confine_snap_confine_LDFLAGS)
-snap_confine_snap_confine_debug_LDADD = libsnap-confine-private-debug.a $(snap_confine_snap_confine_extra_libs)
+snap_confine_snap_confine_debug_LDADD = libsnap-confine-private-debug.a rust-targets/release/libsnap_confine_private_sys.a $(snap_confine_snap_confine_extra_libs)
 snap_confine_snap_confine_debug_CFLAGS += -DSNAP_CONFINE_DEBUG_BUILD=1
 snap_confine_snap_confine_debug_STATIC = $(snap_confine_snap_confine_STATIC)
 
@@ -445,7 +453,7 @@ snap_device_helper_snap_device_helper_SOURCES = \
 	snap-device-helper/main.c \
 	snap-device-helper/snap-device-helper.c
 snap_device_helper_snap_device_helper_LDFLAGS = $(AM_LDFLAGS)
-snap_device_helper_snap_device_helper_LDADD = libsnap-confine-private.a
+snap_device_helper_snap_device_helper_LDADD = libsnap-confine-private.a rust-targets/release/libsnap_confine_private_sys.a
 
 if WITH_UNIT_TESTS
 noinst_PROGRAMS += snap-device-helper/unit-tests
@@ -455,14 +463,13 @@ snap_device_helper_unit_tests_SOURCES = \
 	libsnap-confine-private/utils.c \
 	libsnap-confine-private/cleanup-funcs.c \
 	libsnap-confine-private/panic.c \
-	libsnap-confine-private/snap.c \
 	libsnap-confine-private/error.c \
 	libsnap-confine-private/unit-tests-main.c \
 	libsnap-confine-private/unit-tests.c \
 	libsnap-confine-private/unit-tests.h \
 	snap-device-helper/snap-device-helper-test.c
 snap_device_helper_unit_tests_CFLAGS = $(AM_CFLAGS) $(snap_device_helper_snap_device_helper_CFLAGS) $(GLIB_CFLAGS)
-snap_device_helper_unit_tests_LDADD = $(GLIB_LIBS)
+snap_device_helper_unit_tests_LDADD = $(GLIB_LIBS) $(snap_device_helper_snap_device_helper_LDADD)
 snap_device_helper_unit_tests_LDFLAGS =$(snap_device_helper_snap_device_helper_LDFLAGS)
 
 endif  # WITH_UNIT_TESTS
@@ -481,7 +488,7 @@ EXTRA_DIST += snap-discard-ns/snap-discard-ns.rst
 snap_discard_ns_snap_discard_ns_SOURCES = \
 	snap-discard-ns/snap-discard-ns.c
 snap_discard_ns_snap_discard_ns_LDFLAGS = $(AM_LDFLAGS)
-snap_discard_ns_snap_discard_ns_LDADD = libsnap-confine-private.a
+snap_discard_ns_snap_discard_ns_LDADD = libsnap-confine-private.a rust-targets/release/libsnap_confine_private_sys.a
 snap_discard_ns_snap_discard_ns_STATIC =
 
 # Use a hacked rule if we're doing static build. This allows us to inject the LIBS += .. rule below.
@@ -501,7 +508,7 @@ system_shutdown_system_shutdown_SOURCES = \
 	system-shutdown/system-shutdown-utils.c \
 	system-shutdown/system-shutdown-utils.h \
 	system-shutdown/system-shutdown.c
-system_shutdown_system_shutdown_LDADD = libsnap-confine-private.a
+system_shutdown_system_shutdown_LDADD = libsnap-confine-private.a rust-targets/release/libsnap_confine_private_sys.a
 
 if WITH_UNIT_TESTS
 noinst_PROGRAMS += system-shutdown/unit-tests
@@ -509,7 +516,7 @@ system_shutdown_unit_tests_SOURCES = \
 	libsnap-confine-private/unit-tests-main.c \
 	libsnap-confine-private/unit-tests.c \
 	system-shutdown/system-shutdown-utils-test.c
-system_shutdown_unit_tests_LDADD = libsnap-confine-private.a
+system_shutdown_unit_tests_LDADD = libsnap-confine-private.a rust-targets/release/libsnap_confine_private_sys.a
 system_shutdown_unit_tests_CFLAGS = $(AM_CFLAGS) $(GLIB_CFLAGS)
 system_shutdown_unit_tests_LDADD +=  $(GLIB_LIBS)
 endif
@@ -523,7 +530,7 @@ libexec_PROGRAMS += snap-gdb-shim/snap-gdb-shim
 snap_gdb_shim_snap_gdb_shim_SOURCES = \
 	snap-gdb-shim/snap-gdb-shim.c
 
-snap_gdb_shim_snap_gdb_shim_LDADD = libsnap-confine-private.a
+snap_gdb_shim_snap_gdb_shim_LDADD = libsnap-confine-private.a rust-targets/release/libsnap_confine_private_sys.a
 snap_gdb_shim_snap_gdb_shim_LDFLAGS = -static
 
 ##
@@ -535,7 +542,7 @@ libexec_PROGRAMS += snap-gdb-shim/snap-gdbserver-shim
 snap_gdb_shim_snap_gdbserver_shim_SOURCES = \
 	snap-gdb-shim/snap-gdbserver-shim.c
 
-snap_gdb_shim_snap_gdbserver_shim_LDADD = libsnap-confine-private.a
+snap_gdb_shim_snap_gdbserver_shim_LDADD = libsnap-confine-private.a rust-targets/release/libsnap_confine_private_sys.a
 snap_gdb_shim_snap_gdbserver_shim_LDFLAGS = -static
 
 ##
@@ -546,7 +553,7 @@ systemdsystemgeneratordir = $(SYSTEMD_SYSTEM_GENERATOR_DIR)
 systemdsystemgenerator_PROGRAMS = snapd-generator/snapd-generator
 
 snapd_generator_snapd_generator_SOURCES = snapd-generator/main.c
-snapd_generator_snapd_generator_LDADD = libsnap-confine-private.a
+snapd_generator_snapd_generator_LDADD = libsnap-confine-private.a rust-targets/release/libsnap_confine_private_sys.a
 
 ##
 ## snapd-env-generator
@@ -556,7 +563,7 @@ systemdsystemenvgeneratordir=$(SYSTEMD_SYSTEM_ENV_GENERATOR_DIR)
 systemdsystemenvgenerator_PROGRAMS = snapd-env-generator/snapd-env-generator
 
 snapd_env_generator_snapd_env_generator_SOURCES = snapd-env-generator/main.c
-snapd_env_generator_snapd_env_generator_LDADD = libsnap-confine-private.a
+snapd_env_generator_snapd_env_generator_LDADD = libsnap-confine-private.a rust-targets/release/libsnap_confine_private_sys.a
 EXTRA_DIST += snapd-env-generator/snapd-env-generator.rst
 
 if HAVE_RST2MAN
@@ -566,3 +573,9 @@ endif
 
 install-exec-local::
 	install -d -m 755 $(DESTDIR)$(libexecdir)
+
+clean-local::
+	cargo clean --target-dir rust-targets
+
+distclean-local::
+	rm -rf rust-targets
