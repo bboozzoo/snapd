@@ -26,6 +26,20 @@ execute: |
     MATCH '^CHAIN_1_RAN=1$' < "$ENVDUMP"
     MATCH '^CHAIN_2_RAN=1$' < "$ENVDUMP"
 
+    if [ "$SNAP_REEXEC" = "1" ] && (os.query is-fedora || os.query is-amazon-linux || os-query is-opensuse-tumbleweed) ; then
+        # we now support explicitly enabling reexec, which may fail when
+        # snap-confine is under /usr/libexec/snapd, on those systems expect a
+        # very specific error
+        if command-chain.hello > err.out 2>&1; then
+            echo "unexpected success"
+            cat err.out || true
+            exit 1
+        fi
+
+         MATCH "running from unexpected location:" < err.out
+         exit 0
+    fi
+
     echo "Test that command-chain runs for apps"
     [ "$(command-chain.hello)" = "chain1 chain2 hello" ]
 

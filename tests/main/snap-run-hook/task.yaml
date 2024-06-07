@@ -20,6 +20,20 @@ execute: |
 
     echo "Test that snap run can call valid hooks"
 
+    if [ "$SNAP_REEXEC" = "1" ] && (os.query is-fedora || os.query is-amazon-linux || os-query is-opensuse-tumbleweed); then
+        # with opt in for snap reexec the test complexity is greatly increased,
+        # skip it on systems where we know it does not work, so just verify
+        # expected failure and exit
+        if snap run --hook=configure basic-hooks > err.out 2>&1; then
+            echo "unexpected success"
+            cat err.out || true
+            exit 1
+        fi
+
+        MATCH "running from unexpected location:" < err.out
+        exit 0
+    fi
+
     if ! output="$(snap run --hook=configure basic-hooks)"; then
         echo "Failed to run configure hook"
         exit 1

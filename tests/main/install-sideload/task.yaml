@@ -29,6 +29,21 @@ execute: |
 
     echo "Sideloaded snap executes commands"
     snap install --dangerous ./test-snapd-tools_1.0_all.snap
+
+    if [ "$SNAP_REEXEC" = "1" ] && (os-query is-fedora || os-query is-amazon-linux || os-query is-opensuse-tumbleweed) ; then
+        # we now support explicitly enabling reexec, which may fail when
+        # snap-confine is under /usr/libexec/snapd, on those systems expect a
+        # very specific error
+        if test-snapd-tools.success > err.out 2>&1; then
+            echo "unexpected success"
+            cat err.out || true
+            exit 1
+        fi
+
+        MATCH "running from unexpected location:" < err.out
+        exit 0
+    fi
+
     test-snapd-tools.success
     [ "$(test-snapd-tools.echo Hello World)" = "Hello World" ]
 
