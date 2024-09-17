@@ -20,3 +20,5 @@
 package fdestate
 
 var FdeMgr = fdeMgr
+
+var UpdateParameters = updateParameters
