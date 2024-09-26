@@ -21,6 +21,8 @@ package fdestate
 import (
 	"errors"
 
+	"github.com/snapcore/snapd/dirs"
+	"github.com/snapcore/snapd/gadget/device"
 	"github.com/snapcore/snapd/overlord/state"
 )
 
@@ -33,6 +35,10 @@ type EFIKeyManagerIdentity struct {
 // EFISecureBootDBManagerStartup indicates that the local EFI key database
 // manager has started.
 func EFISecureBootDBManagerStartup(st *state.State, id EFIKeyManagerIdentity) error {
+	if _, err := device.SealedKeysMethod(dirs.GlobalRootDir); err == device.ErrNoSealedKeys {
+		return nil
+	}
+
 	return errNotImplemented
 }
 
@@ -48,11 +54,19 @@ const (
 // EFISecureBootDBUpdatePrepare notifies notifies that the local EFI key
 // database manager is about to update the database.
 func EFISecureBootDBUpdatePrepare(st *state.State, id EFIKeyManagerIdentity, db EFISecurebooKeystDB, payload []byte) error {
+	if _, err := device.SealedKeysMethod(dirs.GlobalRootDir); err == device.ErrNoSealedKeys {
+		return nil
+	}
+
 	return errNotImplemented
 }
 
 // EFISecureBootDBUpdateCleanup notifies that the local EFI key database manager
 // has reached a cleanup stage of the update process.
 func EFISecureBootDBUpdateCleanup(st *state.State, id EFIKeyManagerIdentity) error {
+	if _, err := device.SealedKeysMethod(dirs.GlobalRootDir); err == device.ErrNoSealedKeys {
+		return nil
+	}
+
 	return errNotImplemented
 }
