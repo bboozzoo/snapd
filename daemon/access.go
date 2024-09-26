@@ -261,6 +261,24 @@ func (ac interfaceAuthenticatedAccess) CheckAccess(d *Daemon, r *http.Request, u
 	return Unauthorized("access denied")
 }
 
+// interfaceRootAccess behaves like rootAccess, but also allows requests over
+// snapd-snap.socket for snaps plugging a specific interface
+type interfaceRootAccess struct {
+	Interfaces []string
+}
+
+func (ac interfaceRootAccess) CheckAccess(d *Daemon, r *http.Request, ucred *ucrednet, user *auth.UserState) *apiError {
+	if rsperr := requireInterfaceApiAccess(d, r, ucred, ac.Interfaces); rsperr != nil {
+		return rsperr
+	}
+
+	if ucred.Uid == 0 {
+		return nil
+	}
+
+	return Unauthorized("access denied")
+}
+
 // isRequestFromSnapCmd checks that the request is coming from snap command.
 //
 // It checks that the request process "/proc/PID/exe" points to one of the
