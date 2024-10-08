@@ -168,7 +168,7 @@ func (h *hashAlg) UnmarshalJSON(b []byte) error {
 	case "sha256":
 		*h = hashAlg(crypto.SHA256)
 	default:
-		return fmt.Errorf("Unknown algorithm %s", s)
+		return fmt.Errorf("unknown algorithm %s", s)
 	}
 
 	return nil
@@ -180,7 +180,7 @@ func (h hashAlg) MarshalJSON() ([]byte, error) {
 	case crypto.SHA256:
 		return json.Marshal("sha256")
 	default:
-		return nil, fmt.Errorf("Unknown algorithm %v", h)
+		return nil, fmt.Errorf("unknown algorithm %v", h)
 	}
 }
 
@@ -312,7 +312,7 @@ func updateParameters(st *state.State, role string, containerRole string, bootMo
 
 	roleInfo, hasRole := s.KeyslotRoles[role]
 	if !hasRole {
-		return fmt.Errorf("Cannot find role %s", role)
+		return fmt.Errorf("cannot find keyslot role %s", role)
 	}
 
 	var convertedModels []Model

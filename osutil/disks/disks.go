@@ -239,12 +239,12 @@ func unregisterDeviceMapperBackResolver(name string) {
 	delete(deviceMapperBackResolvers, name)
 }
 
-// ErrNoDmUUID is return by DMCryptUUIDFromMountPoint when the device
-// at the mount point is not a device mapper device
+// ErrNoDmUUID is returned by DMCryptUUIDFromMountPoint when the device
+// at the mount point is not a device mapper device.
 var ErrNoDmUUID = errors.New("device has no DM_UUID")
 
-// ErrMountPointNotFound is return by DMCryptUUIDFromMountPoint a path
-// is not a mount point
+// ErrMountPointNotFound is returned by DMCryptUUIDFromMountPoint a path
+// is not a mount point.
 var ErrMountPointNotFound = errors.New("cannot find mount point")
 
 type errMountPointNotFoundImpl struct {

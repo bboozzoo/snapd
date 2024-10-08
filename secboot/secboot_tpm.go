@@ -626,7 +626,7 @@ func buildPCRProtectionProfile(modelParams []*SealKeyModelParams) (*sb_tpm2.PCRP
 }
 
 // BuildPCRProtectionProfile builds and serializes a PCR profile from
-// a list of SealKeyModelParams
+// a list of SealKeyModelParams.
 func BuildPCRProtectionProfile(modelParams []*SealKeyModelParams) (SerializedPCRProfile, error) {
 	pcrProfile, err := buildPCRProtectionProfile(modelParams)
 	if err != nil {
