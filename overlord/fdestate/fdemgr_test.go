@@ -26,8 +26,8 @@ import (
 
 	. "gopkg.in/check.v1"
 
-	"github.com/snapcore/snapd/boot"
 	"github.com/snapcore/snapd/asserts"
+	"github.com/snapcore/snapd/boot"
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/gadget/device"
 	"github.com/snapcore/snapd/overlord/fdestate"
