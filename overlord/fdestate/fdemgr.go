@@ -29,6 +29,10 @@ import (
 	"github.com/snapcore/snapd/secboot"
 )
 
+var (
+	backendResealKeyForBootChains = backend.ResealKeyForBootChains
+)
+
 // FDEManager is responsible for managing full disk encryption keys.
 type FDEManager struct {
 	state *state.State
@@ -74,7 +78,7 @@ func (m *FDEManager) resealKeyForBootChains(unlocker boot.Unlocker, method devic
 		locker := unlocker()
 		defer locker()
 	}
-	return backend.ResealKeyForBootChains(doUpdate, method, rootdir, params, expectReseal)
+	return backendResealKeyForBootChains(doUpdate, method, rootdir, params, expectReseal)
 }
 
 func fdeMgr(st *state.State) *FDEManager {

@@ -58,10 +58,10 @@ func MockSecbootBuildPCRProtectionProfile(f func(modelParams []*secboot.SealKeyM
 	}
 }
 
-type stateUpdater func(role string, containerRole string, bootModes []string, models []secboot.ModelForSealing, tpmPCRProfile []byte) error
+type StateUpdater func(role string, containerRole string, bootModes []string, models []secboot.ModelForSealing, tpmPCRProfile []byte) error
 
 // ResealKeyForBootChains reseals disk encryption keys with the given bootchains.
-func ResealKeyForBootChains(updateState stateUpdater, method device.SealingMethod, rootdir string, params *boot.ResealKeyForBootChainsParams, expectReseal bool) error {
+func ResealKeyForBootChains(updateState StateUpdater, method device.SealingMethod, rootdir string, params *boot.ResealKeyForBootChainsParams, expectReseal bool) error {
 	switch method {
 	case device.SealingMethodFDESetupHook:
 		// FIXME: do something
@@ -127,7 +127,7 @@ func ResealKeyForBootChains(updateState stateUpdater, method device.SealingMetho
 	return nil
 }
 
-func resealRunObjectKeys(updateState stateUpdater, pbc boot.PredictableBootChains, authKeyFile string, roleToBlName map[bootloader.Role]string) error {
+func resealRunObjectKeys(updateState StateUpdater, pbc boot.PredictableBootChains, authKeyFile string, roleToBlName map[bootloader.Role]string) error {
 	// get model parameters from bootchains
 	modelParams, err := boot.SealKeyModelParams(pbc, roleToBlName)
 	if err != nil {
@@ -169,7 +169,7 @@ func resealRunObjectKeys(updateState stateUpdater, pbc boot.PredictableBootChain
 	return nil
 }
 
-func resealFallbackObjectKeys(updateState stateUpdater, pbc boot.PredictableBootChains, authKeyFile string, roleToBlName map[bootloader.Role]string) error {
+func resealFallbackObjectKeys(updateState StateUpdater, pbc boot.PredictableBootChains, authKeyFile string, roleToBlName map[bootloader.Role]string) error {
 	// get model parameters from bootchains
 	modelParams, err := boot.SealKeyModelParams(pbc, roleToBlName)
 	if err != nil {
