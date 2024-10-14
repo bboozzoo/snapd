@@ -48,8 +48,11 @@ type modeenvSuite struct {
 var _ = Suite(&modeenvSuite{})
 
 func (s *modeenvSuite) SetUpTest(c *C) {
+	s.BaseTest.SetUpTest(c)
+
 	s.tmpdir = c.MkDir()
 	s.mockModeenvPath = filepath.Join(s.tmpdir, dirs.SnapModeenvFile)
+	s.AddCleanup(func() { dirs.SetRootDir("") })
 }
 
 func (s *modeenvSuite) TestKnownKnown(c *C) {
@@ -973,4 +976,40 @@ func (s *modeenvSuite) TestModeenvAccessFailsDuringPreseeding(c *C) {
 	var modeenv boot.Modeenv
 	err = modeenv.WriteTo(s.tmpdir)
 	c.Assert(err, ErrorMatches, `internal error: modeenv cannot be written during preseeding`)
+}
+
+func (s *modeenvSuite) TestWithModeenv(c *C) {
+	dirs.SetRootDir(s.tmpdir)
+	defer dirs.SetRootDir("")
+	s.makeMockModeenvFile(c, `mode=recovery
+recovery_system=20191126
+base=core20_123.snap
+gadget=pc_1.snap
+try_base=core20_124.snap
+base_status=try
+`)
+
+	c.Check(boot.IsModeenvLocked(), Equals, false)
+
+	err := boot.WithModeenv(func(m *boot.Modeenv) error {
+		c.Check(boot.IsModeenvLocked(), Equals, true)
+		return fmt.Errorf("mock error")
+	})
+	c.Assert(err, ErrorMatches, "mock error")
+
+	c.Check(boot.IsModeenvLocked(), Equals, false)
+
+	expectedModeenv := &boot.Modeenv{
+		Mode:           "recovery",
+		RecoverySystem: "20191126",
+		Base:           "core20_123.snap",
+		Gadget:         "pc_1.snap",
+		TryBase:        "core20_124.snap",
+		BaseStatus:     "try",
+	}
+	err = boot.WithModeenv(func(m *boot.Modeenv) error {
+		c.Check(boot.IsModeenvLocked(), Equals, true)
+		c.Assert(m.DeepEqual(expectedModeenv), Equals, true)
+		return nil
+	})
 }

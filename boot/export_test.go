@@ -72,6 +72,8 @@ var (
 	BootVarsForTrustedCommandLineFromGadget = bootVarsForTrustedCommandLineFromGadget
 
 	WriteModelToUbuntuBoot = writeModelToUbuntuBoot
+
+	IsModeenvLocked = isModeeenvLocked
 )
 
 type BootAssetsMap = bootAssetsMap

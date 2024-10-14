@@ -581,3 +581,17 @@ func (s *bootCommandLines) UnmarshalJSON(data []byte) error {
 	*s = bootCommandLines(asList)
 	return nil
 }
+
+// WithModeenv takes the modeenv lock, loads the modeenv contents and executes
+// the given function while holding the lock. Returns the error value returned
+// by the callback.
+func WithModeenv(f func(m *Modeenv) error) error {
+	modeenvLock()
+	defer modeenvUnlock()
+
+	m, err := loadModeenv()
+	if err != nil {
+		return err
+	}
+	return f(m)
+}
