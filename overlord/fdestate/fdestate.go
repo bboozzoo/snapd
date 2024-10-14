@@ -20,15 +20,19 @@ package fdestate
 
 import (
 	"crypto"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/snapcore/snapd/asserts"
+	"github.com/snapcore/snapd/boot"
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/gadget/device"
+	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/osutil/disks"
+	"github.com/snapcore/snapd/overlord/fdestate/backend"
 	"github.com/snapcore/snapd/overlord/state"
 	"github.com/snapcore/snapd/secboot"
 )
@@ -48,6 +52,18 @@ func EFISecureBootDBManagerStartup(st *state.State) error {
 		return nil
 	}
 
+	chg, err := completeEFISecurebootDBUpdateChange(st)
+
+	if err != nil {
+		return err
+	}
+
+	if chg != nil {
+		logger.Debugf("waiting for change %v to become ready", chg.ID())
+		<-chg.Ready()
+		logger.Debugf("change complete")
+	}
+
 	return errNotImplemented
 }
 
@@ -63,8 +79,57 @@ const (
 // EFISecureBootDBUpdatePrepare notifies notifies that the local EFI key
 // database manager is about to update the database.
 func EFISecureBootDBUpdatePrepare(st *state.State, db EFISecurebootKeyDatabase, payload []byte) error {
-	if _, err := device.SealedKeysMethod(dirs.GlobalRootDir); err == device.ErrNoSealedKeys {
-		return nil
+	method, err := device.SealedKeysMethod(dirs.GlobalRootDir)
+	if err != nil {
+		if err == device.ErrNoSealedKeys {
+			return nil
+		}
+		return err
+	}
+
+	st.Lock()
+	defer st.Unlock()
+
+	// TODO check if no change is running
+
+	if err := addEFISecurebootDBUpdateChange(st, payload); err != nil {
+		return err
+	}
+
+	// modeenv
+	// bootchains from modeenv
+	// add system firmware update
+
+	err = boot.WithModeenv(func(m *boot.Modeenv) error {
+		bc, err := boot.BootChains(m)
+		if err != nil {
+			return err
+		}
+
+		// TODO add update payload
+
+		updater := func(
+			role string, containerRole string, bootModes []string,
+			models []secboot.ModelForSealing, tpmPCRProfile []byte,
+		) error {
+			st.Lock()
+			st.Unlock()
+
+			logger.Debugf("state updater")
+
+			// TODO store updated PCR profiles
+			return nil
+		}
+
+		// unlock the state before resealing
+		st.Unlock()
+		defer st.Lock()
+
+		// TODO use a different helper for resealing
+		return backend.ResealKeyForSignaturesDBUpdate(updater, method, dirs.GlobalRootDir, bc, payload)
+	})
+	if err != nil {
+		return err
 	}
 
 	return errNotImplemented
@@ -75,6 +140,17 @@ func EFISecureBootDBUpdatePrepare(st *state.State, db EFISecurebootKeyDatabase, 
 func EFISecureBootDBUpdateCleanup(st *state.State) error {
 	if _, err := device.SealedKeysMethod(dirs.GlobalRootDir); err == device.ErrNoSealedKeys {
 		return nil
+	}
+
+	chg, err := completeEFISecurebootDBUpdateChange(st)
+	if err != nil {
+		return err
+	}
+
+	if chg != nil {
+		logger.Debugf("waiting for change %v to become ready", chg.ID())
+		<-chg.Ready()
+		logger.Debugf("change complete")
 	}
 
 	return errNotImplemented
@@ -218,6 +294,12 @@ type PrimaryKeyInfo struct {
 	Digest KeyDigest `json:"digest"`
 }
 
+type externalOperation struct {
+	Kind     string           `json:"kind"`
+	ChangeID string           `json:"change-id"`
+	Context  *json.RawMessage `json:"context"`
+}
+
 // FdeState is the root persistent FDE state
 type FdeState struct {
 	// PrimaryKeys are the keys on the system. Key with ID 0 is
@@ -227,6 +309,10 @@ type FdeState struct {
 
 	// KeyslotRoles are all keyslot roles indexed by the role name
 	KeyslotRoles map[string]KeyslotRoleInfo `json:"keyslot-roles"`
+
+	// PendingExternalOperations keeps a list of changes that capture FDE
+	// related operations running outside of snapd.
+	PendingExternalOperations []externalOperation
 }
 
 const fdeStateKey = "fde"
@@ -364,4 +450,75 @@ func MockVerifyPrimaryKeyHash(f func(devicePath string, alg crypto.Hash, salt []
 	return func() {
 		secbootVerifyPrimaryKeyHash = old
 	}
+}
+
+func addEFISecurebootDBUpdateChange(st *state.State, payload []byte) error {
+	st.Lock()
+	defer st.Unlock()
+
+	var s FdeState
+	err := st.Get(fdeStateKey, &s)
+	if err != nil {
+		return err
+	}
+
+	// TODO be specific about kind
+	if len(s.PendingExternalOperations) > 0 {
+		return fmt.Errorf("conflict")
+	}
+
+	chg := st.NewChange("fde-efi-secureboot-db-update", "EFI secure boot key database update")
+	t := st.NewTask("efi-secureboot-db-update", "External EFI secure boot key database update")
+	chg.AddTask(t)
+
+	data, err := json.Marshal(map[string]any{
+		"payload": base64.StdEncoding.EncodeToString(payload),
+	})
+	if err != nil {
+		return err
+	}
+
+	opCtxRaw := json.RawMessage(data)
+
+	opDesc := externalOperation{
+		Kind:     "fde-efi-secureboot-db-update",
+		ChangeID: chg.ID(),
+		Context:  &opCtxRaw,
+	}
+
+	s.PendingExternalOperations = append(s.PendingExternalOperations, opDesc)
+
+	st.Set(fdeStateKey, &s)
+
+	return nil
+}
+
+func completeEFISecurebootDBUpdateChange(st *state.State) (*state.Change, error) {
+	st.Lock()
+	defer st.Unlock()
+
+	var s FdeState
+	err := st.Get(fdeStateKey, &s)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(s.PendingExternalOperations) == 0 {
+		logger.Debugf("requested to complete external FDE operation, but none is running")
+		return nil, nil
+	}
+
+	op := s.PendingExternalOperations[0]
+
+	chg := st.Change(op.ChangeID)
+	// change kind is efi-secureboot-db-update
+	tasks := chg.Tasks()
+	if len(tasks) != 1 {
+		return nil, fmt.Errorf("internal error: unexpected task count: %v", len(tasks))
+	}
+
+	tasks[0].SetStatus(state.DoneStatus)
+	st.EnsureBefore(0)
+
+	return nil, nil
 }
