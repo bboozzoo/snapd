@@ -62,6 +62,49 @@ type StateUpdater func(role string, containerRole string, bootModes []string, mo
 
 // ResealKeyForBootChains reseals disk encryption keys with the given bootchains.
 func ResealKeyForBootChains(updateState StateUpdater, method device.SealingMethod, rootdir string, params *boot.ResealKeyForBootChainsParams, expectReseal bool) error {
+	return resealKeyForBootChains(updateState, method, rootdir,
+		resealInputs{
+			bootChains: params,
+		},
+		resealOptions{
+			ExpectReseal: expectReseal,
+		})
+}
+
+// ResealKeyForSignaturesDBUpdate reseals disk encryption keys for the provided
+// boot chains and an optional signature DB update
+func ResealKeyForSignaturesDBUpdate(
+	updateState StateUpdater, method device.SealingMethod, rootdir string,
+	params *boot.ResealKeyForBootChainsParams, dbUpdate []byte,
+) error {
+	return resealKeyForBootChains(updateState, method, rootdir,
+		resealInputs{
+			bootChains:        params,
+			signatureDBUpdate: dbUpdate,
+		},
+		resealOptions{
+			ExpectReseal: true,
+			Force:        true,
+		})
+}
+
+type resealInputs struct {
+	bootChains        *boot.ResealKeyForBootChainsParams
+	signatureDBUpdate []byte
+}
+
+type resealOptions struct {
+	ExpectReseal bool
+	Force        bool
+}
+
+func resealKeyForBootChains(
+	updateState StateUpdater, method device.SealingMethod, rootdir string,
+	inputs resealInputs,
+	opts resealOptions,
+) error {
+	params := inputs.bootChains
+
 	switch method {
 	case device.SealingMethodFDESetupHook:
 		// FIXME: do something
@@ -77,15 +120,16 @@ func ResealKeyForBootChains(updateState StateUpdater, method device.SealingMetho
 	// reseal the run object
 	pbc := boot.ToPredictableBootChains(append(params.RunModeBootChains, params.RecoveryBootChainsForRunKey...))
 
-	needed, nextCount, err := boot.IsResealNeeded(pbc, BootChainsFileUnder(rootdir), expectReseal)
+	needed, nextCount, err := boot.IsResealNeeded(pbc, BootChainsFileUnder(rootdir), opts.ExpectReseal)
 	if err != nil {
 		return err
 	}
-	if needed {
+	if needed || opts.Force {
 		pbcJSON, _ := json.Marshal(pbc)
 		logger.Debugf("resealing (%d) to boot chains: %s", nextCount, pbcJSON)
 
-		if err := resealRunObjectKeys(updateState, pbc, authKeyFile, params.RoleToBlName); err != nil {
+		err := resealRunObjectKeys(updateState, pbc, inputs.signatureDBUpdate, authKeyFile, params.RoleToBlName)
+		if err != nil {
 			return err
 		}
 
@@ -103,15 +147,16 @@ func ResealKeyForBootChains(updateState StateUpdater, method device.SealingMetho
 	rpbc := boot.ToPredictableBootChains(params.RecoveryBootChains)
 
 	var nextFallbackCount int
-	needed, nextFallbackCount, err = boot.IsResealNeeded(rpbc, RecoveryBootChainsFileUnder(rootdir), expectReseal)
+	needed, nextFallbackCount, err = boot.IsResealNeeded(rpbc, RecoveryBootChainsFileUnder(rootdir), opts.ExpectReseal)
 	if err != nil {
 		return err
 	}
-	if needed {
+	if needed || opts.Force {
 		rpbcJSON, _ := json.Marshal(rpbc)
 		logger.Debugf("resealing (%d) to recovery boot chains: %s", nextFallbackCount, rpbcJSON)
 
-		if err := resealFallbackObjectKeys(updateState, rpbc, authKeyFile, params.RoleToBlName); err != nil {
+		err := resealFallbackObjectKeys(updateState, rpbc, inputs.signatureDBUpdate, authKeyFile, params.RoleToBlName)
+		if err != nil {
 			return err
 		}
 		logger.Debugf("fallback resealing (%d) succeeded", nextFallbackCount)
@@ -127,7 +172,12 @@ func ResealKeyForBootChains(updateState StateUpdater, method device.SealingMetho
 	return nil
 }
 
-func resealRunObjectKeys(updateState StateUpdater, pbc boot.PredictableBootChains, authKeyFile string, roleToBlName map[bootloader.Role]string) error {
+func resealRunObjectKeys(
+	updateState StateUpdater, pbc boot.PredictableBootChains,
+	sigDBUpdate []byte,
+	authKeyFile string,
+	roleToBlName map[bootloader.Role]string,
+) error {
 	// get model parameters from bootchains
 	modelParams, err := boot.SealKeyModelParams(pbc, roleToBlName)
 	if err != nil {
@@ -137,6 +187,10 @@ func resealRunObjectKeys(updateState StateUpdater, pbc boot.PredictableBootChain
 	numModels := len(modelParams)
 	if numModels < 1 {
 		return fmt.Errorf("at least one set of model-specific parameters is required")
+	}
+
+	if len(sigDBUpdate) > 0 {
+		attachSignatureDBUPdate(modelParams, sigDBUpdate)
 	}
 
 	pcrProfile, err := secbootBuildPCRProtectionProfile(modelParams)
@@ -169,7 +223,12 @@ func resealRunObjectKeys(updateState StateUpdater, pbc boot.PredictableBootChain
 	return nil
 }
 
-func resealFallbackObjectKeys(updateState StateUpdater, pbc boot.PredictableBootChains, authKeyFile string, roleToBlName map[bootloader.Role]string) error {
+func resealFallbackObjectKeys(
+	updateState StateUpdater, pbc boot.PredictableBootChains,
+	sigDBUpdate []byte,
+	authKeyFile string,
+	roleToBlName map[bootloader.Role]string,
+) error {
 	// get model parameters from bootchains
 	modelParams, err := boot.SealKeyModelParams(pbc, roleToBlName)
 	if err != nil {
@@ -179,6 +238,10 @@ func resealFallbackObjectKeys(updateState StateUpdater, pbc boot.PredictableBoot
 	numModels := len(modelParams)
 	if numModels < 1 {
 		return fmt.Errorf("at least one set of model-specific parameters is required")
+	}
+
+	if len(sigDBUpdate) > 0 {
+		attachSignatureDBUPdate(modelParams, sigDBUpdate)
 	}
 
 	pcrProfile, err := secbootBuildPCRProtectionProfile(modelParams)
@@ -212,4 +275,14 @@ func resealFallbackObjectKeys(updateState StateUpdater, pbc boot.PredictableBoot
 	}
 
 	return nil
+}
+
+func attachSignatureDBUPdate(params []*secboot.SealKeyModelParams, update []byte) {
+	if len(update) == 0 {
+		return
+	}
+
+	for _, p := range params {
+		p.EFIForbiddenKeySignatureDBUpdate = update
+	}
 }
