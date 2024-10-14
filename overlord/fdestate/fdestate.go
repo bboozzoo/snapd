@@ -20,16 +20,19 @@ package fdestate
 
 import (
 	"crypto"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/snapcore/snapd/asserts"
+	"github.com/snapcore/snapd/boot"
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/gadget/device"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/osutil/disks"
+	"github.com/snapcore/snapd/overlord/fdestate/backend"
 	"github.com/snapcore/snapd/overlord/state"
 	"github.com/snapcore/snapd/secboot"
 )
@@ -45,11 +48,32 @@ var (
 // EFISecureBootDBManagerStartup indicates that the local EFI key database
 // manager has started.
 func EFISecureBootDBManagerStartup(st *state.State) error {
-	if _, err := device.SealedKeysMethod(dirs.GlobalRootDir); err == device.ErrNoSealedKeys {
+	method, err := device.SealedKeysMethod(dirs.GlobalRootDir)
+	if err == device.ErrNoSealedKeys {
 		return nil
 	}
 
-	return errNotImplemented
+	st.Lock()
+	defer st.Unlock()
+
+	chg, err := findEFISecurebootDBUpdateChange(st)
+	if err != nil {
+		return err
+	}
+
+	if chg == nil {
+		logger.Debugf("no pending DBX update request")
+		return nil
+	}
+
+	st.Unlock()
+	err = postUpdateReseal(st, method, "efi-secureboot-update-startup")
+	st.Lock()
+	if err != nil {
+		return fmt.Errorf("cannot complete post update reseal in startup action: %w", err)
+	}
+
+	return completeEFISecurebootDBUpdateChange(chg)
 }
 
 type EFISecurebootKeyDatabase int
@@ -64,21 +88,78 @@ const (
 // EFISecureBootDBUpdatePrepare notifies notifies that the local EFI key
 // database manager is about to update the database.
 func EFISecureBootDBUpdatePrepare(st *state.State, db EFISecurebootKeyDatabase, payload []byte) error {
-	if _, err := device.SealedKeysMethod(dirs.GlobalRootDir); err == device.ErrNoSealedKeys {
-		return nil
+	method, err := device.SealedKeysMethod(dirs.GlobalRootDir)
+	if err != nil {
+		if err == device.ErrNoSealedKeys {
+			return nil
+		}
+		return err
 	}
 
-	return errNotImplemented
+	st.Lock()
+	defer st.Unlock()
+
+	// TODO check if no change is running
+
+	if err := addEFISecurebootDBUpdateChange(st, payload); err != nil {
+		return err
+	}
+
+	st.Unlock()
+	err = boot.WithModeenv(func(m *boot.Modeenv) error {
+		bc, err := boot.BootChains(m)
+		if err != nil {
+			return err
+		}
+
+		logger.Debugf("attempting reseal")
+		logger.Debugf("boot chains: %v\n", bc)
+		logger.Debugf("DBX update payload: %x", payload)
+
+		// TODO use a different helper for resealing
+		return backend.ResealKeyForSignaturesDBUpdate(
+			unlockedStateUpdater(st, "efi-secureboot-update-db-prepare"),
+			method, dirs.GlobalRootDir, bc, payload,
+		)
+	})
+	st.Lock()
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // EFISecureBootDBUpdateCleanup notifies that the local EFI key database manager
 // has reached a cleanup stage of the update process.
 func EFISecureBootDBUpdateCleanup(st *state.State) error {
-	if _, err := device.SealedKeysMethod(dirs.GlobalRootDir); err == device.ErrNoSealedKeys {
+	method, err := device.SealedKeysMethod(dirs.GlobalRootDir)
+	if err == device.ErrNoSealedKeys {
 		return nil
 	}
 
-	return errNotImplemented
+	st.Lock()
+	defer st.Unlock()
+
+	chg, err := findEFISecurebootDBUpdateChange(st)
+	if err != nil {
+		return err
+	}
+
+	if chg == nil {
+		logger.Debugf("no pending DBX update request for cleanup")
+		return nil
+	}
+
+	st.Unlock()
+	err = postUpdateReseal(st, method, "efi-secureboot-update-db-cleanup")
+	st.Lock()
+	if err != nil {
+		return fmt.Errorf("cannot complete post update reseal in cleanup action: %w", err)
+	}
+
+	return completeEFISecurebootDBUpdateChange(chg)
 }
 
 // Model is a json serializable secboot.ModelForSealing
@@ -130,6 +211,23 @@ func newModel(m secboot.ModelForSealing) Model {
 		GradeValue:     m.Grade(),
 		SignKeyIDValue: m.SignKeyID(),
 	}
+}
+
+func toModels(sealingModels []secboot.ModelForSealing) (models []Model) {
+	models = make([]Model, 0, len(sealingModels))
+
+	for _, sm := range sealingModels {
+		models = append(models, Model{
+			SeriesValue:    sm.Series(),
+			BrandIDValue:   sm.BrandID(),
+			ModelValue:     sm.Model(),
+			ClassicValue:   sm.Classic(),
+			GradeValue:     sm.Grade(),
+			SignKeyIDValue: sm.SignKeyID(),
+		})
+	}
+
+	return models
 }
 
 var _ secboot.ModelForSealing = (*Model)(nil)
@@ -219,6 +317,12 @@ type PrimaryKeyInfo struct {
 	Digest KeyDigest `json:"digest"`
 }
 
+type externalOperation struct {
+	Kind     string           `json:"kind"`
+	ChangeID string           `json:"change-id"`
+	Context  *json.RawMessage `json:"context"`
+}
+
 // FdeState is the root persistent FDE state
 type FdeState struct {
 	// PrimaryKeys are the keys on the system. Key with ID 0 is
@@ -228,6 +332,10 @@ type FdeState struct {
 
 	// KeyslotRoles are all keyslot roles indexed by the role name
 	KeyslotRoles map[string]KeyslotRoleInfo `json:"keyslot-roles"`
+
+	// PendingExternalOperations keeps a list of changes that capture FDE
+	// related operations running outside of snapd.
+	PendingExternalOperations []externalOperation `json:"pending-external-operations"`
 }
 
 const fdeStateKey = "fde"
@@ -327,16 +435,12 @@ func updateParameters(st *state.State, role string, containerRole string, bootMo
 		return fmt.Errorf("cannot find keyslot role %s", role)
 	}
 
-	var convertedModels []Model
-	for _, model := range models {
-		convertedModels = append(convertedModels, newModel(model))
-	}
-
 	if roleInfo.Parameters == nil {
 		roleInfo.Parameters = make(map[string]KeyslotRoleParameters)
 	}
+
 	roleInfo.Parameters[containerRole] = KeyslotRoleParameters{
-		Models:         convertedModels,
+		Models:         toModels(models),
 		BootModes:      bootModes,
 		TPM2PCRProfile: tpmPCRProfile,
 	}
@@ -375,5 +479,135 @@ func MockVerifyPrimaryKeyHash(f func(devicePath string, alg crypto.Hash, salt []
 	secbootVerifyPrimaryKeyHash = f
 	return func() {
 		secbootVerifyPrimaryKeyHash = old
+	}
+}
+
+// addEFISecurebootDBUpdateChange adds a state change releated to the DBX
+// update. The state must be locked by the caller
+func addEFISecurebootDBUpdateChange(st *state.State, payload []byte) error {
+	var s FdeState
+	err := st.Get(fdeStateKey, &s)
+	if err != nil {
+		return err
+	}
+
+	// TODO be specific about kind
+	if len(s.PendingExternalOperations) > 0 {
+		return fmt.Errorf("conflict")
+	}
+
+	chg := st.NewChange("fde-efi-secureboot-db-update", "EFI secure boot key database update")
+	t := st.NewTask("efi-secureboot-db-update", "External EFI secure boot key database update")
+	chg.AddTask(t)
+
+	data, err := json.Marshal(map[string]any{
+		"payload": base64.StdEncoding.EncodeToString(payload),
+	})
+	if err != nil {
+		return err
+	}
+
+	opCtxRaw := json.RawMessage(data)
+
+	opDesc := externalOperation{
+		Kind:     "fde-efi-secureboot-db-update",
+		ChangeID: chg.ID(),
+		Context:  &opCtxRaw,
+	}
+
+	s.PendingExternalOperations = append(s.PendingExternalOperations, opDesc)
+
+	st.Set(fdeStateKey, &s)
+
+	return nil
+}
+
+func findEFISecurebootDBUpdateChange(st *state.State) (*state.Change, error) {
+	var s FdeState
+	err := st.Get(fdeStateKey, &s)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(s.PendingExternalOperations) == 0 {
+		logger.Debugf("requested to complete external FDE operation, but none is running")
+		return nil, nil
+	}
+
+	op := s.PendingExternalOperations[0]
+
+	chg := st.Change(op.ChangeID)
+	tasks := chg.Tasks()
+	// sensibility check
+	if len(tasks) != 1 {
+		return nil, fmt.Errorf("internal error: unexpected task count: %v", len(tasks))
+	}
+
+	return chg, nil
+}
+
+func completeEFISecurebootDBUpdateChange(chg *state.Change) error {
+	st := chg.State()
+
+	tasks := chg.Tasks()
+	if len(tasks) != 1 {
+		return fmt.Errorf("internal error: unexpected task count: %v", len(tasks))
+	}
+
+	tasks[0].SetStatus(state.DoneStatus)
+	st.EnsureBefore(0)
+
+	st.Unlock()
+	logger.Debugf("waiting for change %v to become ready", chg.ID())
+	<-chg.Ready()
+	logger.Debugf("change complete")
+	st.Lock()
+
+	var s FdeState
+	err := st.Get(fdeStateKey, &s)
+	if err != nil {
+		return err
+	}
+
+	// TODO drop the right operation
+	s.PendingExternalOperations = nil
+
+	st.Set(fdeStateKey, s)
+
+	return nil
+}
+
+// postUpdateReseal performs a reseal after a DBX update.
+func postUpdateReseal(st *state.State, method device.SealingMethod, action string) error {
+	return boot.WithModeenv(func(m *boot.Modeenv) error {
+		bc, err := boot.BootChains(m)
+		if err != nil {
+			return err
+		}
+
+		// unlock the state before resealing
+		logger.Debugf("attempting post update reseal")
+
+		// TODO use a different helper for resealing
+		const expectReseal = true
+		return backend.ResealKeyForBootChains(
+			unlockedStateUpdater(st, action),
+			method, dirs.GlobalRootDir, bc, expectReseal,
+		)
+	})
+}
+
+func unlockedStateUpdater(st *state.State, action string) backend.StateUpdater {
+	return func(
+		role string, containerRole string, bootModes []string,
+		models []secboot.ModelForSealing, tpmPCRProfile []byte,
+	) error {
+		logger.Noticef("FDE state updater for action %q, role %q, container role %q",
+			action, role, containerRole)
+
+		st.Lock()
+		defer st.Unlock()
+
+		return updateParameters(st, role, containerRole, bootModes, models, tpmPCRProfile)
 	}
 }
