@@ -23,7 +23,6 @@ package secboot
 import (
 	"bytes"
 	"crypto/rand"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -501,7 +500,7 @@ func ResealKeys(params *ResealKeysParams) error {
 	}
 
 	var pcrProfile sb_tpm2.PCRProtectionProfile
-	if err := json.Unmarshal(params.PCRProfile, &pcrProfile); err != nil {
+	if _, err := mu.UnmarshalFromBytes(params.PCRProfile, &pcrProfile); err != nil {
 		return err
 	}
 
@@ -632,7 +631,7 @@ func BuildPCRProtectionProfile(modelParams []*SealKeyModelParams) (SerializedPCR
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(pcrProfile)
+	return mu.MarshalToBytes(pcrProfile)
 }
 
 func tpmProvision(tpm *sb_tpm2.Connection, mode TPMProvisionMode, lockoutAuthFile string) error {
