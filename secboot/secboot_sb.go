@@ -44,8 +44,6 @@ var (
 	sbDeactivateVolume              = sb.DeactivateVolume
 	sbAddLUKS2ContainerUnlockKey    = sb.AddLUKS2ContainerUnlockKey
 	sbRenameLUKS2ContainerKey       = sb.RenameLUKS2ContainerKey
-
-	ErrKernelKeyNotFound = sb.ErrKernelKeyNotFound
 )
 
 func init() {
@@ -301,6 +299,9 @@ func GetPrimaryKeyHash(devicePath string, alg crypto.Hash) (salt []byte, digest 
 	const remove = false
 	p, err := sb.GetPrimaryKeyFromKernel(keyringPrefix, devicePath, remove)
 	if err != nil {
+		if errors.Is(err, sb.ErrKernelKeyNotFound) {
+			return nil, nil, ErrKernelKeyNotFound
+		}
 		return nil, nil, err
 	}
 
@@ -318,6 +319,9 @@ func VerifyPrimaryKeyHash(devicePath string, alg crypto.Hash, salt []byte, diges
 	const remove = false
 	p, err := sb.GetPrimaryKeyFromKernel(keyringPrefix, devicePath, remove)
 	if err != nil {
+		if errors.Is(err, sb.ErrKernelKeyNotFound) {
+			return false, ErrKernelKeyNotFound
+		}
 		return false, err
 	}
 
