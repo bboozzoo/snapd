@@ -44,6 +44,8 @@ var (
 	sbDeactivateVolume              = sb.DeactivateVolume
 	sbAddLUKS2ContainerUnlockKey    = sb.AddLUKS2ContainerUnlockKey
 	sbRenameLUKS2ContainerKey       = sb.RenameLUKS2ContainerKey
+
+	ErrKernelKeyNotFound = sb.ErrKernelKeyNotFound
 )
 
 func init() {
