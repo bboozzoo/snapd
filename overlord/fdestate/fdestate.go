@@ -27,6 +27,7 @@ import (
 	"github.com/snapcore/snapd/asserts"
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/gadget/device"
+	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/osutil/disks"
 	"github.com/snapcore/snapd/overlord/state"
@@ -262,16 +263,25 @@ func initializeState(st *state.State) error {
 		return saveErr
 	}
 
-	digest, err := getPrimaryKeyDigest(fmt.Sprintf("/dev/disk/by-uuid/%s", dataUUID))
+	devpData := fmt.Sprintf("/dev/disk/by-uuid/%s", dataUUID)
+	devpSave := fmt.Sprintf("/dev/disk/by-uuid/%s", saveUUID)
+	digest, err := getPrimaryKeyDigest(devpData)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot obtain primary key digest for data device %s: %w", devpData, err)
 	}
-	sameDigest, err := digest.verifyPrimaryKeyDigest(fmt.Sprintf("/dev/disk/by-uuid/%s", saveUUID))
+	// TODO: restore key verification once we know that it is always added to
+	// the keyring
+	sameDigest, err := digest.verifyPrimaryKeyDigest(devpSave)
 	if err != nil {
-		return err
-	}
-	if !sameDigest {
-		return fmt.Errorf("primary key for data and save partition are not the same")
+		if !errors.Is(err, secboot.ErrKernelKeyNotFound) {
+			return fmt.Errorf("cannot verify primary key digest for save device %s: %w", devpSave, err)
+		} else {
+			logger.Noticef("cannot verify primary key digest for save device %s: %v", devpSave, err)
+		}
+	} else {
+		if !sameDigest {
+			return fmt.Errorf("primary key for data and save partition are not the same")
+		}
 	}
 
 	s.PrimaryKeys = map[int]PrimaryKeyInfo{
