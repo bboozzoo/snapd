@@ -584,7 +584,7 @@ func cleanupEFISecurebootDBUpdateChange(chg *state.Change) error {
 }
 
 func abortEFISecurebootDBUpdateChange(chg *state.Change) error {
-	// change becomes aborted
+	// TODO: is there a need to abort the change?
 	chg.Abort()
 
 	tasks := chg.Tasks()
@@ -592,8 +592,10 @@ func abortEFISecurebootDBUpdateChange(chg *state.Change) error {
 		return fmt.Errorf("internal error: unexpected task count: %v", len(tasks))
 	}
 
+	t := tasks[0]
 	// TODO should this do something more fancy?
-	tasks[0].Errorf("task aborted due to external call")
+	t.Errorf("task aborted due to external call")
+	t.SetStatus(state.ErrorStatus)
 
 	return cleanupEFISecurebootDBUpdateChange(chg)
 }
