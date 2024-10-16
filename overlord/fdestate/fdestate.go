@@ -73,7 +73,7 @@ func EFISecureBootDBManagerStartup(st *state.State) error {
 		return fmt.Errorf("cannot complete post update reseal in startup action: %w", err)
 	}
 
-	return completeEFISecurebootDBUpdateChange(chg)
+	return abortEFISecurebootDBUpdateChange(chg)
 }
 
 type EFISecurebootKeyDatabase int
@@ -99,9 +99,9 @@ func EFISecureBootDBUpdatePrepare(st *state.State, db EFISecurebootKeyDatabase, 
 	st.Lock()
 	defer st.Unlock()
 
-	// TODO check if no change is running
-
 	if err := addEFISecurebootDBUpdateChange(st, payload); err != nil {
+		// TODO error could indicate conflict, perhaps use a dedicated error
+		// value for this
 		return err
 	}
 
@@ -159,7 +159,7 @@ func EFISecureBootDBUpdateCleanup(st *state.State) error {
 		return fmt.Errorf("cannot complete post update reseal in cleanup action: %w", err)
 	}
 
-	return completeEFISecurebootDBUpdateChange(chg)
+	return cleanupEFISecurebootDBUpdateChange(chg)
 }
 
 // Model is a json serializable secboot.ModelForSealing
@@ -549,16 +549,10 @@ func findEFISecurebootDBUpdateChange(st *state.State) (*state.Change, error) {
 func completeEFISecurebootDBUpdateChange(chg *state.Change) error {
 	st := chg.State()
 
-	tasks := chg.Tasks()
-	if len(tasks) != 1 {
-		return fmt.Errorf("internal error: unexpected task count: %v", len(tasks))
-	}
-
-	tasks[0].SetStatus(state.DoneStatus)
 	st.EnsureBefore(0)
 
 	st.Unlock()
-	logger.Debugf("waiting for change %v to become ready", chg.ID())
+	logger.Debugf("waiting for FDE DBX change %v to become ready", chg.ID())
 	<-chg.Ready()
 	logger.Debugf("change complete")
 	st.Lock()
@@ -575,6 +569,33 @@ func completeEFISecurebootDBUpdateChange(chg *state.Change) error {
 	st.Set(fdeStateKey, s)
 
 	return nil
+}
+
+func cleanupEFISecurebootDBUpdateChange(chg *state.Change) error {
+	tasks := chg.Tasks()
+	if len(tasks) != 1 {
+		return fmt.Errorf("internal error: unexpected task count: %v", len(tasks))
+	}
+
+	// unblock the task by simply marking it as done
+	tasks[0].SetStatus(state.DoneStatus)
+
+	return completeEFISecurebootDBUpdateChange(chg)
+}
+
+func abortEFISecurebootDBUpdateChange(chg *state.Change) error {
+	// change becomes aborted
+	chg.Abort()
+
+	tasks := chg.Tasks()
+	if len(tasks) != 1 {
+		return fmt.Errorf("internal error: unexpected task count: %v", len(tasks))
+	}
+
+	// TODO should this do something more fancy?
+	tasks[0].Errorf("task aborted due to external call")
+
+	return cleanupEFISecurebootDBUpdateChange(chg)
 }
 
 // postUpdateReseal performs a reseal after a DBX update.
