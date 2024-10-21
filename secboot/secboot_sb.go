@@ -164,10 +164,10 @@ func UnlockVolumeUsingSealedKeyIfEncrypted(disk disks.Disk, name string, sealedE
 		return res, fmt.Errorf("internal error: cannot build an auth requestor: %v", err)
 	}
 
-	if loadedKey.SealedKeyV1 != nil {
+	if loadedKey.FDEHookKeyV1 != nil {
 		// Special case for hook keys v1. They do not have
 		// primary keys. So we cannot wrap them in KeyData
-		err := unlockDiskWithHookV1Key(mapperName, sourceDevice, loadedKey.SealedKeyV1)
+		err := unlockDiskWithHookV1Key(mapperName, sourceDevice, loadedKey.FDEHookKeyV1)
 		if err == nil {
 			res.FsDevice = targetDevice
 			res.UnlockMethod = UnlockedWithSealedKey

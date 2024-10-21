@@ -239,15 +239,18 @@ func newAuthRequestor() (sb.AuthRequestor, error) {
 }
 
 type keyLoader interface {
+	// LoadKeyData is expected to keep track of key data wrappers
 	LoadKeyData(kd *sb.KeyData)
+	// LoadSealedKeyObject is expected to keep track of a TPM sealed key
 	LoadSealedKeyObject(sko *sb_tpm2.SealedKeyObject)
-	LoadSealedKeyV1(sk []byte)
+	// LoadFDEHookV1Key is expected to keep track of a FDE hook v1 sealed key
+	LoadFDEHookV1Key(sk []byte)
 }
 
 type defaultKeyLoader struct {
 	KeyData         *sb.KeyData
 	SealedKeyObject *sb_tpm2.SealedKeyObject
-	SealedKeyV1     []byte
+	FDEHookKeyV1    []byte
 }
 
 func (dkl *defaultKeyLoader) LoadKeyData(kd *sb.KeyData) {
@@ -258,58 +261,80 @@ func (dkl *defaultKeyLoader) LoadSealedKeyObject(sko *sb_tpm2.SealedKeyObject) {
 	dkl.SealedKeyObject = sko
 }
 
-func (dkl *defaultKeyLoader) LoadSealedKeyV1(sk []byte) {
-	dkl.SealedKeyV1 = sk
+func (dkl *defaultKeyLoader) LoadFDEHookV1Key(sk []byte) {
+	dkl.FDEHookKeyV1 = sk
 }
 
-// TODO: consider moving this to secboot
-func readKeyFileImpl(keyfile string, kl keyLoader, hintExpectFDEHook bool) error {
+func hasSealedKeyPrefix(keyfile string) (bool, error) {
 	f, err := os.Open(keyfile)
-	if os.IsNotExist(err) {
-		return err
-	}
 	if err != nil {
-		return err
+		return false, err
 	}
+
 	defer f.Close()
 
+	// sealed key objects have a prefix `USK$`
 	var rawPrefix = []byte("USK$")
 
 	buf := make([]byte, len(rawPrefix))
 	l, err := io.ReadFull(f, buf)
 	if err != nil && err != io.ErrUnexpectedEOF {
+		return false, err
+	}
+
+	return l == len(rawPrefix) && bytes.HasPrefix(buf, rawPrefix), nil
+}
+
+// TODO: consider moving this to secboot
+func readKeyFileImpl(keyfile string, kl keyLoader, hintExpectFDEHook bool) error {
+	isSealedObject, err := hasSealedKeyPrefix(keyfile)
+	if err != nil {
 		return err
 	}
-	if l == len(rawPrefix) && bytes.HasPrefix(buf, rawPrefix) {
-		if hintExpectFDEHook {
-			sealedKey, err := os.ReadFile(keyfile)
-			if err != nil {
-				return nil
-			}
-			kl.LoadSealedKeyV1(sealedKey)
+
+	// sealed key objects have a prefix `USK$`
+	tpmSealedKeyObject := isSealedObject && !hintExpectFDEHook
+	// fde-hook v1 key also used the same prefix, but the prefix is followed by opaque payload
+	isFDEHookV1 := tpmSealedKeyObject && hintExpectFDEHook
+
+	switch {
+	case isFDEHookV1:
+		// v1 FDE hook
+		sealedKey, err := os.ReadFile(keyfile)
+		if err != nil {
 			return nil
 		}
 
+		kl.LoadFDEHookV1Key(sealedKey)
+		return nil
+
+	case tpmSealedKeyObject:
+		// sealed object
 		sealedObject, err := sbReadSealedKeyObjectFromFile(keyfile)
 		if err != nil {
 			return fmt.Errorf("cannot read key object: %v", err)
 		}
+
 		keyData, err := sbNewKeyDataFromSealedKeyObjectFile(keyfile)
 		if err != nil {
 			return fmt.Errorf("cannot read key object as key data: %v", err)
 		}
+
 		kl.LoadKeyData(keyData)
 		kl.LoadSealedKeyObject(sealedObject)
 		return nil
-	} else {
+
+	default:
 		reader, err := sbNewFileKeyDataReader(keyfile)
 		if err != nil {
 			return fmt.Errorf("cannot open key data: %v", err)
 		}
+
 		keyData, err := sbReadKeyData(reader)
 		if err != nil {
 			return err
 		}
+
 		kl.LoadKeyData(keyData)
 		return nil
 	}
@@ -472,32 +497,37 @@ func ResealKeys(params *ResealKeysParams) error {
 		return fmt.Errorf("cannot read the policy auth key file %s: %w", params.TPMPolicyAuthKeyFile, err)
 	}
 
-	hasOldObject := false
-	hasNewData := false
-
 	keyDatas := make([]*sb.KeyData, 0, numSealedKeyObjects)
 	sealedKeyObjects := make([]*sb_tpm2.SealedKeyObject, 0, numSealedKeyObjects)
 	for _, keyfile := range params.KeyFiles {
 		loadedKey := &defaultKeyLoader{}
+		// no reseal for FDE hook
 		const hintExpectFDEHook = false
+
 		err := readKeyFile(keyfile, loadedKey, hintExpectFDEHook)
 		if err != nil {
 			return fmt.Errorf("cannot read key file %s: %w", keyfile, err)
 		}
 		if loadedKey.SealedKeyObject != nil {
-			hasOldObject = true
 			sealedKeyObjects = append(sealedKeyObjects, loadedKey.SealedKeyObject)
 		} else if loadedKey.KeyData != nil {
-			hasNewData = true
 			keyDatas = append(keyDatas, loadedKey.KeyData)
 		}
 	}
 
+	// keep track what key kinds we have
+	hasOldObject := len(sealedKeyObjects) != 0
+	hasNewData := len(keyDatas) != 0
+
 	if hasOldObject && hasNewData {
+		// not possible to mix old sealed objects and key datas, as secboot APIs
+		// are exclusive for key types
 		return fmt.Errorf("key files are different formats")
 	}
 
+	// FIXME check whether it makes sense to reseal all old objects and then key datas
 	if hasOldObject {
+		// sealed key objects are modified internally
 		if err := sbUpdateKeyPCRProtectionPolicyMultiple(tpm, sealedKeyObjects, authKey, &pcrProfile); err != nil {
 			return fmt.Errorf("cannot update legacy PCR protection policy: %w", err)
 		}
@@ -516,6 +546,7 @@ func ResealKeys(params *ResealKeysParams) error {
 		}
 	} else {
 		// TODO: find out which context when revocation should happen
+		// key datas are modified internally
 		if err := sbUpdateKeyDataPCRProtectionPolicy(tpm, authKey, &pcrProfile, sb_tpm2.NoNewPCRPolicyVersion, keyDatas...); err != nil {
 			return fmt.Errorf("cannot update PCR protection policy: %w", err)
 		}
@@ -528,7 +559,6 @@ func ResealKeys(params *ResealKeysParams) error {
 		}
 
 		//TODO: revoke after writing? Not sure how.
-
 	}
 	return nil
 }
