@@ -168,7 +168,6 @@ libsnap_confine_private_a_SOURCES = \
 	libsnap-confine-private/secure-getenv.h \
 	libsnap-confine-private/snap-dir.c \
 	libsnap-confine-private/snap-dir.h \
-	libsnap-confine-private/snap.c \
 	libsnap-confine-private/snap.h \
 	libsnap-confine-private/string-utils.c \
 	libsnap-confine-private/string-utils.h \
