@@ -160,10 +160,16 @@ pub unsafe extern "C" fn sc_is_hook_security_tag(security_tag: *const c_char) ->
 pub unsafe extern "C" fn sc_security_tag_validate(
     security_tag: *const c_char,
     snap_name: *const c_char,
+    component_name: *const c_char,
 ) -> bool {
     let s_security_tag = unsafe { CStr::from_ptr(security_tag).to_str().unwrap_or("") };
     let s_snap_name = unsafe { CStr::from_ptr(snap_name).to_str().unwrap_or("") };
-    snap::sc_security_tag_validate(s_security_tag, s_snap_name)
+    let s_component_name = if component_name.is_null() {
+        None
+    } else {
+        Some(unsafe { CStr::from_ptr(snap_name).to_str().unwrap_or("") })
+    };
+    snap::sc_security_tag_validate(s_security_tag, s_snap_name, s_component_name)
 }
 
 #[no_mangle]
@@ -220,9 +226,10 @@ pub unsafe extern "C" fn sc_snap_drop_instance_key(
     snap_name: *mut u8,
     snap_name_size: usize,
 ) {
-    sc_snap_split_instance_name(instance_name, snap_name, snap_name_size,
-                                ptr::null_mut(), 0);
+    sc_snap_split_instance_name(instance_name, snap_name, snap_name_size, ptr::null_mut(), 0);
 }
+
+// TODO add sc_snap_split_snap_component
 
 #[cfg(test)]
 mod tests {

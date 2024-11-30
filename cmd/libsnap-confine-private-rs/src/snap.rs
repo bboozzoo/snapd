@@ -56,7 +56,7 @@ pub fn sc_instance_name_validate(instance_name: &str) -> Result<(), Error> {
         return Err(Error::new(
             ErrorKind::InvalidInstanceName,
             // TODO use const_format::concatcp ?
-            "snap instance name can be at most 51 characters long"
+            "snap instance name can be at most 51 characters long",
         ));
     }
 
@@ -166,16 +166,36 @@ pub fn sc_is_hook_security_tag(security_tag: &str) -> bool {
     re.is_match(security_tag)
 }
 
-pub fn sc_security_tag_validate(security_tag: &str, snap_name: &str) -> bool {
+pub fn sc_security_tag_validate(security_tag: &str, snap_name: &str, comp: Option<&str>) -> bool {
     if security_tag.len() > SNAP_SECURITY_TAG_MAX_LEN {
         return false;
     }
 
     let valid_re =
-	      "^snap\\.([a-z0-9](-?[a-z0-9])*(_[a-z0-9]{1,10})?)\\.([a-zA-Z0-9](-?[a-zA-Z0-9])*|hook\\.[a-z](-?[a-z0-9])*)$";
+	      "^snap\\.([a-z0-9](-?[a-z0-9])*(_[a-z0-9]{1,10})?)(\\.[a-zA-Z0-9](-?[a-zA-Z0-9])*|(\\+([a-z0-9](-?[a-z0-9])*))?\\.hook\\.[a-z](-?[a-z0-9])*)$";
     let re = Regex::new(valid_re).expect("canont compile regex");
     if let Some(c) = re.captures(security_tag) {
-        if let Some(snap_from_tag) = c.get(1) {
+        // first capture is for verifying the full security tag, second capture
+        // for verifying the snap_name is correct for this security tag, eighth capture
+        // for verifying the component_name is correct for this security tag. the
+        // expression currently contains 9 capture groups
+        let maybe_snap_from_tag = c.get(1);
+        let maybe_comp_from_tag = c.get(7);
+
+        if comp.is_some() != maybe_comp_from_tag.is_some() {
+            // if expecting a component, then it must be present, otherwise it
+            // must be none
+            return false;
+        } else if let Some(expected_component) = comp {
+            // expecting a component, then it must match
+            if let Some(comp_from_tag) = maybe_comp_from_tag {
+                if comp_from_tag.as_str() != expected_component {
+                    return false;
+                }
+            }
+        }
+
+        if let Some(snap_from_tag) = maybe_snap_from_tag {
             snap_from_tag.as_str() == snap_name
         } else {
             false
@@ -199,6 +219,13 @@ pub fn sc_snap_split_instance_name(instance_name: &str) -> (&str, Option<&str>) 
 
 pub fn sc_snap_drop_instance_key(instance_name: &str) -> Result<&str, &str> {
     Ok(instance_name.split('_').next().unwrap())
+}
+
+pub fn sc_snap_split_snap_component(component: &str) -> (&str, Option<&str>) {
+    match component.find('+') {
+        None => (component, None),
+        Some(pos) => (&component[..pos], Some(&component[pos + 1..])),
+    }
 }
 
 #[cfg(test)]
@@ -238,100 +265,206 @@ mod tests {
     #[test]
     fn test_sc_security_tag_validate() {
         // First, test the names we know are good
-        assert!(sc_security_tag_validate("snap.name.app", "name"));
+        assert!(sc_security_tag_validate("snap.name.app", "name", None));
         assert!(sc_security_tag_validate(
             "snap.network-manager.NetworkManager",
-            "network-manager"
+            "network-manager",
+            None
         ));
-        assert!(sc_security_tag_validate("snap.f00.bar-baz1", "f00"));
-        assert!(sc_security_tag_validate("snap.foo.hook.bar", "foo"));
-        assert!(sc_security_tag_validate("snap.foo.hook.bar-baz", "foo"));
+        assert!(sc_security_tag_validate("snap.f00.bar-baz1", "f00", None));
+        assert!(sc_security_tag_validate("snap.foo.hook.bar", "foo", None));
+        assert!(sc_security_tag_validate(
+            "snap.foo.hook.bar-baz",
+            "foo",
+            None
+        ));
         assert!(sc_security_tag_validate(
             "snap.foo_instance.bar-baz",
-            "foo_instance"
+            "foo_instance",
+            None
         ));
         assert!(sc_security_tag_validate(
             "snap.foo_instance.hook.bar-baz",
-            "foo_instance"
+            "foo_instance",
+            None
         ));
         assert!(sc_security_tag_validate(
             "snap.foo_bar.hook.bar-baz",
-            "foo_bar"
+            "foo_bar",
+            None
         ));
 
         // Now, test the names we know are bad
         assert!(!sc_security_tag_validate(
             "pkg-foo.bar.0binary-bar+baz",
-            "bar"
+            "bar",
+            None
         ));
-        assert!(!sc_security_tag_validate("pkg-foo_bar_1.1", ""));
-        assert!(!sc_security_tag_validate("appname/..", ""));
-        assert!(!sc_security_tag_validate("snap", ""));
-        assert!(!sc_security_tag_validate("snap.", ""));
-        assert!(!sc_security_tag_validate("snap.name", "name"));
-        assert!(!sc_security_tag_validate("snap.name.", "name"));
-        assert!(!sc_security_tag_validate("snap.name.app.", "name"));
-        assert!(!sc_security_tag_validate("snap.name.hook.", "name"));
-        assert!(!sc_security_tag_validate("snap!name.app", "!name"));
-        assert!(!sc_security_tag_validate("snap.-name.app", "-name"));
-        assert!(!sc_security_tag_validate("snap.name!app", "name!"));
-        assert!(!sc_security_tag_validate("snap.name.-app", "name"));
-        assert!(!sc_security_tag_validate("snap.name.app!hook.foo", "name"));
-        assert!(!sc_security_tag_validate("snap.name.app.hook!foo", "name"));
-        assert!(!sc_security_tag_validate("snap.name.app.hook.-foo", "name"));
-        assert!(!sc_security_tag_validate("snap.name.app.hook.f00", "name"));
-        assert!(!sc_security_tag_validate("sna.pname.app", "pname"));
-        assert!(!sc_security_tag_validate("snap.n@me.app", "n@me"));
-        assert!(!sc_security_tag_validate("SNAP.name.app", "name"));
-        assert!(!sc_security_tag_validate("snap.Name.app", "Name"));
+        assert!(!sc_security_tag_validate("pkg-foo_bar_1.1", "", None));
+        assert!(!sc_security_tag_validate("appname/..", "", None));
+        assert!(!sc_security_tag_validate("snap", "", None));
+        assert!(!sc_security_tag_validate("snap.", "", None));
+        assert!(!sc_security_tag_validate("snap.name", "name", None));
+        assert!(!sc_security_tag_validate("snap.name.", "name", None));
+        assert!(!sc_security_tag_validate("snap.name.app.", "name", None));
+        assert!(!sc_security_tag_validate("snap.name.hook.", "name", None));
+        assert!(!sc_security_tag_validate("snap!name.app", "!name", None));
+        assert!(!sc_security_tag_validate("snap.-name.app", "-name", None));
+        assert!(!sc_security_tag_validate("snap.name!app", "name!", None));
+        assert!(!sc_security_tag_validate("snap.name.-app", "name", None));
+        assert!(!sc_security_tag_validate(
+            "snap.name.app!hook.foo",
+            "name",
+            None
+        ));
+        assert!(!sc_security_tag_validate(
+            "snap.name.app.hook!foo",
+            "name",
+            None
+        ));
+        assert!(!sc_security_tag_validate(
+            "snap.name.app.hook.-foo",
+            "name",
+            None
+        ));
+        assert!(!sc_security_tag_validate(
+            "snap.name.app.hook.f00",
+            "name",
+            None
+        ));
+        assert!(!sc_security_tag_validate("sna.pname.app", "pname", None));
+        assert!(!sc_security_tag_validate("snap.n@me.app", "n@me", None));
+        assert!(!sc_security_tag_validate("SNAP.name.app", "name", None));
+        assert!(!sc_security_tag_validate("snap.Name.app", "Name", None));
         // This used to be false but it's now allowed.
-        assert!(sc_security_tag_validate("snap.0name.app", "0name"));
-        assert!(!sc_security_tag_validate("snap.-name.app", "-name"));
-        assert!(!sc_security_tag_validate("snap.name.@app", "name"));
-        assert!(!sc_security_tag_validate(".name.app", "name"));
-        assert!(!sc_security_tag_validate("snap..name.app", ".name"));
-        assert!(!sc_security_tag_validate("snap.name..app", "name."));
-        assert!(!sc_security_tag_validate("snap.name.app..", "name"));
+        assert!(sc_security_tag_validate("snap.0name.app", "0name", None));
+        assert!(!sc_security_tag_validate("snap.-name.app", "-name", None));
+        assert!(!sc_security_tag_validate("snap.name.@app", "name", None));
+        assert!(!sc_security_tag_validate(".name.app", "name", None));
+        assert!(!sc_security_tag_validate("snap..name.app", ".name", None));
+        assert!(!sc_security_tag_validate("snap.name..app", "name.", None));
+        assert!(!sc_security_tag_validate("snap.name.app..", "name", None));
         // These contain invalid instance key
-        assert!(!sc_security_tag_validate("snap.foo_.bar-baz", "foo"));
+        assert!(!sc_security_tag_validate("snap.foo_.bar-baz", "foo", None));
         assert!(!sc_security_tag_validate(
             "snap.foo_toolonginstance.bar-baz",
-            "foo"
+            "foo",
+            None
         ));
         assert!(!sc_security_tag_validate(
             "snap.foo_inst@nace.bar-baz",
-            "foo"
+            "foo",
+            None
         ));
         assert!(!sc_security_tag_validate(
             "snap.foo_in-stan-ce.bar-baz",
-            "foo"
+            "foo",
+            None
         ));
-        assert!(!sc_security_tag_validate("snap.foo_in stan.bar-baz", "foo"));
+        assert!(!sc_security_tag_validate(
+            "snap.foo_in stan.bar-baz",
+            "foo",
+            None
+        ));
 
         // Test names that are both good, but snap name doesn't match security tag
-        assert!(!sc_security_tag_validate("snap.foo.hook.bar", "fo"));
-        assert!(!sc_security_tag_validate("snap.foo.hook.bar", "fooo"));
-        assert!(!sc_security_tag_validate("snap.foo.hook.bar", "snap"));
-        assert!(!sc_security_tag_validate("snap.foo.hook.bar", "bar"));
+        assert!(!sc_security_tag_validate("snap.foo.hook.bar", "fo", None));
+        assert!(!sc_security_tag_validate("snap.foo.hook.bar", "fooo", None));
+        assert!(!sc_security_tag_validate("snap.foo.hook.bar", "snap", None));
+        assert!(!sc_security_tag_validate("snap.foo.hook.bar", "bar", None));
         assert!(!sc_security_tag_validate(
             "snap.foo_instance.bar",
-            "foo_bar"
+            "foo_bar",
+            None
         ));
 
         // Regression test 12to8
-        assert!(sc_security_tag_validate("snap.12to8.128to8", "12to8"));
-        assert!(sc_security_tag_validate("snap.123test.123test", "123test"));
+        assert!(sc_security_tag_validate("snap.12to8.128to8", "12to8", None));
+        assert!(sc_security_tag_validate(
+            "snap.123test.123test",
+            "123test",
+            None
+        ));
         assert!(sc_security_tag_validate(
             "snap.123test.hook.configure",
-            "123test"
+            "123test",
+            None
         ));
 
         // regression test snap.eon-edg-shb-pulseaudio.hook.connect-plug-i2c
         assert!(sc_security_tag_validate(
             "snap.foo.hook.connect-plug-i2c",
-            "foo"
+            "foo",
+            None
         ));
 
+        // make sure that component hooks can be validated
+        assert!(sc_security_tag_validate(
+            "snap.foo+comp.hook.install",
+            "foo",
+            Some("comp")
+        ));
+        assert!(sc_security_tag_validate(
+            "snap.foo_instance+comp.hook.install",
+            "foo_instance",
+            Some("comp")
+        ));
+        // make sure that only hooks from components can be validated, not apps
+        assert!(!sc_security_tag_validate(
+            "snap.foo+comp.app",
+            "foo",
+            Some("comp")
+        ));
+
+        // unexpected component names should not work
+        assert!(!sc_security_tag_validate(
+            "snap.foo+comp.hook.install",
+            "foo",
+            None
+        ));
+        assert!(!sc_security_tag_validate(
+            "snap.foo+comp.hook.install",
+            "foo",
+            None
+        ));
+
+        // missing component names when we expect one should not work
+        assert!(!sc_security_tag_validate(
+            "snap.foo.hook.install",
+            "foo",
+            Some("comp")
+        ));
+        assert!(!sc_security_tag_validate(
+            "snap.foo.hook.install",
+            "foo",
+            Some("comp")
+        ));
+
+        // mismatch component names should not work
+        assert!(!sc_security_tag_validate(
+            "snap.foo+comp.hook.install",
+            "foo",
+            Some("component")
+        ));
+
+        // empty component name should not work
+        assert!(!sc_security_tag_validate(
+            "snap.foo+comp.hook.install",
+            "foo",
+            Some("")
+        ));
+
+        // invalid component names should not work
+        assert!(!sc_security_tag_validate(
+            "snap.foo+coMp.hook.install",
+            "foo",
+            Some("coMp")
+        ));
+        assert!(!sc_security_tag_validate(
+            "snap.foo+-omp.hook.install",
+            "foo",
+            Some("-omp")
+        ));
         // // Security tag that's too long. The extra +2 is for the string
         // // terminator and to allow us to make the tag too long to validate.
         // char long_tag[SNAP_SECURITY_TAG_MAX_LEN + 2];
@@ -573,4 +706,6 @@ mod tests {
         assert_eq!(sc_snap_split_instance_name("_"), ("", Some("")));
         assert_eq!(sc_snap_split_instance_name("foo_"), ("foo", Some("")));
     }
+
+    // TODO add sc_snap_split_snap_component tests
 }
