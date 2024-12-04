@@ -32,11 +32,11 @@ import (
 )
 
 const (
-	defaultGetentSearchPath = "/usr/bin:/bin:/usr/sbin:/sbin"
+	DefaultGetentSearchPath = "/usr/bin:/bin:/usr/sbin:/sbin"
 )
 
 var (
-	getentSearchPath = defaultGetentSearchPath
+	getentSearchPath = DefaultGetentSearchPath
 )
 
 func findGetent(searchPath string) (string, error) {
@@ -54,6 +54,7 @@ func findGetent(searchPath string) (string, error) {
 }
 
 func getEnt(params ...string) ([]byte, error) {
+	fmt.Printf("--- seatch path: %q\n", getentSearchPath)
 	getentCmd, err := findGetent(getentSearchPath)
 	if err != nil {
 		return nil, err
@@ -222,4 +223,10 @@ func lookupUserFromGetent(matcher userMatcher) (*User, error) {
 		Name:     components[4],
 		HomeDir:  components[5],
 	}, nil
+}
+
+func OverrideGetentSearchPath(p string) {
+	// should use osutil.MustBeTestBinary() but we cannot import due to cyclic
+	// dependencies
+	getentSearchPath = p
 }
