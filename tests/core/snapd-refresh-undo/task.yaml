@@ -44,3 +44,4 @@ execute: |
 
   # restore original snapd
   snap revert snapd
+  exit 1
