@@ -19,6 +19,10 @@ environment:
     SNAPD_SRC/snapd: "snapd"
 
 prepare: |
+    if [ "${SNAP_REEXEC:-}" = "0" ]; then
+        tests.exec skip-test "skipping test when SNAP_REEXEC is disabled" && exit 0
+    fi
+
     #  when testing core remove snapd snap as option for re-exec
     if [ "$SNAPD_SRC" == "core" ]; then
         systemctl stop snapd.service snapd.socket
@@ -27,12 +31,14 @@ prepare: |
         # without .data.snaps.snapd.sequence and .data.snaps.snapd.current="unset"
         # snapd is not considered installed and core install will request restart
         cp -a /var/lib/snapd/state.json /tmp/backup_state.json
-        jq 'del(.data.snaps.snapd)' /tmp/backup_state.json > /tmp/modified_state.json
+        gojq 'del(.data.snaps.snapd)' /tmp/backup_state.json > /tmp/modified_state.json
         cp /tmp/modified_state.json /var/lib/snapd/state.json && rm /tmp/modified_state.json
         systemctl start snapd.service
     fi
 
 restore: |
+    tests.exec is-skipped && exit 0
+
     SNAP_MOUNT_DIR="$(os.paths snap-mount-dir)"
     SNAPD_MOUNT_DIR="$SNAP_MOUNT_DIR/$SNAPD_SRC"
     # remove the locale revision of the snapd source snap, if we installed one
@@ -64,17 +70,16 @@ restore: |
     systemctl start snapd.service
 
 debug: |
+    tests.exec is-skipped && exit 0
+
     ls /etc/systemd/system/snapd.service.d
     cat /etc/systemd/system/snapd.service.d/*
 
 execute: |
+    tests.exec is-skipped && exit 0
+    
     SNAP_MOUNT_DIR="$(os.paths snap-mount-dir)"
     SNAPD_MOUNT_DIR="$SNAP_MOUNT_DIR/$SNAPD_SRC"
-
-    if [ "${SNAP_REEXEC:-}" = "0" ]; then
-        echo "skipping test when SNAP_REEXEC is disabled"
-        exit 0
-    fi
 
     echo "Ensure we re-exec by default"
     IS_REEXEC=true

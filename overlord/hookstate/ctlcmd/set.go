@@ -28,18 +28,18 @@ import (
 	"github.com/snapcore/snapd/client/clientutil"
 	"github.com/snapcore/snapd/i18n"
 	"github.com/snapcore/snapd/jsonutil"
+	"github.com/snapcore/snapd/overlord/confdbstate"
 	"github.com/snapcore/snapd/overlord/configstate"
 	"github.com/snapcore/snapd/overlord/configstate/config"
 	"github.com/snapcore/snapd/overlord/hookstate"
-	"github.com/snapcore/snapd/overlord/registrystate"
 )
 
-var registrystateGetTransaction = registrystate.GetTransactionToModify
+var confdbstateGetTransaction = confdbstate.GetTransactionToModify
 
 type setCommand struct {
 	baseCommand
 
-	View bool `long:"view" description:"return registry values from the view declared in the plug"`
+	View bool `long:"view" description:"return confdb values from the view declared in the plug"`
 
 	Positional struct {
 		PlugOrSlotSpec string   `positional-arg-name:":<plug|slot>"`
@@ -108,13 +108,17 @@ func (s *setCommand) Execute(args []string) error {
 	}
 
 	if s.View {
+		if err := validateConfdbsFeatureFlag(context.State()); err != nil {
+			return err
+		}
+
 		opts := &clientutil.ParseConfigOptions{String: s.String, Typed: s.Typed}
 		requests, _, err := clientutil.ParseConfigValues(s.Positional.ConfValues, opts)
 		if err != nil {
 			return fmt.Errorf(i18n.G("cannot set %s plug: %w"), s.Positional.PlugOrSlotSpec, err)
 		}
 
-		return setRegistryValues(context, name, requests)
+		return setConfdbValues(context, name, requests)
 	}
 
 	return s.setInterfaceSetting(context, name)
@@ -228,29 +232,46 @@ func (s *setCommand) setInterfaceSetting(context *hookstate.Context, plugOrSlot 
 	return nil
 }
 
-func setRegistryValues(ctx *hookstate.Context, plugName string, requests map[string]interface{}) error {
+func setConfdbValues(ctx *hookstate.Context, plugName string, requests map[string]interface{}) error {
 	ctx.Lock()
 	defer ctx.Unlock()
 
-	account, registryName, viewName, err := getRegistryViewID(ctx, plugName)
+	account, confdbName, viewName, err := getConfdbViewID(ctx, plugName)
 	if err != nil {
 		return err
 	}
 
-	view, err := getRegistryView(ctx, account, registryName, viewName)
+	view, err := confdbstateGetView(ctx.State(), account, confdbName, viewName)
 	if err != nil {
 		return err
 	}
 
-	if registrystate.IsRegistryHook(ctx) && !strings.HasPrefix(ctx.HookName(), "change-view-") {
-		return fmt.Errorf("cannot modify registry in %q hook", ctx.HookName())
+	if confdbstate.IsConfdbHook(ctx) && !strings.HasPrefix(ctx.HookName(), "change-view-") {
+		return fmt.Errorf("cannot modify confdb in %q hook", ctx.HookName())
 	}
 
-	regCtx := registrystate.NewContext(ctx)
-	tx, err := registrystateGetTransaction(regCtx, ctx.State(), view)
+	tx, commitTxFunc, err := confdbstateGetTransaction(ctx, ctx.State(), view)
 	if err != nil {
 		return err
 	}
 
-	return registrystate.SetViaView(tx, view, requests)
+	err = confdbstate.SetViaView(tx, view, requests)
+	if err != nil {
+		return err
+	}
+
+	// if a new transaction was created, commit it
+	if commitTxFunc != nil {
+		_, waitChan, err := commitTxFunc()
+		if err != nil {
+			return err
+		}
+
+		// wait for the transaction to be committed
+		ctx.Unlock()
+		<-waitChan
+		ctx.Lock()
+	}
+
+	return nil
 }

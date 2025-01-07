@@ -58,7 +58,10 @@ func (pol *policy20) checkDefaultChannel(channel.Channel) error {
 }
 
 func (pol *policy20) checkSnapChannel(ch channel.Channel, whichSnap string) error {
-	return pol.checkAllowedDangerous()
+	if pol.checkAllowedDangerous() != nil {
+		return fmt.Errorf("cannot override channels with a model of grade higher than dangerous but --snap=<snap-name> is allowed to select optional snaps to include")
+	}
+	return nil
 }
 
 func (pol *policy20) checkClassicSnap(sn *SeedSnap) error {
@@ -258,13 +261,13 @@ func (tr *tree20) localSnapPath(sn *SeedSnap) (string, error) {
 	return filepath.Join(sysSnapsDir, fmt.Sprintf("%s_%s.snap", sn.SnapName(), sn.Info.Version)), nil
 }
 
-func (tr *tree20) localComponentPath(sc *SeedComponent) (string, error) {
+func (tr *tree20) localComponentPath(sc *SeedComponent, snapVersion string) (string, error) {
 	sysSnapsDir, err := tr.ensureSystemSnapsDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(sysSnapsDir, fmt.Sprintf("%s_%s.comp",
-		sc.ComponentRef.String(), sc.Info.Version)), nil
+		sc.ComponentRef.String(), sc.Info.Version(snapVersion))), nil
 }
 
 func (tr *tree20) writeAssertions(db asserts.RODatabase, modelRefs []*asserts.Ref, snapsFromModel []*SeedSnap, extraSnaps []*SeedSnap) error {

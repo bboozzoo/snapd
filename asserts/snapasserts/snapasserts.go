@@ -138,7 +138,7 @@ func CrossCheck(instanceName, snapSHA3_384, provenance string, snapSize uint64, 
 // provenance, and metadata of a snap resource with the relevant assertions
 // (snap-resource-revision and snap-resource-pair) in a database that should be
 // pre-populated with them.
-func CrossCheckResource(name, hash, provenance string, size uint64, csi *snap.ComponentSideInfo, si *snap.SideInfo, model *asserts.Model, db Finder) error {
+func CrossCheckResource(name, hash, provenance string, size uint64, csi *snap.ComponentSideInfo, si *snap.SideInfo, model *asserts.Model, db Finder) (*asserts.SnapResourceRevision, error) {
 	headers := map[string]string{
 		"resource-sha3-384": hash,
 		"resource-name":     name,
@@ -154,20 +154,20 @@ func CrossCheckResource(name, hash, provenance string, size uint64, csi *snap.Co
 		if provenance != "" {
 			provInf = fmt.Sprintf(" provenance: %s", provenance)
 		}
-		return fmt.Errorf("internal error: cannot find pre-populated snap-resource-revision assertion for %q: %s%s", name, hash, provInf)
+		return nil, fmt.Errorf("internal error: cannot find pre-populated snap-resource-revision assertion for %q: %s%s", name, hash, provInf)
 	}
 
 	resrev := a.(*asserts.SnapResourceRevision)
 
 	if resrev.ResourceSize() != size {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"resource %q file does not have expected size according to signatures (download is broken or tampered): %d != %d",
 			name, size, resrev.ResourceSize(),
 		)
 	}
 
 	if resrev.ResourceRevision() != csi.Revision.N {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"resource %q does not have expected revision according to assertions (metadata is broken or tampered): %s != %d",
 			name, csi.Revision, resrev.ResourceRevision(),
 		)
@@ -178,21 +178,21 @@ func CrossCheckResource(name, hash, provenance string, size uint64, csi *snap.Co
 	// it exists
 	_, err = findResourcePair(name, si.SnapID, csi.Revision.N, si.Revision.N, provenance, db)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if provenance != "" {
 		snapDecl, err := findSnapDeclaration(si.SnapID, si.RealName, db)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		if err := crossCheckResourceProvenance(resrev, snapDecl, model, db); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	return nil
+	return resrev, nil
 }
 
 // crossCheckResourceProvenance tries to cross check the given
@@ -325,6 +325,24 @@ func DeriveSideInfo(snapPath string, model *asserts.Model, db Finder) (*snap.Sid
 	}
 
 	return DeriveSideInfoFromDigestAndSize(snapPath, snapSHA3_384, snapSize, model, db)
+}
+
+// DeriveComponentSideInfo constructs a ComponentSideInfo from the given path,
+// which should be the path to a component file. We also assert that the
+// resource-revision assertion and the snap-resource-pair for this given
+// component are present in the given database.
+func DeriveComponentSideInfo(name, path string, info *snap.Info, model *asserts.Model, db Finder) (*snap.ComponentSideInfo, error) {
+	digest, size, err := asserts.SnapFileSHA3_384(path)
+	if err != nil {
+		return nil, err
+	}
+
+	csi, err := DeriveComponentSideInfoFromDigestAndSize(name, info.SnapName(), info.ID(), path, digest, size, model, db)
+	if err != nil {
+		return nil, err
+	}
+
+	return csi, nil
 }
 
 // DeriveSideInfoFromDigestAndSize tries to construct a SideInfo
@@ -509,12 +527,12 @@ func FetchStore(f asserts.Fetcher, storeID string) error {
 	return f.Fetch(ref)
 }
 
-// FetchRegistry fetches a registry assertion described by account and registry
+// FetchConfdb fetches a confdb assertion described by account and confdb
 // name using the given fetcher.
-func FetchRegistry(f asserts.Fetcher, account, registryName string) error {
+func FetchConfdb(f asserts.Fetcher, account, confdbName string) error {
 	ref := &asserts.Ref{
-		Type:       asserts.RegistryType,
-		PrimaryKey: []string{account, registryName},
+		Type:       asserts.ConfdbType,
+		PrimaryKey: []string{account, confdbName},
 	}
 
 	return f.Fetch(ref)

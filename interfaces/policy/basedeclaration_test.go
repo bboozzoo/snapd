@@ -143,19 +143,20 @@ func (s *baseDeclSuite) TestAutoConnection(c *C) {
 	// these have more complex or in flux policies and have their
 	// own separate tests
 	snowflakes := map[string]bool{
-		"content":            true,
-		"core-support":       true,
-		"desktop":            true,
-		"home":               true,
-		"lxd-support":        true,
-		"microstack-support": true,
-		"multipass-support":  true,
-		"packagekit-control": true,
-		"pkcs11":             true,
-		"remoteproc":         true,
-		"snapd-control":      true,
-		"upower-observe":     true,
-		"empty":              true,
+		"content":                true,
+		"core-support":           true,
+		"desktop":                true,
+		"home":                   true,
+		"lxd-support":            true,
+		"microstack-support":     true,
+		"multipass-support":      true,
+		"packagekit-control":     true,
+		"pkcs11":                 true,
+		"remoteproc":             true,
+		"screen-inhibit-control": true,
+		"snapd-control":          true,
+		"upower-observe":         true,
+		"empty":                  true,
 	}
 
 	// these simply auto-connect, anything else doesn't
@@ -173,7 +174,6 @@ func (s *baseDeclSuite) TestAutoConnection(c *C) {
 		"opengl":                  true,
 		"optical-drive":           true,
 		"ros-opt-data":            true,
-		"screen-inhibit-control":  true,
 		"ubuntu-download-manager": true,
 		"unity7":                  true,
 		"unity8":                  true,
@@ -205,8 +205,9 @@ func (s *baseDeclSuite) TestAutoConnectionImplicitSlotOnly(c *C) {
 
 	// these auto-connect only with an implicit slot
 	autoconnect := map[string]bool{
-		"desktop":        true,
-		"upower-observe": true,
+		"desktop":                true,
+		"screen-inhibit-control": true,
+		"upower-observe":         true,
 	}
 
 	for _, iface := range all {
@@ -807,6 +808,7 @@ var (
 		"bluez":                     {"app", "core"},
 		"bool-file":                 {"core", "gadget"},
 		"browser-support":           {"core"},
+		"checkbox-support":          {"core"},
 		"content":                   {"app", "gadget", "kernel"},
 		"core-support":              {"core"},
 		"cups":                      {"app"},
@@ -852,6 +854,7 @@ var (
 		"sd-control":                {"core"},
 		"serial-port":               {"core", "gadget"},
 		"spi":                       {"core", "gadget"},
+		"screen-inhibit-control":    {"core", "app"},
 		"steam-support":             {"core"},
 		"storage-framework-service": {"app"},
 		"thumbnailer-service":       {"app"},
@@ -1009,6 +1012,7 @@ func (s *baseDeclSuite) TestPlugInstallation(c *C) {
 
 	restricted := map[string]bool{
 		"block-devices":                    true,
+		"checkbox-support":                 true,
 		"classic-support":                  true,
 		"desktop-launch":                   true,
 		"dm-crypt":                         true,
@@ -1109,6 +1113,7 @@ func (s *baseDeclSuite) TestConnection(c *C) {
 		"posix-mq":                  true,
 		"qualcomm-ipc-router":       true,
 		"raw-volume":                true,
+		"screen-inhibit-control":    true,
 		"shared-memory":             true,
 		"storage-framework-service": true,
 		"thumbnailer-service":       true,
@@ -1139,9 +1144,10 @@ func (s *baseDeclSuite) TestConnectionImplicitSlotOnly(c *C) {
 
 	// these allow connect only with an implicit slot
 	autoconnect := map[string]bool{
-		"desktop":             true,
-		"qualcomm-ipc-router": true,
-		"upower-observe":      true,
+		"desktop":                true,
+		"qualcomm-ipc-router":    true,
+		"screen-inhibit-control": true,
+		"upower-observe":         true,
 	}
 
 	for _, iface := range all {
@@ -1306,6 +1312,7 @@ func (s *baseDeclSuite) TestValidity(c *C) {
 		"block-devices":                    true,
 		"audio-playback":                   true,
 		"classic-support":                  true,
+		"checkbox-support":                 true,
 		"core-support":                     true,
 		"custom-device":                    true,
 		"desktop":                          true,
@@ -1334,6 +1341,7 @@ func (s *baseDeclSuite) TestValidity(c *C) {
 		"polkit-agent":                     true,
 		"remoteproc":                       true,
 		"qualcomm-ipc-router":              true,
+		"screen-inhibit-control":           true,
 		"sd-control":                       true,
 		"shutdown":                         true,
 		"shared-memory":                    true,
@@ -1351,7 +1359,7 @@ func (s *baseDeclSuite) TestValidity(c *C) {
 		"userns":                           true,
 		"wayland":                          true,
 		"xilinx-dma":                       true,
-		"registry":                         true,
+		"confdb":                           true,
 	}
 
 	for _, iface := range all {
@@ -1883,4 +1891,36 @@ plugs:
 	ic.SnapDeclaration = s.mockSnapDecl(c, "some-snap", "some-snap-id", "canonical", plugsOverride)
 	err = ic.Check()
 	c.Assert(err, IsNil)
+}
+
+func (s *baseDeclSuite) TestConnectionScreenInhibitControl(c *C) {
+	cand := s.connectCand(c, "screen-inhibit-control", "", "")
+	err := cand.Check()
+	c.Assert(err, ErrorMatches, `connection denied by slot rule of interface "screen-inhibit-control"`)
+
+	plugsSlots := `
+plugs:
+  screen-inhibit-control:
+    allow-connection: true
+`
+	snapDecl := s.mockSnapDecl(c, "some-snap", "some-snap", "canonical", plugsSlots)
+	cand.PlugSnapDeclaration = snapDecl
+	err = cand.Check()
+	c.Assert(err, IsNil)
+}
+
+func (s *baseDeclSuite) TestAutoConnectionScreenInhibitControl(c *C) {
+	cand := s.connectCand(c, "screen-inhibit-control", "", "")
+	_, err := cand.CheckAutoConnect()
+	c.Assert(err, ErrorMatches, "auto-connection denied by slot rule of interface \"screen-inhibit-control\"")
+
+	plugsSlots := `
+plugs:
+  screen-inhibit-control:
+    allow-auto-connection: true
+`
+	snapDecl := s.mockSnapDecl(c, "some-snap", "some-snap", "canonical", plugsSlots)
+	cand.PlugSnapDeclaration = snapDecl
+	_, err = cand.CheckAutoConnect()
+	c.Check(err, IsNil)
 }

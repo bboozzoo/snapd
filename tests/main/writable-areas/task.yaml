@@ -13,9 +13,8 @@ environment:
     SNAP_REEXEC/reexec1: 1
 
 prepare: |
-    # No needed to test the snap pkg when it is coming from the repository
     if [ "$SNAP_REEXEC" = "0" ] && tests.info is-snapd-from-archive; then
-        tests.exec skip-test "No needed to test the snap pkg when it is coming from the repository" && exit 0
+        tests.exec skip-test "No need to test when the snapd pkg is from the repository and reexec is disabled" && exit 0
     fi
     snap pack data-writer
     SNAP_MOUNT_DIR="$(os.paths snap-mount-dir)"
@@ -32,22 +31,6 @@ execute: |
     snap install --dangerous data-writer_1.0_all.snap
 
     echo "Apps can write to writable areas"
-
-    SNAP_MOUNT_DIR="$(os.paths snap-mount-dir)"
-    if [ "$SNAP_REEXEC" = "1" ] && [ "$SNAP_MOUNT_DIR" != "/snap" ]; then
-        # with snap mount dir different than /snap, internal s-c checks will fail
-        if data-writer.app > err.out 2>&1 ; then
-            echo "unexpected success"
-            cat err.out || true
-            exit 1
-        fi
-
-        # with no AA support, we fail on a simple check for s-c being executed
-        # from /snap/snapd/<rev>/, with AA we fail on an earlier check for AA
-        # confinement
-        MATCH "(running from unexpected location:|snap-confine has elevated permissions)" < err.out
-        exit 0
-    fi
 
     data-writer.app
     [ -f /var/snap/data-writer/x1/from-app ]

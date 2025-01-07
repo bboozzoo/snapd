@@ -10,7 +10,6 @@ prepare: |
   snap set system experimental.parallel-instances=true
 
 restore: |
-  snap remove test-snap-with-components
   snap unset system experimental.parallel-instances
 
 execute: |

@@ -28,6 +28,7 @@ import (
 	"github.com/snapcore/snapd/interfaces/apparmor"
 	"github.com/snapcore/snapd/interfaces/builtin"
 	"github.com/snapcore/snapd/interfaces/seccomp"
+	"github.com/snapcore/snapd/osutil/mount/libmount"
 	"github.com/snapcore/snapd/snap"
 	"github.com/snapcore/snapd/systemd"
 	"github.com/snapcore/snapd/testutil"
@@ -78,6 +79,9 @@ plugs:
     where: $SNAP_COMMON/mnt/**
     type: [aufs]
     options: [br:/mnt/a, add:0:/mnt/b, dirwh=1, rw]
+  - type: [nfs]
+    where: /media/foo/**
+    options: [rw]
 apps:
  app:
   plugs: [mntctl]
@@ -307,6 +311,30 @@ func (s *MountControlInterfaceSuite) TestSanitizePlugUnhappy(c *C) {
 			"mount:\n  - what: diag\n    where: /dev/ffs-diag\n    type: [functionfs]\n    options: [rw,uid=*]",
 			`cannot use mount-control "option" attribute: "uid=\*" contains a reserved apparmor char from.*`,
 		},
+		{
+			"mount:\n  - what: diag\n    where: /media/foo\n    type: [nfs]\n    options: [rw]",
+			`mount-control "what" attribute must not be specified for nfs mounts.*`,
+		},
+		{
+			"mount:\n  - where: /media/foo\n    type: [nfs, ext4]\n    options: [rw]",
+			`mount-control filesystem type "nfs" cannot be listed with other types`,
+		},
+		{
+			"mount:\n  - where: /media/foo\n    type: [tmpfs, nfs, ext4]\n    options: [rw]",
+			`mount-control filesystem type "tmpfs" cannot be listed with other types`,
+		},
+		{
+			"mount:\n  - what: 123\n    where: /media/foo\n    type: [ext4]\n    options: [rw]",
+			`mount-control "what" must be a string`,
+		},
+		// the deprecated nfs4 isn't explicitly forbidden, but it is not
+		// possible construct a valid and useful specification using this
+		// type
+		{
+			// deprecated nfs4
+			"mount:\n  - where: /media/foo\n    type: [nfs4]\n    options: [rw]",
+			`mount-control deprecated filesystem type: "nfs4"`,
+		},
 	}
 
 	for _, testData := range data {
@@ -376,6 +404,14 @@ func (s *MountControlInterfaceSuite) TestAppArmorSpec(c *C) {
 	c.Assert(spec.SnippetForTag("snap.consumer.app"), testutil.Contains, expectedMountLine7)
 	expectedUmountLine7 := `umount "/var/snap/consumer/common/mnt/**{,/}",`
 	c.Assert(spec.SnippetForTag("snap.consumer.app"), testutil.Contains, expectedUmountLine7)
+
+	expectedMountLine8 := `mount fstype=(nfs) options=(rw) ` +
+		`"*:**" -> "/media/foo/**{,/}",`
+	c.Assert(spec.SnippetForTag("snap.consumer.app"), testutil.Contains, expectedMountLine8)
+	expectedUmountLine8 := `umount "/media/foo/**{,/}",`
+	c.Assert(spec.SnippetForTag("snap.consumer.app"), testutil.Contains, expectedUmountLine8)
+	expectedExtraLine8 := ` /etc/rpc r,`
+	c.Assert(spec.SnippetForTag("snap.consumer.app"), testutil.Contains, expectedExtraLine8)
 }
 
 func (s *MountControlInterfaceSuite) TestStaticInfo(c *C) {
@@ -421,4 +457,25 @@ func (s *MountControlInterfaceSuite) TestMountDevicePathWithCommas(c *C) {
 	plug, _ := MockConnectedPlug(c, snapYaml, nil, "mntctl")
 	err := interfaces.BeforeConnectPlug(s.iface, plug)
 	c.Check(err, IsNil)
+}
+
+func (s *MountControlInterfaceSuite) TestConflictingMountOptions(c *C) {
+	plugYaml := `
+  mount:
+  - persistent: true
+    what: /dev/foo
+    where: /mnt/foo
+    options: [rw, ro]
+`
+	snapYaml := fmt.Sprintf(mountControlYaml, plugYaml)
+	plug, _ := MockConnectedPlug(c, snapYaml, nil, "mntctl")
+	err := interfaces.BeforeConnectPlug(s.iface, plug)
+	c.Check(err, ErrorMatches, "mount-control options are inconsistent: option ro conflicts with rw")
+}
+
+func (s *MountControlInterfaceSuite) TestMountOptionsAreValid(c *C) {
+	// All the options we claim to support are also allowed by the validator.
+	for _, opt := range builtin.AllowedKernelMountOptions() {
+		c.Check(libmount.ValidateMountOptions(opt), IsNil)
+	}
 }

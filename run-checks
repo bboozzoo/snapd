@@ -4,9 +4,9 @@ export LANG=C.UTF-8
 export LANGUAGE=en
 
 if command -v goctest >/dev/null; then
-    goctest="goctest"
+    goctest="goctest ./..."
 else
-    goctest="go test"
+    goctest="go test ./..."
 fi
 COVERMODE=${COVERMODE:-atomic}
 COVERAGE_SUFFIX=${GO_BUILD_TAGS:-notags}
@@ -115,8 +115,7 @@ missing_interface_spread_test() {
     for iface in $(go run ./tests/lib/list-interfaces.go) ; do
         search="plugs: \\[ $iface \\]"
         case "$iface" in
-            # TODO: remove registry once we test the interface in the spread test
-            bool-file|gpio|pwm|dsp|netlink-driver|hidraw|i2c|iio|serial-port|spi|registry)
+            bool-file|gpio|pwm|dsp|netlink-driver|hidraw|i2c|iio|serial-port|spi|confdb)
                 # skip gadget provided interfaces for now
                 continue
                 ;;
@@ -435,6 +434,7 @@ if [ "$UNIT" = 1 ]; then
 
     tags=
     race=
+    timeout="5m"
     if [ -n "${GO_BUILD_TAGS:-}" ]; then
         echo "Using build tags: $GO_BUILD_TAGS"
         tags="-tags $GO_BUILD_TAGS"
@@ -442,6 +442,7 @@ if [ "$UNIT" = 1 ]; then
     if [ -n "${GO_TEST_RACE:-}" ]; then
         echo "Using go test -race"
         race="-race"
+        timeout="10m"
     fi
 
     echo Building
@@ -453,7 +454,7 @@ if [ "$UNIT" = 1 ]; then
     if [ "$short" = 1 ]; then
             echo "Running without test coverage"
             # shellcheck disable=SC2046,SC2086
-            GOTRACEBACK=1 $goctest $tags $race -short -timeout 5m $(go list ./... | grep -v '/vendor/' )
+            GOTRACEBACK=1 $goctest $tags $race -short -timeout $timeout
     else
         coverage=""
         if [ -z "${SKIP_COVERAGE:-}" ]; then
@@ -466,7 +467,7 @@ if [ "$UNIT" = 1 ]; then
         fi
 
         # shellcheck disable=SC2046,SC2086
-        GOTRACEBACK=1 $goctest $tags $race -timeout 5m $coverage $(go list ./... | grep -v '/vendor/' )
+        GOTRACEBACK=1 $goctest $tags $race -timeout $timeout $coverage
     fi
 
     # python unit test for mountinfo.query and version-compare

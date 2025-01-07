@@ -14,14 +14,10 @@ environment:
     A_SNAP: test-snapd-default-track
     A_TRACK: default
 
-prepare: |
-    snap install jq
-    snap install test-snapd-curl --edge
-
 execute: |
     # first, precondition check that the snap has a default track
-    snap run test-snapd-curl.curl -H "Snap-Device-Series: 16" "https://api.snapcraft.io/v2/snaps/info/$A_SNAP" > info
-    test "$( snap run  jq -r '."default-track"' < info )" == "$A_TRACK"
+    "$TESTSTOOLS/simpleget" -H "Snap-Device-Series: 16" "https://api.snapcraft.io/v2/snaps/info/$A_SNAP" -o info
+    test "$( gojq -r '."default-track"' < info )" == "$A_TRACK"
 
     # TODO: check the output of 'snap info' for the default-track-having snap
     # once that works as expected (order of tracks is wrong right now)
@@ -34,11 +30,9 @@ execute: |
     "$TESTSTOOLS"/snapd-state check-state ".data.snaps.\"$A_SNAP\".channel" = "$A_TRACK/candidate"
 
     snap remove --purge "$A_SNAP"
-    snap remove --purge test-snapd-curl
-    snap remove --purge jq
 
     # now try a multi-install
-    snap install "$A_SNAP" "jq"
+    snap install "$A_SNAP" "test-snapd-tools"
     # you get stable from the default track
     "$TESTSTOOLS"/snapd-state check-state ".data.snaps.\"$A_SNAP\".channel" = "$A_TRACK/stable"
 

@@ -27,6 +27,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -328,6 +329,62 @@ func (s writerSuite) TestSetOptionsSnapsErrors(c *C) {
 
 		c.Check(w.SetOptionsSnaps(t.snaps), ErrorMatches, t.err)
 	}
+}
+
+func (s writerSuite) TestSetOptionsSnapsIgnoreExtensions(c *C) {
+	model := s.Brands.Model("my-brand", "my-model", map[string]interface{}{
+		"display-name": "my model",
+		"architecture": "amd64",
+		"store":        "my-store",
+		"base":         "core20",
+		"grade":        "dangerous",
+		"snaps": []interface{}{
+			map[string]interface{}{
+				"name":            "pc-kernel",
+				"id":              s.AssertedSnapID("pc-kernel"),
+				"type":            "kernel",
+				"default-channel": "20",
+			},
+			map[string]interface{}{
+				"name":            "pc",
+				"id":              s.AssertedSnapID("pc"),
+				"type":            "gadget",
+				"default-channel": "20",
+			},
+			map[string]interface{}{
+				"name": "required20",
+				"id":   s.AssertedSnapID("required20"),
+			},
+		},
+	})
+
+	s.opts.Label = "20240714"
+	s.opts.IgnoreOptionFileExtentions = true
+	w, err := seedwriter.New(model, s.opts)
+	c.Assert(err, IsNil)
+
+	snapPath := s.makeLocalSnap(c, "required20")
+	compPath := s.makeLocalComponent(c, "required20+comp1")
+
+	trimmed := strings.TrimSuffix(snapPath, ".snap")
+	os.Rename(snapPath, trimmed)
+	snapPath = trimmed
+
+	trimmed = strings.TrimSuffix(compPath, ".comp")
+	os.Rename(compPath, trimmed)
+	compPath = trimmed
+
+	err = w.SetOptionsSnaps([]*seedwriter.OptionsSnap{
+		{
+			Path: snapPath,
+			Components: []seedwriter.OptionsComponent{
+				{
+					Path: compPath,
+				},
+			},
+		},
+	})
+	c.Assert(err, IsNil)
 }
 
 func (s *writerSuite) TestSnapsToDownloadCore16(c *C) {
@@ -2873,11 +2930,15 @@ func (s *writerSuite) TestCore20NonDangerousDisallowedOptionsSnaps(c *C) {
 	baseLabel := "20191107"
 
 	tests := []struct {
-		optSnap *seedwriter.OptionsSnap
+		optSnap            *seedwriter.OptionsSnap
+		expectedErrVariant string
 	}{
-		{&seedwriter.OptionsSnap{Name: "extra"}},
-		{&seedwriter.OptionsSnap{Path: pcFn}},
-		{&seedwriter.OptionsSnap{Name: "pc", Channel: "edge"}},
+		{optSnap: &seedwriter.OptionsSnap{Name: "extra"}},
+		{optSnap: &seedwriter.OptionsSnap{Path: pcFn}},
+		{
+			optSnap:            &seedwriter.OptionsSnap{Name: "pc", Channel: "edge"},
+			expectedErrVariant: "cannot override channels with a model of grade higher than dangerous but --snap=<snap-name> is allowed to select optional snaps to include",
+		},
 	}
 
 	const expectedErr = `cannot override channels, add devmode snaps, local snaps, or extra snaps/components with a model of grade higher than dangerous`
@@ -2889,7 +2950,11 @@ func (s *writerSuite) TestCore20NonDangerousDisallowedOptionsSnaps(c *C) {
 
 		err = w.SetOptionsSnaps([]*seedwriter.OptionsSnap{t.optSnap})
 		if err != nil {
-			c.Check(err, ErrorMatches, expectedErr)
+			if t.expectedErrVariant != "" {
+				c.Check(err, ErrorMatches, t.expectedErrVariant)
+			} else {
+				c.Check(err, ErrorMatches, expectedErr)
+			}
 			continue
 		}
 
@@ -3033,10 +3098,10 @@ func (s *writerSuite) testSeedSnapsWriteMetaCore20LocalSnaps(c *C, withComps boo
 		seedComps := map[string]*seedwriter.SeedComponent{}
 		if withComps {
 			cref1 := naming.NewComponentRef("required20", "comp1")
-			cinfo1 := snap.NewComponentInfo(cref1, snap.StandardComponent, "1.0", "", "", "", nil)
+			cinfo1 := snap.NewComponentInfo(cref1, snap.StandardComponent, "1.5", "", "", "", nil)
 			pathComp1 = s.makeLocalComponent(c, "required20+comp1")
 			cref2 := naming.NewComponentRef("required20", "comp2")
-			cinfo2 := snap.NewComponentInfo(cref2, snap.StandardComponent, "2.0", "", "", "", nil)
+			cinfo2 := snap.NewComponentInfo(cref2, snap.StandardComponent, "", "", "", "", nil)
 			pathComp2 = s.makeLocalComponent(c, "required20+comp2")
 			seedComps["comp1"] = &seedwriter.SeedComponent{
 				ComponentRef: cref1,
@@ -3097,8 +3162,10 @@ func (s *writerSuite) testSeedSnapsWriteMetaCore20LocalSnaps(c *C, withComps boo
 	// local unasserted snap/component were put in system snaps dir
 	c.Check(filepath.Join(systemDir, "snaps", "required20_1.0.snap"), testutil.FilePresent)
 	if withComps {
-		c.Check(filepath.Join(systemDir, "snaps", "required20+comp1_1.0.comp"), testutil.FilePresent)
-		c.Check(filepath.Join(systemDir, "snaps", "required20+comp2_2.0.comp"), testutil.FilePresent)
+		c.Check(filepath.Join(systemDir, "snaps", "required20+comp1_1.5.comp"), testutil.FilePresent)
+		// Note that the component version is here the one for the snap
+		// as it was not specified in the component itself.
+		c.Check(filepath.Join(systemDir, "snaps", "required20+comp2_1.0.comp"), testutil.FilePresent)
 	}
 
 	options20, err := seedwriter.InternalReadOptions20(filepath.Join(systemDir, "options.yaml"))
@@ -3109,11 +3176,11 @@ func (s *writerSuite) testSeedSnapsWriteMetaCore20LocalSnaps(c *C, withComps boo
 		compOpts = []internal.Component20{
 			{
 				Name:       "comp1",
-				Unasserted: "required20+comp1_1.0.comp",
+				Unasserted: "required20+comp1_1.5.comp",
 			},
 			{
 				Name:       "comp2",
-				Unasserted: "required20+comp2_2.0.comp",
+				Unasserted: "required20+comp2_1.0.comp",
 			},
 		}
 	}

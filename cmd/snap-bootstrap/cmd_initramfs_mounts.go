@@ -96,7 +96,6 @@ var (
 		snap.TypeSnapd:  "snapd",
 	}
 
-	secbootProvisionForCVM                       func(initramfsUbuntuSeedDir string) error
 	secbootMeasureSnapSystemEpochWhenPossible    func() error
 	secbootMeasureSnapModelWhenPossible          func(findModel func() (*asserts.Model, error)) error
 	secbootUnlockVolumeUsingSealedKeyIfEncrypted func(disk disks.Disk, name string, encryptionKeyFile string, opts *secboot.UnlockVolumeUsingSealedKeyOptions) (secboot.UnlockResult, error)
@@ -330,6 +329,10 @@ func doInstall(mst *initramfsMountsState, model *asserts.Model, sysSnaps map[sna
 		return fmt.Errorf("cannot use gadget: %v", err)
 	}
 
+	// TODO:COMPS take into account kernel-modules components, see
+	// DeviceManager,doSetupRunSystem and other parts of
+	// handlers_install.go.
+
 	bootDevice := ""
 	kernelSnapInfo := &gadgetInstall.KernelSnapInfo{
 		Name:       kernelSnap.SnapName(),
@@ -456,7 +459,11 @@ func generateMountsModeInstall(mst *initramfsMountsState) error {
 // copyNetworkConfig copies the network configuration to the target
 // directory. This is used to copy the network configuration
 // data from a real uc20 ubuntu-data partition into a ephemeral one.
-func copyNetworkConfig(src, dst string) error {
+//
+// The given srcRoot should point to the directory that contains the writable
+// host system data. The given dstRoot should point to the directory that
+// contains the writable system data for the ephemeral recovery system.
+func copyNetworkConfig(srcRoot, dstRoot string) error {
 	for _, globEx := range []string{
 		// for network configuration setup by console-conf, etc.
 		// TODO:UC20: we want some way to "try" or "verify" the network
@@ -466,14 +473,14 @@ func copyNetworkConfig(src, dst string) error {
 		//            have been what was broken so we don't want to break
 		//            network configuration for recover mode as well, but for
 		//            now this is fine
-		"system-data/etc/netplan/*",
+		"etc/netplan/*",
 		// etc/machine-id is part of what systemd-networkd uses to generate a
 		// DHCP clientid (the other part being the interface name), so to have
 		// the same IP addresses across run mode and recover mode, we need to
 		// also copy the machine-id across
-		"system-data/etc/machine-id",
+		"etc/machine-id",
 	} {
-		if err := copyFromGlobHelper(src, dst, globEx); err != nil {
+		if err := copyFromGlobHelper(srcRoot, dstRoot, globEx); err != nil {
 			return err
 		}
 	}
@@ -483,7 +490,11 @@ func copyNetworkConfig(src, dst string) error {
 // copyUbuntuDataMisc copies miscellaneous other files from the run mode system
 // to the recover system such as:
 //   - timesync clock to keep the same time setting in recover as in run mode
-func copyUbuntuDataMisc(src, dst string) error {
+//
+// The given srcRoot should point to the directory that contains the writable
+// host system data. The given dstRoot should point to the directory that
+// contains the writable system data for the ephemeral recovery system.
+func copyUbuntuDataMisc(srcRoot, dstRoot string) error {
 	for _, globEx := range []string{
 		// systemd's timesync clock file so that the time in recover mode moves
 		// forward to what it was in run mode
@@ -491,9 +502,9 @@ func copyUbuntuDataMisc(src, dst string) error {
 		// mode currently, unclear how/when we could do this, but recover mode
 		// isn't meant to be long lasting and as such it's probably not a big
 		// problem to "lose" the time spent in recover mode
-		"system-data/var/lib/systemd/timesync/clock",
+		"var/lib/systemd/timesync/clock",
 	} {
-		if err := copyFromGlobHelper(src, dst, globEx); err != nil {
+		if err := copyFromGlobHelper(srcRoot, dstRoot, globEx); err != nil {
 			return err
 		}
 	}
@@ -501,35 +512,81 @@ func copyUbuntuDataMisc(src, dst string) error {
 	return nil
 }
 
-// copyUbuntuDataAuth copies the authentication files like
+// copyCoreUbuntuAuthData copies the authentication files like
 //   - extrausers passwd,shadow etc
 //   - sshd host configuration
 //   - user .ssh dir
 //
 // to the target directory. This is used to copy the authentication
 // data from a real uc20 ubuntu-data partition into a ephemeral one.
-func copyUbuntuDataAuth(src, dst string) error {
+func copyCoreUbuntuAuthData(srcUbuntuData, destUbuntuData string) error {
 	for _, globEx := range []string{
 		"system-data/var/lib/extrausers/*",
 		"system-data/etc/ssh/*",
+		// so that users have proper perms, i.e. console-conf added users are
+		// sudoers
+		"system-data/etc/sudoers.d/*",
 		"user-data/*/.ssh/*",
 		// this ensures we get proper authentication to snapd from "snap"
 		// commands in recover mode
 		"user-data/*/.snap/auth.json",
 		// this ensures we also get non-ssh enabled accounts copied
 		"user-data/*/.profile",
-		// so that users have proper perms, i.e. console-conf added users are
-		// sudoers
-		"system-data/etc/sudoers.d/*",
 	} {
-		if err := copyFromGlobHelper(src, dst, globEx); err != nil {
+		if err := copyFromGlobHelper(srcUbuntuData, destUbuntuData, globEx); err != nil {
 			return err
 		}
 	}
 
 	// ensure the user state is transferred as well
-	srcState := filepath.Join(src, "system-data/var/lib/snapd/state.json")
-	dstState := filepath.Join(dst, "system-data/var/lib/snapd/state.json")
+	srcState := filepath.Join(srcUbuntuData, "system-data/var/lib/snapd/state.json")
+	dstState := filepath.Join(destUbuntuData, "system-data/var/lib/snapd/state.json")
+	err := state.CopyState(srcState, dstState, []string{"auth.users", "auth.macaroon-key", "auth.last-id"})
+	if err != nil && !errors.Is(err, state.ErrNoState) {
+		return fmt.Errorf("cannot copy user state: %v", err)
+	}
+
+	return nil
+}
+
+// copyHybridUbuntuDataAuth copies the authentication files that are relevant on
+// a hybrid system to the ubuntu data directory. Non-user specific files are
+// copied to <destUbuntuData>/system-data. User specific files are copied to
+// <destUbuntuData>/user-data.
+func copyHybridUbuntuDataAuth(srcUbuntuData, destUbuntuData string) error {
+	destSystemData := filepath.Join(destUbuntuData, "system-data")
+	for _, globEx := range []string{
+		"etc/ssh/*",
+		"etc/sudoers.d/*",
+		"root/.ssh/*",
+	} {
+		if err := copyFromGlobHelper(
+			srcUbuntuData,
+			destSystemData,
+			globEx,
+		); err != nil {
+			return err
+		}
+	}
+
+	destHomeData := filepath.Join(srcUbuntuData, "home")
+	destUserData := filepath.Join(destUbuntuData, "user-data")
+	for _, globEx := range []string{
+		"*/.ssh/*",
+		"*/.snap/auth.json",
+	} {
+		if err := copyFromGlobHelper(
+			destHomeData,
+			destUserData,
+			globEx,
+		); err != nil {
+			return err
+		}
+	}
+
+	// ensure the user state is transferred as well
+	srcState := filepath.Join(srcUbuntuData, "var/lib/snapd/state.json")
+	dstState := filepath.Join(destUbuntuData, "system-data/var/lib/snapd/state.json")
 	err := state.CopyState(srcState, dstState, []string{"auth.users", "auth.macaroon-key", "auth.last-id"})
 	if err != nil && !errors.Is(err, state.ErrNoState) {
 		return fmt.Errorf("cannot copy user state: %v", err)
@@ -1308,6 +1365,9 @@ func (m *recoverModeStateMachine) mountSave() (stateFunc, error) {
 	// TODO: should we fsck ubuntu-save ?
 	mountOpts := &systemdMountOptions{
 		Private: true,
+		NoDev:   true,
+		NoSuid:  true,
+		NoExec:  true,
 	}
 	mountErr := doSystemdMount(save.fsDevice, boot.InitramfsUbuntuSaveDir, mountOpts)
 	if err := m.setMountState("ubuntu-save", boot.InitramfsUbuntuSaveDir, mountErr); err != nil {
@@ -1417,15 +1477,41 @@ func generateMountsModeRecover(mst *initramfsMountsState) error {
 	// onto the tmpfs
 	// Proceed only if we trust ubuntu-data to be paired with ubuntu-save
 	if machine.trustData() {
-		// TODO: erroring here should fallback to copySafeDefaultData and
-		// proceed on with degraded mode anyways
-		if err := copyUbuntuDataAuth(boot.InitramfsHostUbuntuDataDir, boot.InitramfsDataDir); err != nil {
+		// on hybrid systems, we take special care to import the root user and
+		// users from the "admin" and "sudo" groups into the ephemeral system.
+		// this is our best-effort for allowing an owner of a hybrid system to
+		// login to the created recovery system.
+		hybrid := model.Classic() && model.KernelSnap() != nil
+
+		hostSystemData := boot.InitramfsHostWritableDir(model)
+		recoverySystemData := boot.InitramfsWritableDir(model, false)
+		if hybrid {
+			// TODO: eventually, the base will be mounted directly on /sysroot.
+			// this will need to change once that happens.
+			if err := importHybridUserData(
+				hostSystemData,
+				filepath.Join(boot.InitramfsRunMntDir, "base"),
+			); err != nil {
+				return err
+			}
+
+			if err := copyHybridUbuntuDataAuth(boot.InitramfsHostUbuntuDataDir, boot.InitramfsDataDir); err != nil {
+				return err
+			}
+		} else {
+			// TODO: erroring here should fallback to copySafeDefaultData and
+			// proceed on with degraded mode anyways
+			if err := copyCoreUbuntuAuthData(
+				boot.InitramfsHostUbuntuDataDir,
+				boot.InitramfsDataDir,
+			); err != nil {
+				return err
+			}
+		}
+		if err := copyNetworkConfig(hostSystemData, recoverySystemData); err != nil {
 			return err
 		}
-		if err := copyNetworkConfig(boot.InitramfsHostUbuntuDataDir, boot.InitramfsDataDir); err != nil {
-			return err
-		}
-		if err := copyUbuntuDataMisc(boot.InitramfsHostUbuntuDataDir, boot.InitramfsDataDir); err != nil {
+		if err := copyUbuntuDataMisc(hostSystemData, recoverySystemData); err != nil {
 			return err
 		}
 	} else {
@@ -1628,7 +1714,7 @@ func getNonUEFISystemDisk(fallbacklabel string) (string, error) {
 // determine what partition the booted kernel came from. If which disk the
 // kernel came from cannot be determined, then it will fallback to mounting via
 // the specified disk label.
-func mountNonDataPartitionMatchingKernelDisk(dir, fallbacklabel string) error {
+func mountNonDataPartitionMatchingKernelDisk(dir, fallbacklabel string, opts *systemdMountOptions) error {
 	partuuid, err := bootFindPartitionUUIDForBootedKernelDisk()
 	var partSrc string
 	if err == nil {
@@ -1648,23 +1734,24 @@ func mountNonDataPartitionMatchingKernelDisk(dir, fallbacklabel string) error {
 	if err := waitForDevice(partSrc); err != nil {
 		return err
 	}
-
-	opts := &systemdMountOptions{
-		// always fsck the partition when we are mounting it, as this is the
-		// first partition we will be mounting, we can't know if anything is
-		// corrupted yet
-		NeedsFsck: true,
-		// don't need nosuid option here, since this function is only used
-		// for ubuntu-boot and ubuntu-seed, never ubuntu-data
-		Private: true,
-	}
 	return doSystemdMount(partSrc, dir, opts)
 }
 
 func generateMountsCommonInstallRecoverStart(mst *initramfsMountsState) (model *asserts.Model, sysSnaps map[snap.Type]*seed.Snap, err error) {
+	seedMountOpts := &systemdMountOptions{
+		// always fsck the partition when we are mounting it, as this is the
+		// first partition we will be mounting, we can't know if anything is
+		// corrupted yet
+		NeedsFsck: true,
+		Private:   true,
+		NoSuid:    true,
+		NoDev:     true,
+		NoExec:    true,
+	}
+
 	// 1. always ensure seed partition is mounted first before the others,
 	//      since the seed partition is needed to mount the snap files there
-	if err := mountNonDataPartitionMatchingKernelDisk(boot.InitramfsUbuntuSeedDir, "ubuntu-seed"); err != nil {
+	if err := mountNonDataPartitionMatchingKernelDisk(boot.InitramfsUbuntuSeedDir, "ubuntu-seed", seedMountOpts); err != nil {
 		return nil, nil, err
 	}
 
@@ -1823,83 +1910,17 @@ func maybeMountSave(disk disks.Disk, rootdir string, encrypted bool, mountOpts *
 	return true, nil
 }
 
-// XXX: workaround for the lack of model in CVM systems
-type genericCVMModel struct{}
-
-func (*genericCVMModel) Classic() bool {
-	return true
-}
-
-func (*genericCVMModel) Grade() asserts.ModelGrade {
-	return "signed"
-}
-
-func generateMountsModeRunCVM(mst *initramfsMountsState) error {
-	// Mount ESP as UbuntuSeedDir which has UEFI label
-	if err := mountNonDataPartitionMatchingKernelDisk(boot.InitramfsUbuntuSeedDir, "UEFI"); err != nil {
-		return err
-	}
-
-	// get the disk that we mounted the ESP from as a reference
-	// point for future mounts
-	disk, err := disks.DiskFromMountPoint(boot.InitramfsUbuntuSeedDir, nil)
-	if err != nil {
-		return err
-	}
-
-	// Mount rootfs
-	if err := secbootProvisionForCVM(boot.InitramfsUbuntuSeedDir); err != nil {
-		return err
-	}
-	runModeCVMKey := filepath.Join(boot.InitramfsSeedEncryptionKeyDir, "cloudimg-rootfs.sealed-key")
-	opts := &secboot.UnlockVolumeUsingSealedKeyOptions{
-		AllowRecoveryKey: true,
-	}
-	unlockRes, err := secbootUnlockVolumeUsingSealedKeyIfEncrypted(disk, "cloudimg-rootfs", runModeCVMKey, opts)
-	if err != nil {
-		return err
-	}
-	fsckSystemdOpts := &systemdMountOptions{
-		NeedsFsck: true,
-		Ephemeral: true,
-	}
-	if err := doSystemdMount(unlockRes.FsDevice, boot.InitramfsDataDir, fsckSystemdOpts); err != nil {
-		return err
-	}
-
-	// Verify that cloudimg-rootfs comes from where we expect it to
-	diskOpts := &disks.Options{}
-	if unlockRes.IsEncrypted {
-		// then we need to specify that the data mountpoint is
-		// expected to be a decrypted device
-		diskOpts.IsDecryptedDevice = true
-	}
-
-	matches, err := disk.MountPointIsFromDisk(boot.InitramfsDataDir, diskOpts)
-	if err != nil {
-		return err
-	}
-	if !matches {
-		// failed to verify that cloudimg-rootfs mountpoint
-		// comes from the same disk as ESP
-		return fmt.Errorf("cannot validate boot: cloudimg-rootfs mountpoint is expected to be from disk %s but is not", disk.Dev())
-	}
-
-	// Unmount ESP because otherwise unmounting is racy and results in booted systems without ESP
-	if err := doSystemdMount("", boot.InitramfsUbuntuSeedDir, &systemdMountOptions{Umount: true, Ephemeral: true}); err != nil {
-		return err
-	}
-
-	// There is no real model on a CVM device but minimal model
-	// information is required by the later code
-	mst.SetVerifiedBootModel(&genericCVMModel{})
-
-	return nil
-}
-
 func generateMountsModeRun(mst *initramfsMountsState) error {
+	bootMountOpts := &systemdMountOptions{
+		// always fsck the partition when we are mounting it, as this is the
+		// first partition we will be mounting, we can't know if anything is
+		// corrupted yet
+		NeedsFsck: true,
+		Private:   true,
+	}
+
 	// 1. mount ubuntu-boot
-	if err := mountNonDataPartitionMatchingKernelDisk(boot.InitramfsUbuntuBootDir, "ubuntu-boot"); err != nil {
+	if err := mountNonDataPartitionMatchingKernelDisk(boot.InitramfsUbuntuBootDir, "ubuntu-boot", bootMountOpts); err != nil {
 		return err
 	}
 
@@ -1933,9 +1954,12 @@ func generateMountsModeRun(mst *initramfsMountsState) error {
 	isRunMode := true
 
 	// 2. mount ubuntu-seed (optional for classic)
-	systemdOpts := &systemdMountOptions{
+	seedMountOpts := &systemdMountOptions{
 		NeedsFsck: true,
 		Private:   true,
+		NoSuid:    true,
+		NoDev:     true,
+		NoExec:    true,
 	}
 	// use the disk we mounted ubuntu-boot from as a reference to find
 	// ubuntu-seed and mount it
@@ -1959,7 +1983,7 @@ func generateMountsModeRun(mst *initramfsMountsState) error {
 	//            need it to be writable for i.e. transitioning to recover mode
 	if partUUID != "" {
 		if err := doSystemdMount(fmt.Sprintf("/dev/disk/by-partuuid/%s", partUUID),
-			boot.InitramfsUbuntuSeedDir, systemdOpts); err != nil {
+			boot.InitramfsUbuntuSeedDir, seedMountOpts); err != nil {
 			return err
 		}
 	}
@@ -2010,7 +2034,14 @@ func generateMountsModeRun(mst *initramfsMountsState) error {
 	rootfsDir := boot.InitramfsWritableDir(model, isRunMode)
 
 	// 3.2. mount ubuntu-save (if present)
-	haveSave, err := maybeMountSave(disk, rootfsDir, isEncryptedDev, systemdOpts)
+	saveMountOpts := &systemdMountOptions{
+		NeedsFsck: true,
+		Private:   true,
+		NoDev:     true,
+		NoSuid:    true,
+		NoExec:    true,
+	}
+	haveSave, err := maybeMountSave(disk, rootfsDir, isEncryptedDev, saveMountOpts)
 	if err != nil {
 		return err
 	}

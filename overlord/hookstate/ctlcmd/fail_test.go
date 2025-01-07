@@ -20,48 +20,27 @@
 package ctlcmd_test
 
 import (
-	"os"
-
-	"gopkg.in/check.v1"
 	. "gopkg.in/check.v1"
 
-	"github.com/snapcore/snapd/dirs"
-	"github.com/snapcore/snapd/features"
 	"github.com/snapcore/snapd/i18n"
+	"github.com/snapcore/snapd/overlord/confdbstate"
 	"github.com/snapcore/snapd/overlord/hookstate"
 	"github.com/snapcore/snapd/overlord/hookstate/ctlcmd"
-	"github.com/snapcore/snapd/overlord/registrystate"
 	"github.com/snapcore/snapd/snap"
 )
 
-func (s *registrySuite) mockRegistriesFeature(c *C) (restore func()) {
-	oldDir := dirs.FeaturesDir
-	dirs.FeaturesDir = c.MkDir()
-
-	registryCtlFile := features.Registries.ControlFile()
-	c.Assert(os.WriteFile(registryCtlFile, []byte(nil), 0644), check.IsNil)
-
-	return func() {
-		c.Assert(os.Remove(registryCtlFile), IsNil)
-		dirs.FeaturesDir = oldDir
-	}
-}
-
-func (s *registrySuite) TestFailAbortsRegistryTransaction(c *C) {
-	restore := s.mockRegistriesFeature(c)
-	defer restore()
-
+func (s *confdbSuite) TestFailAbortsConfdbTransaction(c *C) {
 	s.state.Lock()
 	chg := s.state.NewChange("test", "")
-	commitTask := s.state.NewTask("commit-registry-tx", "")
+	commitTask := s.state.NewTask("commit-confdb-tx", "")
 	chg.AddTask(commitTask)
-	tx, err := registrystate.NewTransaction(s.state, "my-acc", "my-reg")
+	tx, err := confdbstate.NewTransaction(s.state, "my-acc", "my-reg")
 	c.Assert(err, IsNil)
 
 	err = tx.Set("foo", "bar")
 	c.Assert(err, IsNil)
 
-	commitTask.Set("registry-transaction", tx)
+	commitTask.Set("confdb-transaction", tx)
 
 	task := s.state.NewTask("run-hook", "")
 	chg.AddTask(task)
@@ -79,7 +58,7 @@ func (s *registrySuite) TestFailAbortsRegistryTransaction(c *C) {
 
 	tx = nil
 	s.state.Lock()
-	err = commitTask.Get("registry-transaction", &tx)
+	err = commitTask.Get("confdb-transaction", &tx)
 	s.state.Unlock()
 	c.Assert(err, IsNil)
 
@@ -88,14 +67,19 @@ func (s *registrySuite) TestFailAbortsRegistryTransaction(c *C) {
 	c.Assert(snap, Equals, "test-snap")
 }
 
-func (s *registrySuite) TestFailErrors(c *C) {
+func (s *confdbSuite) TestFailErrors(c *C) {
+	s.state.Lock()
+	s.setConfdbFlag(false, c)
+	s.state.Unlock()
+
 	stdout, stderr, err := ctlcmd.Run(s.mockContext, []string{"fail", "reason"}, 0)
-	c.Assert(err, ErrorMatches, i18n.G(`cannot use "snapctl fail" without enabling the "experimental.registries" feature`))
+	c.Assert(err, ErrorMatches, i18n.G(`"confdbs" feature flag is disabled: set 'experimental.confdbs' to true`))
 	c.Check(stdout, IsNil)
 	c.Check(stderr, IsNil)
 
-	restore := s.mockRegistriesFeature(c)
-	defer restore()
+	s.state.Lock()
+	s.setConfdbFlag(true, c)
+	s.state.Unlock()
 
 	stdout, stderr, err = ctlcmd.Run(s.mockContext, []string{"fail"}, 0)
 	c.Assert(err, ErrorMatches, i18n.G("the required argument `:<rejection-reason>` was not provided"))
@@ -132,7 +116,7 @@ func (s *registrySuite) TestFailErrors(c *C) {
 
 	stdout, stderr, err = ctlcmd.Run(s.mockContext, []string{"fail", "reason"}, 0)
 	// this shouldn't happen but check we handle it well anyway
-	c.Assert(err, ErrorMatches, i18n.G("internal error: cannot get registry transaction to fail: no state entry for key \"commit-task\""))
+	c.Assert(err, ErrorMatches, i18n.G("internal error: cannot get confdb transaction to fail: no state entry for key \"commit-task\""))
 	c.Check(stdout, IsNil)
 	c.Check(stderr, IsNil)
 }

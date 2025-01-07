@@ -40,8 +40,6 @@ prepare: |
       exit
   fi
   apt install dosfstools kpartx
-  snap install jq
-  snap install yq
   "$TESTSTOOLS"/store-state setup-fake-store "$STORE_DIR"
 
 restore: |
@@ -86,6 +84,11 @@ execute: |
   tests.nested secboot-sign gadget pc-gadget "$SNAKEOIL_KEY" "$SNAKEOIL_CERT"
   snap pack --filename=pc.snap pc-gadget/
 
+  # TODO: remove this once this change to extra-paths has made it into a
+  # released kernel snap
+  mkdir -p ./extra-initrd/usr/lib/core
+  cp ./extra-paths ./extra-initrd/usr/lib/core/extra-paths
+
   # Retrieve kernel
   snap download --basename=pc-kernel --channel="$version/edge" pc-kernel
   # the fakestore needs this assertion
@@ -93,8 +96,13 @@ execute: |
   # keep original blob just so we can find the assertion later
   cp pc-kernel.snap pc-kernel.snap.orig
   # Build kernel with initramfs with the compiled snap-bootstrap
+  kmods_arg=""
   if os.query is-ubuntu-ge 24.04; then
-    uc24_build_initramfs_kernel_snap "$PWD/pc-kernel.snap" "$NESTED_ASSETS_DIR"
+      # split kernel into snap and kernel-modules component
+      "$TESTSTOOLS"/build_kernel_with_comps.sh efi_pstore efi-pstore
+      kmods_arg="--kmods-comp pc-kernel+efi-pstore.comp"
+      # build now uc24 initramfs
+      uc24_build_initramfs_kernel_snap "$PWD/pc-kernel.snap" "$NESTED_ASSETS_DIR"
   else
     uc20_build_initramfs_kernel_snap "$PWD/pc-kernel.snap" "$NESTED_ASSETS_DIR"
   fi
@@ -115,6 +123,7 @@ execute: |
 
   # setup_nested_hybrid_system.sh runs the muinstaller to install a hybrid
   # system
+  # shellcheck disable=SC2086
   "${TESTSTOOLS}"/setup_nested_hybrid_system.sh \
      --model classic.model \
      --store-dir "${STORE_DIR}" \
@@ -122,6 +131,7 @@ execute: |
      --gadget-assertion pc.assert \
      --kernel pc-kernel.snap \
      --kernel-assertion pc-kernel.assert \
+     $kmods_arg \
      --disk disk.img
 
   # basic things look fine
@@ -129,10 +139,14 @@ execute: |
   remote.exec "snap changes" | MATCH "Done.* Initialize system state"
   remote.exec "snap list" | MATCH pc-kernel
   if os.query is-ubuntu-ge 24.04; then
+      remote.exec snap components pc-kernel | MATCH 'pc-kernel\+efi-pstore'
       # kernel drivers tree has been created
       remote.exec test -d /var/lib/snapd/kernel/pc-kernel/x1
-      # TODO check the drivers tree has been mounted (depends on
-      # https://github.com/snapcore/core-initrd/pull/238 being present in initramfs)
+      # efi_pstore has been loaded and comes from the "updates" subfolder
+      # efi_pstore is loaded by systemd-pstore.service (pulled by sysinit.target) and must be available
+      # early, otherwise it will not have been loaded
+      remote.exec lsmod | MATCH efi_pstore
+      remote.exec modinfo -F filename efi_pstore | MATCH updates/efi-pstore/kmod/efi-pstore.ko
   fi
 
   # check encryption
@@ -151,23 +165,38 @@ execute: |
       done
 
       # check disk mappings
-      remote.exec "sudo snap install jq"
       # TODO: no ubuntu-save right now because:
       #       "ERROR cannot store device key pair: internal error: cannot access device keypair manager if ubuntu-save is unavailable"
       #DISK_MAPPINGS=(/run/mnt/ubuntu-save/device/disk-mapping.json
       #               /run/mnt/data/var/lib/snapd/device/disk-mapping.json)
       DISK_MAPPINGS=(/run/mnt/data/var/lib/snapd/device/disk-mapping.json)
       for DM in "${DISK_MAPPINGS[@]}"; do
-          remote.exec "sudo cat $DM | jq '.pc.\"structure-encryption\".\"ubuntu-save\".method'" | MATCH '"LUKS"'
-          remote.exec "sudo cat $DM | jq '.pc.\"structure-encryption\".\"ubuntu-data\".method'" | MATCH '"LUKS"'
+          remote.exec "sudo cat $DM" | gojq '.pc."structure-encryption"."ubuntu-save".method' | MATCH '"LUKS"'
+          remote.exec "sudo cat $DM" | gojq '.pc."structure-encryption"."ubuntu-data".method' | MATCH '"LUKS"'
       done
 
       # check that on an already provisioned system the API will give a
       # sensible reason why the system cannot be installed without further
       # action.
       remote.exec "sudo snap debug api /v2/systems/classic" > system
-      jq '.result."storage-encryption".support' < system | MATCH "unavailable"
-      jq '.result."storage-encryption"."unavailable-reason"' < system | MATCH "not encrypting device storage as checking TPM gave: the TPM is in DA lockout mode"
+      gojq '.result."storage-encryption".support' < system | MATCH "unavailable"
+      gojq '.result."storage-encryption"."unavailable-reason"' < system | MATCH "not encrypting device storage as checking TPM gave: the TPM is in DA lockout mode"
+  fi
+
+  if os.query is-ubuntu-ge 24.04; then
+  # test refresh of kernel with component
+      remote.push pc-kernel.snap
+      remote.push pc-kernel+efi-pstore.comp
+      REMOTE_CHG_ID=$(remote.exec sudo snap install --no-wait --dangerous pc-kernel.snap pc-kernel+efi-pstore.comp)
+      retry --wait 1 -n 120 sh -c "remote.exec \"snap change $REMOTE_CHG_ID | grep -E 'Task set to wait until a system restart allows to continue'\""
+      boot_id=$(tests.nested boot-id)
+      remote.exec sudo reboot || true
+      tests.nested wait-for reboot "$boot_id"
+      remote.exec sudo snap watch "$REMOTE_CHG_ID"
+      remote.exec "snap change $REMOTE_CHG_ID" | NOMATCH Error
+      # efi_pstore has been loaded and comes from the "updates" subfolder
+      remote.exec lsmod | MATCH efi_pstore
+      remote.exec modinfo -F filename efi_pstore | MATCH updates/efi-pstore/kmod/efi-pstore.ko
   fi
 
   # test kernel/gadget refreshes via the fake-store
@@ -236,16 +265,21 @@ execute: |
   fi
 
   # Bump edition of ubuntu-{seed,boot} content to get grub updated in both partitions
-  yq -i "(.volumes.pc.structure[] | select(.role == \"${role}\") | .update.edition) |= . + 1" pc-gadget/meta/gadget.yaml
-  yq -i '(.volumes.pc.structure[] | select(.role == "system-boot") | .update.edition) |= . + 1' pc-gadget/meta/gadget.yaml
+  gojq --yaml-input --yaml-output \
+      "(.volumes.pc.structure[] | select(.role == \"${role}\") | .update.edition) |= . + 1" \
+      pc-gadget/meta/gadget.yaml > gadget.yaml.tmp
+  gojq --yaml-input --yaml-output \
+      '(.volumes.pc.structure[] | select(.role == "system-boot") | .update.edition) |= . + 1' \
+      gadget.yaml.tmp > gadget.yaml.tmp.2
+  mv gadget.yaml.tmp.2 pc-gadget/meta/gadget.yaml
   nested_secboot_sign_file pc-gadget/grubx64.efi "$SNAKEOIL_KEY" "$SNAKEOIL_CERT"
   refresh_rebooting_snap pc pc.snap.orig ./pc-gadget
 
   # Make sure we installed the new grub
   if os.query is-ubuntu-ge 24.04 && [ "$PARTIAL_GADGET" = false ]; then
-    remote.exec 'grep "This program cannot be run in XXX mode" /run/mnt/ubuntu-seed/EFI/ubuntu/grubx64.efi'
+      remote.exec 'grep "This program cannot be run in XXX mode" /run/mnt/ubuntu-seed/EFI/ubuntu/grubx64.efi'
   else
-    remote.exec 'grep "This program cannot be run in XXX mode" /run/mnt/ubuntu-seed/EFI/boot/grubx64.efi'
+      remote.exec 'grep "This program cannot be run in XXX mode" /run/mnt/ubuntu-seed/EFI/boot/grubx64.efi'
   fi
   remote.exec 'grep "This program cannot be run in XXX mode" /run/mnt/ubuntu-boot/EFI/boot/grubx64.efi'
 
@@ -287,7 +321,7 @@ execute: |
 
   # check that seed is properly installed
   remote.exec test -d /run/mnt/ubuntu-seed/systems/classic
-  remote.exec "sudo snap recovery" | MATCH 'classic\s+developer1\s+developer1-22-classic-dangerous\s+current'
+  remote.exec "sudo snap recovery" | MATCH "classic\s+developer1\s+developer1-${version}-classic-dangerous\s+current"
 
   echo "unasserted snaps"
   remote.exec "ls /run/mnt/ubuntu-seed/systems/classic/snaps"
@@ -297,13 +331,32 @@ execute: |
 
   # check for unasserted snaps
   for sn in pc pc-kernel snapd; do
-      version=$(remote.exec "snap list ${sn}" | awk 'NR != 1 { print $2 }' | sed 's/+fake1//')
-      remote.exec "test -f /run/mnt/ubuntu-seed/systems/classic/snaps/${sn}_${version}.snap"
+      sn_version=$(remote.exec "snap list ${sn}" | awk 'NR != 1 { print $2 }' | sed 's/+fake1//')
+      remote.exec "test -f /run/mnt/ubuntu-seed/systems/classic/snaps/${sn}_${sn_version}.snap"
   done
 
   # check for asserted snaps
-  core22_rev=$(remote.exec "snap list core22" | awk 'NR != 1 { print $3 }')
-  remote.exec "test -f /run/mnt/ubuntu-seed/snaps/core22_${core22_rev}.snap"
+  core_rev=$(remote.exec "snap list core${version}" | awk 'NR != 1 { print $3 }')
+  remote.exec "test -f /run/mnt/ubuntu-seed/snaps/core${version}_${core_rev}.snap"
 
   # model in the seed should match the one that was installed on the system
   remote.exec "diff <(snap model --assertion) /run/mnt/ubuntu-seed/systems/classic/model"
+
+  boot_id=$(remote.exec "cat /proc/sys/kernel/random/boot_id")
+  remote.exec "sudo snap reboot --recover classic"
+  remote.wait-for reboot "${boot_id}"
+
+  # we explicitly provide a password since the sudo group is not configured to
+  # allow passwordless sudo
+  timeout -v 300 remote.exec "echo ubuntu | sudo -S snap wait system seed.loaded"
+
+  remote.exec "groups" | tr ' ' '\n' | sort | xargs | MATCH 'sudo user1'
+
+  remote.exec "snap list" > snap-list
+  for name in "pc" "pc-kernel" "snapd" "core${version}"; do
+      MATCH "${name}" < snap-list
+  done
+
+  for name in passwd shadow group gshadow; do
+      remote.exec "findmnt -n /etc/${name}" | awk '{ print $2 }' | MATCH "tmpfs\[/snapd/hybrid-users/${name}\]"
+  done

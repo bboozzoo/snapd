@@ -764,7 +764,7 @@ func (s *seed20Suite) TestLoadMetaCore20DelegatedSnap(c *C) {
 		"provenance": []interface{}{"delegated-prov"},
 		"on-store":   []interface{}{"my-brand-store"},
 	}
-	s.MakeAssertedDelegatedSnap(c, snapYaml["required20"]+"\nprovenance: delegated-prov\n", nil, snap.R(1), "developerid", "my-brand", "delegated-prov", ra, s.StoreSigning.Database)
+	s.MakeAssertedDelegatedSnap(c, snapYaml["required20"]+"\nprovenance: delegated-prov\n", nil, snap.R(1), "developerid", "my-brand", "delegated-prov", "delegated-prov", ra, s.StoreSigning.Database)
 
 	s.setSnapContact("required20", "mailto:author@example.com")
 
@@ -869,7 +869,7 @@ func (s *seed20Suite) TestLoadMetaCore20DelegatedSnapProvenanceMismatch(c *C) {
 		"provenance": []interface{}{"delegated-prov"},
 		"on-store":   []interface{}{"my-brand-store"},
 	}
-	s.MakeAssertedDelegatedSnap(c, snapYaml["required20"]+"\nprovenance: delegated-prov-other\n", nil, snap.R(1), "developerid", "my-brand", "delegated-prov", ra, s.StoreSigning.Database)
+	s.MakeAssertedDelegatedSnap(c, snapYaml["required20"]+"\nprovenance: delegated-prov-other\n", nil, snap.R(1), "developerid", "my-brand", "delegated-prov", "delegated-prov", ra, s.StoreSigning.Database)
 
 	sysLabel := "20220705"
 	s.MakeSeed(c, sysLabel, "my-brand", "my-model", map[string]interface{}{
@@ -918,7 +918,7 @@ func (s *seed20Suite) TestLoadMetaCore20DelegatedSnapDeviceMismatch(c *C) {
 		"provenance": []interface{}{"delegated-prov"},
 		"on-model":   []interface{}{"my-brand/my-other-model"},
 	}
-	s.MakeAssertedDelegatedSnap(c, snapYaml["required20"]+"\nprovenance: delegated-prov\n", nil, snap.R(1), "developerid", "my-brand", "delegated-prov", ra, s.StoreSigning.Database)
+	s.MakeAssertedDelegatedSnap(c, snapYaml["required20"]+"\nprovenance: delegated-prov\n", nil, snap.R(1), "developerid", "my-brand", "delegated-prov", "delegated-prov", ra, s.StoreSigning.Database)
 
 	sysLabel := "20220705"
 	s.MakeSeed(c, sysLabel, "my-brand", "my-model", map[string]interface{}{
@@ -4307,6 +4307,48 @@ func (s *seed20Suite) TestModeSnaps(c *C) {
 
 	assertedSnapsDir := filepath.Join(s.SeedDir, "snaps")
 	unassertedSnapsDir := filepath.Join(s.SeedDir, "systems", srcLabel, "snaps")
+	componentTestRun := &seed.Snap{
+		Path:     filepath.Join(assertedSnapsDir, "component-test_11.snap"),
+		SideInfo: &s.AssertedSnapInfo("component-test").SideInfo,
+		Required: true,
+		Channel:  "latest/stable",
+		Components: []seed.Component{
+			{
+				Path: filepath.Join(assertedSnapsDir, "component-test+comp1_22.comp"),
+				CompSideInfo: snap.ComponentSideInfo{
+					Component: naming.NewComponentRef("component-test", "comp1"),
+					Revision:  snap.R(22),
+				},
+			},
+			{
+				Path: filepath.Join(assertedSnapsDir, "component-test+comp2_33.comp"),
+				CompSideInfo: snap.ComponentSideInfo{
+					Component: naming.NewComponentRef("component-test", "comp2"),
+					Revision:  snap.R(33),
+				},
+			},
+			{
+				Path: filepath.Join(unassertedSnapsDir, "component-test+comp3_44.comp"),
+				CompSideInfo: snap.ComponentSideInfo{
+					Component: naming.NewComponentRef("component-test", "comp3"),
+					Revision:  snap.R(44),
+				},
+			},
+		},
+	}
+	localComponentTestRun := &seed.Snap{
+		Path:     filepath.Join(unassertedSnapsDir, "local-component-test_1.0.snap"),
+		SideInfo: &snap.SideInfo{RealName: "local-component-test"},
+		Required: false,
+		Components: []seed.Component{
+			{
+				Path: filepath.Join(unassertedSnapsDir, "local-component-test+comp4_1.0.comp"),
+				CompSideInfo: snap.ComponentSideInfo{
+					Component: naming.NewComponentRef("local-component-test", "comp4"),
+				},
+			},
+		},
+	}
 	c.Check(runSnaps, DeepEquals, []*seed.Snap{
 		{
 			Path:     filepath.Join(assertedSnapsDir, "required20_1.snap"),
@@ -4314,53 +4356,35 @@ func (s *seed20Suite) TestModeSnaps(c *C) {
 			Required: true,
 			Channel:  "latest/stable",
 		},
-		{
-			Path:     filepath.Join(assertedSnapsDir, "component-test_11.snap"),
-			SideInfo: &s.AssertedSnapInfo("component-test").SideInfo,
-			Required: true,
-			Channel:  "latest/stable",
-			Components: []seed.Component{
-				{
-					Path: filepath.Join(assertedSnapsDir, "component-test+comp1_22.comp"),
-					CompSideInfo: snap.ComponentSideInfo{
-						Component: naming.NewComponentRef("component-test", "comp1"),
-						Revision:  snap.R(22),
-					},
-				},
-				{
-					Path: filepath.Join(assertedSnapsDir, "component-test+comp2_33.comp"),
-					CompSideInfo: snap.ComponentSideInfo{
-						Component: naming.NewComponentRef("component-test", "comp2"),
-						Revision:  snap.R(33),
-					},
-				},
-				{
-					Path: filepath.Join(unassertedSnapsDir, "component-test+comp3_44.comp"),
-					CompSideInfo: snap.ComponentSideInfo{
-						Component: naming.NewComponentRef("component-test", "comp3"),
-						Revision:  snap.R(44),
-					},
-				},
-			},
-		},
-		{
-			Path:     filepath.Join(unassertedSnapsDir, "local-component-test_1.0.snap"),
-			SideInfo: &snap.SideInfo{RealName: "local-component-test"},
-			Required: false,
-			Components: []seed.Component{
-				{
-					Path: filepath.Join(unassertedSnapsDir, "local-component-test+comp4_1.0.comp"),
-					CompSideInfo: snap.ComponentSideInfo{
-						Component: naming.NewComponentRef("local-component-test", "comp4"),
-					},
-				},
-			},
-		},
+		componentTestRun,
+		localComponentTestRun,
 	})
+
+	runCompsTest, err := seed20.ModeSnap("component-test", "run")
+	c.Assert(err, IsNil)
+	c.Check(runCompsTest, DeepEquals, componentTestRun)
+	localRunCompsTest, err := seed20.ModeSnap("local-component-test", "run")
+	c.Assert(err, IsNil)
+	c.Check(localRunCompsTest, DeepEquals, localComponentTestRun)
 
 	ephemeralSnaps, err := seed20.ModeSnaps("ephemeral")
 	c.Assert(err, IsNil)
 
+	componentTestEphmeral := &seed.Snap{
+		Path:     filepath.Join(assertedSnapsDir, "component-test_11.snap"),
+		SideInfo: &s.AssertedSnapInfo("component-test").SideInfo,
+		Required: true,
+		Channel:  "latest/stable",
+		Components: []seed.Component{
+			{
+				Path: filepath.Join(assertedSnapsDir, "component-test+comp2_33.comp"),
+				CompSideInfo: snap.ComponentSideInfo{
+					Component: naming.NewComponentRef("component-test", "comp2"),
+					Revision:  snap.R(33),
+				},
+			},
+		},
+	}
 	c.Check(ephemeralSnaps, testutil.DeepUnsortedMatches, []*seed.Snap{
 		{
 			Path:     filepath.Join(assertedSnapsDir, "optional20-a_1.snap"),
@@ -4368,26 +4392,24 @@ func (s *seed20Suite) TestModeSnaps(c *C) {
 			Required: true,
 			Channel:  "latest/stable",
 		},
-		{
-			Path:     filepath.Join(assertedSnapsDir, "component-test_11.snap"),
-			SideInfo: &s.AssertedSnapInfo("component-test").SideInfo,
-			Required: true,
-			Channel:  "latest/stable",
-			Components: []seed.Component{
-				{
-					Path: filepath.Join(assertedSnapsDir, "component-test+comp2_33.comp"),
-					CompSideInfo: snap.ComponentSideInfo{
-						Component: naming.NewComponentRef("component-test", "comp2"),
-						Revision:  snap.R(33),
-					},
-				},
-			},
-		},
+		componentTestEphmeral,
 	})
+
+	ephemeralCompsTest, err := seed20.ModeSnap("component-test", "ephemeral")
+	c.Assert(err, IsNil)
+	c.Check(ephemeralCompsTest, DeepEquals, componentTestEphmeral)
+	localEphemeralComps, err := seed20.ModeSnap("local-component-test", "ephemeral")
+	c.Assert(err, ErrorMatches, "snap local-component-test is not available for \"ephemeral\" mode")
+	c.Check(localEphemeralComps, IsNil)
+
+	comps, err := seed20.ModeSnap("non-existing-snap", "run")
+	c.Assert(err, ErrorMatches, "while looking for mode snap: snap non-existing-snap not found")
+	c.Check(comps, IsNil)
 }
 
 type seedOpts struct {
-	delegated bool
+	delegated                  bool
+	defaultComponentProvenance bool
 }
 
 func (s *seed20Suite) makeCore20SeedWithComps(c *C, sysLabel string, opts seedOpts) string {
@@ -4404,10 +4426,16 @@ func (s *seed20Suite) makeCore20SeedWithComps(c *C, sysLabel string, opts seedOp
 			"account-id": "my-brand",
 			"provenance": []interface{}{"delegated-prov", "other-prov"},
 		}
+
+		resourceProv := "delegated-prov"
+		if opts.defaultComponentProvenance {
+			resourceProv = ""
+		}
+
 		s.MakeAssertedDelegatedSnapWithComps(c,
 			snapYaml["required20"]+"\nprovenance: delegated-prov\n",
 			nil, snap.R(1), compRevs, "developerid", "my-brand",
-			"delegated-prov", ra, s.StoreSigning.Database)
+			"delegated-prov", resourceProv, ra, s.StoreSigning.Database)
 	} else {
 		s.MakeAssertedSnapWithComps(c, seedtest.SampleSnapYaml["required20"], nil,
 			snap.R(11), compRevs, "canonical", s.StoreSigning.Database)
@@ -4798,7 +4826,10 @@ func (s *seed20Suite) TestLoadMetaWithComponentsUnmatchedProvenanceInMetadata(c 
 	assertstest.AddMany(s.StoreSigning, s.Brands.AccountsAndKeys("my-brand")...)
 
 	sysLabel := "20240805"
-	s.makeCore20SeedWithComps(c, sysLabel, seedOpts{delegated: true})
+	s.makeCore20SeedWithComps(c, sysLabel, seedOpts{
+		delegated:                  true,
+		defaultComponentProvenance: true,
+	})
 
 	seed20, err := seed.Open(s.SeedDir, sysLabel)
 	c.Assert(err, IsNil)

@@ -567,6 +567,7 @@ func (s *installSuite) TestEncryptionSupportInfoGadgetIncompatibleWithEncryption
 			"storage-safety": tc.storageSafety,
 		})
 
+		gadget.SetEnclosingVolumeInStructs(tc.gadgetInfo.Volumes)
 		res, err := install.GetEncryptionSupportInfo(mockModel, secboot.TPMProvisionFull, kernelInfo, tc.gadgetInfo, nil)
 		c.Assert(err, IsNil)
 		c.Check(res, DeepEquals, tc.expected, Commentf("%v", tc))
@@ -1763,6 +1764,10 @@ func (fs *fakeSeed) EssentialSnaps() []*seed.Snap {
 
 func (fs *fakeSeed) ModeSnaps(mode string) ([]*seed.Snap, error) {
 	return fs.modeSnaps, nil
+}
+
+func (s *fakeSeed) ModeSnap(snapName, mode string) (*seed.Snap, error) {
+	return nil, nil
 }
 
 func (*fakeSeed) NumSnaps() int {

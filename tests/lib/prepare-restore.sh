@@ -312,6 +312,16 @@ prepare_project() {
     # remove any packages that are marked for auto removal before running any tests
     distro_auto_remove_packages
 
+    if os.query is-amazon-linux 2023; then
+        # perform system upgrade to the latest release
+        if [[ "$SPREAD_REBOOT" == 0 ]]; then
+            if distro_upgrade | MATCH "reboot"; then
+                echo "system upgraded, reboot required"
+                REBOOT
+            fi
+        fi
+    fi
+
     if os.query is-arch-linux; then
         # perform system upgrade on Arch so that we run with most recent kernel
         # and userspace
@@ -687,11 +697,14 @@ prepare_suite_each() {
     fi
 
     if [[ "$variant" = full ]]; then
+        # shellcheck source=tests/lib/prepare.sh
+        . "$TESTSLIB"/prepare.sh
         if os.query is-classic; then
-            # shellcheck source=tests/lib/prepare.sh
-            . "$TESTSLIB"/prepare.sh
             prepare_each_classic
+        else
+            prepare_each_core
         fi
+        
     fi
 
     case "$SPREAD_SYSTEM" in
@@ -770,6 +783,16 @@ restore_suite_each() {
     if [[ "$variant" = full ]]; then
         # shellcheck source=tests/lib/reset.sh
         "$TESTSLIB"/reset.sh --reuse-core
+    fi
+
+    # The ntp service randomly fails to create a socket on virbr0-nic,
+    # generating issues in actions like the auto-refresh (in Xenial).
+    # The errror lines are:
+    # ntpd: bind(23) AF_INET6 ... flags 0x11 failed: Cannot assign requested address
+    # ntpd: unable to create socket on virbr0-nic
+    # ntpd: kernel reports TIME_ERROR: 0x41: Clock Unsynchronized
+    if os.query is-xenial && systemctl status ntp | MATCH TIME_ERROR; then
+        systemctl restart ntp
     fi
 
     # Check for invariants late, in order to detect any bugs in the code above.

@@ -29,9 +29,12 @@ import (
 	"github.com/snapcore/snapd/asserts/snapasserts"
 	"github.com/snapcore/snapd/boot"
 	"github.com/snapcore/snapd/client/clientutil"
+	"github.com/snapcore/snapd/confdb"
 	"github.com/snapcore/snapd/osutil/user"
 	"github.com/snapcore/snapd/overlord"
 	"github.com/snapcore/snapd/overlord/assertstate"
+	"github.com/snapcore/snapd/overlord/confdbstate"
+	"github.com/snapcore/snapd/overlord/hookstate"
 	"github.com/snapcore/snapd/overlord/restart"
 	"github.com/snapcore/snapd/overlord/snapstate"
 	"github.com/snapcore/snapd/overlord/state"
@@ -147,7 +150,23 @@ func MockSnapstateInstallWithGoal(mock func(ctx context.Context, st *state.State
 	}
 }
 
-func MockSnapstateInstallComponents(mock func(ctx context.Context, st *state.State, names []string, info *snap.Info, opts snapstate.Options) ([]*state.TaskSet, error)) (restore func()) {
+func MockSnapstateUpdateWithGoal(mock func(ctx context.Context, st *state.State, goal snapstate.UpdateGoal, filter func(*snap.Info, *snapstate.SnapState) bool, opts snapstate.Options) ([]string, *snapstate.UpdateTaskSets, error)) (restore func()) {
+	return testutil.Mock(&snapstateUpdateWithGoal, mock)
+}
+
+func MockSnapstatePathUpdateGoal(mock func(snaps ...snapstate.PathSnap) snapstate.UpdateGoal) (restore func()) {
+	return testutil.Mock(&snapstatePathUpdateGoal, mock)
+}
+
+func MockSnapstateUpdateOne(mock func(ctx context.Context, st *state.State, goal snapstate.UpdateGoal, filter func(*snap.Info, *snapstate.SnapState) bool, opts snapstate.Options) (*state.TaskSet, error)) (restore func()) {
+	old := snapstateUpdateOne
+	snapstateUpdateOne = mock
+	return func() {
+		snapstateUpdateOne = old
+	}
+}
+
+func MockSnapstateInstallComponents(mock func(ctx context.Context, st *state.State, names []string, info *snap.Info, vsets *snapasserts.ValidationSets, opts snapstate.Options) ([]*state.TaskSet, error)) (restore func()) {
 	old := snapstateInstallComponents
 	snapstateInstallComponents = mock
 	return func() {
@@ -163,19 +182,19 @@ func MockSnapstateStoreInstallGoal(mock func(snaps ...snapstate.StoreSnap) snaps
 	}
 }
 
+func MockSnapstateStoreUpdateGoal(mock func(snaps ...snapstate.StoreUpdate) snapstate.UpdateGoal) (restore func()) {
+	old := snapstateStoreUpdateGoal
+	snapstateStoreUpdateGoal = mock
+	return func() {
+		snapstateStoreUpdateGoal = old
+	}
+}
+
 func MockSnapstateInstallPath(mock func(*state.State, *snap.SideInfo, string, string, string, snapstate.Flags, snapstate.PrereqTracker) (*state.TaskSet, *snap.Info, error)) (restore func()) {
 	oldSnapstateInstallPath := snapstateInstallPath
 	snapstateInstallPath = mock
 	return func() {
 		snapstateInstallPath = oldSnapstateInstallPath
-	}
-}
-
-func MockSnapstateUpdate(mock func(*state.State, string, *snapstate.RevisionOptions, int, snapstate.Flags) (*state.TaskSet, error)) (restore func()) {
-	oldSnapstateUpdate := snapstateUpdate
-	snapstateUpdate = mock
-	return func() {
-		snapstateUpdate = oldSnapstateUpdate
 	}
 }
 
@@ -211,14 +230,6 @@ func MockSnapstateRevertToRevision(mock func(*state.State, string, snap.Revision
 	}
 }
 
-func MockSnapstateUpdateMany(mock func(context.Context, *state.State, []string, []*snapstate.RevisionOptions, int, *snapstate.Flags) ([]string, []*state.TaskSet, error)) (restore func()) {
-	oldSnapstateUpdateMany := snapstateUpdateMany
-	snapstateUpdateMany = mock
-	return func() {
-		snapstateUpdateMany = oldSnapstateUpdateMany
-	}
-}
-
 func MockSnapstateRemove(mock func(st *state.State, name string, revision snap.Revision, flags *snapstate.RemoveFlags) (*state.TaskSet, error)) (restore func()) {
 	oldSnapstateRemove := snapstateRemove
 	snapstateRemove = mock
@@ -243,7 +254,7 @@ func MockSnapstateInstallPathMany(f func(context.Context, *state.State, []*snap.
 	}
 }
 
-func MockSnapstateInstallComponentPath(f func(st *state.State, csi *snap.ComponentSideInfo, info *snap.Info, path string, flags snapstate.Flags) (*state.TaskSet, error)) func() {
+func MockSnapstateInstallComponentPath(f func(st *state.State, csi *snap.ComponentSideInfo, info *snap.Info, path string, opts snapstate.Options) (*state.TaskSet, error)) func() {
 	old := snapstateInstallComponentPath
 	snapstateInstallComponentPath = f
 	return func() {
@@ -320,23 +331,20 @@ func MockReboot(f func(boot.RebootAction, time.Duration, *boot.RebootInfo) error
 	return func() { reboot = boot.Reboot }
 }
 
-func MockSideloadSnapsInfo(sis []*snap.SideInfo) (restore func()) {
+func MockSideloadSnapsInfo(infos []*snap.Info) (restore func()) {
 	r := testutil.Backup(&sideloadSnapsInfo)
-	sideloadSnapsInfo = func(st *state.State, snapFiles []*uploadedSnap,
+	sideloadSnapsInfo = func(st *state.State, snapFiles []*uploadedContainer,
 		flags sideloadFlags) (*sideloadedInfo, *apiError) {
 
-		names := make([]string, len(snapFiles))
-		sideInfos := make([]*snap.SideInfo, len(snapFiles))
-		origPaths := make([]string, len(snapFiles))
-		tmpPaths := make([]string, len(snapFiles))
+		var snaps []sideloadSnapInfo
 		for i, snapFile := range snapFiles {
-			sideInfos[i] = sis[i]
-			names[i] = sis[i].RealName
-			origPaths[i] = snapFile.filename
-			tmpPaths[i] = snapFile.tmpPath
+			snaps = append(snaps, sideloadSnapInfo{
+				info:     infos[i],
+				origPath: snapFile.filename,
+				tmpPath:  snapFile.tmpPath,
+			})
 		}
-		return &sideloadedInfo{sideInfos: sideInfos, names: names,
-			origPaths: origPaths, tmpPaths: tmpPaths}, nil
+		return &sideloadedInfo{snaps: snaps}, nil
 	}
 	return r
 }
@@ -379,20 +387,12 @@ var (
 	MaxReadBuflen = maxReadBuflen
 )
 
-func MockRegistrystateGet(f func(_ *state.State, _, _, _ string, _ []string) (interface{}, error)) (restore func()) {
-	old := registrystateGet
-	registrystateGet = f
-	return func() {
-		registrystateGet = old
-	}
+func MockConfdbstateGet(f func(_ *state.State, _, _, _ string, _ []string) (interface{}, error)) (restore func()) {
+	return testutil.Mock(&confdbstateGet, f)
 }
 
-func MockRegistrystateSet(f func(_ *state.State, _, _, _ string, _ map[string]interface{}) error) (restore func()) {
-	old := registrystateSet
-	registrystateSet = f
-	return func() {
-		registrystateSet = old
-	}
+func MockConfdbstateGetTransaction(f func(*hookstate.Context, *state.State, *confdb.View) (*confdbstate.Transaction, confdbstate.CommitTxFunc, error)) (restore func()) {
+	return testutil.Mock(&confdbstateGetTransaction, f)
 }
 
 func MockRebootNoticeWait(d time.Duration) (restore func()) {
@@ -419,4 +419,12 @@ func MockNewStatusDecorator(f func(ctx context.Context, isGlobal bool, uid strin
 	restore = testutil.Backup(&newStatusDecorator)
 	newStatusDecorator = f
 	return restore
+}
+
+func MockConfdbstateGetView(f func(_ *state.State, _, _, _ string) (*confdb.View, error)) (restore func()) {
+	return testutil.Mock(&confdbstateGetView, f)
+}
+
+func MockConfdbstateSetViaView(f func(confdb.DataBag, *confdb.View, map[string]interface{}) error) (restore func()) {
+	return testutil.Mock(&confdbstateSetViaView, f)
 }

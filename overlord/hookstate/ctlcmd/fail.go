@@ -24,9 +24,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/snapcore/snapd/features"
 	"github.com/snapcore/snapd/i18n"
-	"github.com/snapcore/snapd/overlord/registrystate"
+	"github.com/snapcore/snapd/overlord/confdbstate"
 )
 
 type failCommand struct {
@@ -37,9 +36,9 @@ type failCommand struct {
 	} `positional-args:"yes" required:"yes"`
 }
 
-var shortFailHelp = i18n.G("Fail a registry change")
+var shortFailHelp = i18n.G("Fail a confdb change")
 var longFailHelp = i18n.G(`
-The fail command rejects the registry changes currently being proposed,
+The fail command rejects the confdb changes currently being proposed,
 providing a reason for the rejection. It may only be used in a
 change-view-<plug> hook.
 `)
@@ -52,13 +51,12 @@ func init() {
 }
 
 func (c *failCommand) Execute(args []string) error {
-	if !features.Registries.IsEnabled() {
-		_, confName := features.Registries.ConfigOption()
-		return fmt.Errorf(`cannot use "snapctl fail" without enabling the %q feature`, confName)
-	}
-
 	ctx, err := c.ensureContext()
 	if err != nil {
+		return err
+	}
+
+	if err := validateConfdbsFeatureFlag(ctx.State()); err != nil {
 		return err
 	}
 
@@ -70,9 +68,9 @@ func (c *failCommand) Execute(args []string) error {
 	}
 
 	t, _ := ctx.Task()
-	tx, saveChanges, err := registrystate.GetStoredTransaction(t)
+	tx, saveChanges, err := confdbstate.GetStoredTransaction(t)
 	if err != nil {
-		return fmt.Errorf(i18n.G("internal error: cannot get registry transaction to fail: %v"), err)
+		return fmt.Errorf(i18n.G("internal error: cannot get confdb transaction to fail: %v"), err)
 	}
 
 	tx.Abort(ctx.InstanceName(), c.Positional.Reason)
