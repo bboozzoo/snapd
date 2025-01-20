@@ -15,7 +15,7 @@ prepare: |
     # TODO copy nested vars file to "$NESTED_ASSETS_DIR/OVMF_VARS.snakeoil.fd"
     #
     tests.nested build-image core
-    tests.nested create-vm core    
+    tests.nested create-vm core --ovmf-state-file "$TESTSLIB/nested-assets/dbx/OVMF_VARS.test.fd"
 
 execute: |
     echo "Establish initial state"
