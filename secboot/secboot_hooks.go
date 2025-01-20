@@ -131,6 +131,8 @@ var setAuthorizedSnapModelsOnHooksKeydata = setAuthorizedSnapModelsOnHooksKeydat
 // ResealKeysWithFDESetupHook updates hook based keydatas for given
 // files with a specific list of models
 func ResealKeysWithFDESetupHook(keys []KeyDataLocation, primaryKeyFile string, models []ModelForSealing) error {
+	b := getMockableBackend()
+
 	// FIXME: load primary key from keyring when available
 	primaryKeyBuf, err := os.ReadFile(primaryKeyFile)
 	if err != nil {
@@ -145,13 +147,13 @@ func ResealKeysWithFDESetupHook(keys []KeyDataLocation, primaryKeyFile string, m
 	for _, key := range keys {
 		var keyDataWriter sb.KeyDataWriter
 
-		keyData, tokenWriter, tokenErr := key.readTokenAndGetWriter()
+		keyData, tokenWriter, tokenErr := key.readTokenAndGetWriter(b)
 		if tokenErr == nil {
 			keyDataWriter = tokenWriter
 		} else {
 			loadedKey := &defaultKeyLoader{}
 			const hintExpectFDEHook = true
-			if err := readKeyFile(key.KeyFile, loadedKey, hintExpectFDEHook); err != nil {
+			if err := readKeyFile(b, key.KeyFile, loadedKey, hintExpectFDEHook); err != nil {
 				return tokenErr
 			}
 
@@ -176,11 +178,11 @@ func ResealKeysWithFDESetupHook(keys []KeyDataLocation, primaryKeyFile string, m
 			}
 		} else {
 			// TODO: also set the run modes
-			hooksKeyData, err := sb_hooks.NewKeyData(keyData)
+			hooksKeyData, err := b.NewKeyData(keyData)
 			if err != nil {
 				return err
 			}
-			if err := setAuthorizedSnapModelsOnHooksKeydata(hooksKeyData, rand.Reader, primaryKey, sbModels...); err != nil {
+			if err := hooksKeyData.SetAuthorizedSnapModels(rand.Reader, primaryKey, sbModels...); err != nil {
 				return err
 			}
 		}
@@ -245,4 +247,8 @@ func (kr *keyRevealerV3) RevealKey(data, ciphertext, aad []byte) (plaintext []by
 		V2Payload: true,
 	}
 	return fde.Reveal(&p)
+}
+
+func (f *defaultSecbootBackend) NewKeyData(kd SecbootKeyDataGetter) (SecbootHooksKeyDataSetter, error) {
+	return sb_hooks.NewKeyData(kd.(*sb.KeyData))
 }

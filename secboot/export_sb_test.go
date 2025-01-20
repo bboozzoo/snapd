@@ -254,7 +254,7 @@ func MockSbSetKeyRevealer(f func(kr sb_hooks.KeyRevealer)) (restore func()) {
 	}
 }
 
-func MockReadKeyToken(f func(devicePath, slotName string) (*sb.KeyData, error)) (restore func()) {
+func MockReadKeyToken(f func(b SecbootBackend, devicePath, slotName string) (SecbootKeyDataActor, error)) (restore func()) {
 	old := readKeyToken
 	readKeyToken = f
 	return func() {
@@ -264,7 +264,7 @@ func MockReadKeyToken(f func(devicePath, slotName string) (*sb.KeyData, error)) 
 
 type KeyLoader = keyLoader
 
-func MockReadKeyFile(f func(keyfile string, kl keyLoader, hintExpectFDEHook bool) error) (restore func()) {
+func MockReadKeyFile(f func(b SecbootKeyLoadingBackend, keyfile string, kl keyLoader, hintExpectFDEHook bool) error) (restore func()) {
 	old := readKeyFile
 	readKeyFile = f
 	return func() {
@@ -416,4 +416,12 @@ func MockTpmGetCapabilityHandles(f func(tpm *sb_tpm2.Connection, firstHandle tpm
 	return func() {
 		tpmGetCapabilityHandles = old
 	}
+}
+
+func MockGetSecbootBackend(f func() SecbootBackend) (restore func()) {
+	return testutil.Mock(&getMockableBackend, f)
+}
+
+func MockGetSecbootUnlockingBackend(f func() SecbootUnlockingBackend) (restore func()) {
+	return testutil.Mock(&getMockableUnlockingBackend, f)
 }

@@ -26,11 +26,14 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
+	"github.com/canonical/go-tpm2"
 	sb "github.com/snapcore/secboot"
 	sb_plainkey "github.com/snapcore/secboot/plainkey"
+	sb_tpm2 "github.com/snapcore/secboot/tpm2"
 	"golang.org/x/xerrors"
 
 	"github.com/snapcore/snapd/kernel/fde"
@@ -84,7 +87,7 @@ func LockSealedKeys() error {
 // robust and try unlocking using another method for example.
 func UnlockVolumeUsingSealedKeyIfEncrypted(disk disks.Disk, name string, sealedEncryptionKeyFile string, opts *UnlockVolumeUsingSealedKeyOptions) (UnlockResult, error) {
 	// FIXME: this function is big. We need to split it.
-
+	b := getMockableUnlockingBackend()
 	res := UnlockResult{}
 
 	// find the encrypted device using the disk we were provided - note that
@@ -138,13 +141,13 @@ func UnlockVolumeUsingSealedKeyIfEncrypted(disk disks.Disk, name string, sealedE
 	hintExpectFDEHook := fdeHasRevealKey()
 
 	loadedKey := &defaultKeyLoader{}
-	if err := readKeyFile(sealedEncryptionKeyFile, loadedKey, hintExpectFDEHook); err != nil {
+	if err := readKeyFile(b, sealedEncryptionKeyFile, loadedKey, hintExpectFDEHook); err != nil {
 		if !os.IsNotExist(err) {
 			logger.Noticef("WARNING: there was an error loading key %s: %v", sealedEncryptionKeyFile, err)
 		}
 	}
 
-	var keys []*sb.KeyData
+	var keys []SecbootKeyDataGetter
 	if loadedKey.KeyData != nil {
 		keys = append(keys, loadedKey.KeyData)
 	}
@@ -189,7 +192,7 @@ func UnlockVolumeUsingSealedKeyIfEncrypted(disk disks.Disk, name string, sealedE
 		logger.Noticef("WARNING: attempting opening device %s  with key file %s failed: %v", sourceDevice, sealedEncryptionKeyFile, err)
 	}
 
-	err = sbActivateVolumeWithKeyData(mapperName, sourceDevice, authRequestor, options, keys...)
+	err = b.ActivateVolumeWithKeyData(mapperName, sourceDevice, authRequestor, options, keys...)
 	if err == sb.ErrRecoveryKeyUsed {
 		logger.Noticef("successfully activated encrypted device %q using a fallback activation method", sourceDevice)
 		res.UnlockMethod = UnlockedWithRecoveryKey
@@ -455,4 +458,101 @@ func (key *SealKeyRequest) getWriter() (sb.KeyDataWriter, error) {
 	} else {
 		return key.BootstrappedContainer.GetTokenWriter(key.SlotName)
 	}
+}
+
+type SecbootKeyDataGetter interface {
+	PlatformName() string
+	Generation() int
+}
+
+type SecbootKeyDataSetter interface {
+	WriteAtomic(w sb.KeyDataWriter) error
+
+	SetAuthorizedSnapModels(key sb.PrimaryKey, models ...sb.SnapModel) error
+}
+
+type SecbootKeyDataActor interface {
+	SecbootKeyDataGetter
+	SecbootKeyDataSetter
+}
+
+type SecbootSealedKeyObjectGetter interface {
+	PCRPolicyCounterHandle() tpm2.Handle
+}
+
+type SecbootSealedKeyObjectSetter interface {
+	RevokeOldPCRProtectionPolicies(tpm *sb_tpm2.Connection, authKey sb.PrimaryKey) error
+	WriteAtomic(w sb.KeyDataWriter) error
+}
+
+type SecbootSealedKeyDataActor interface {
+	PCRPolicyCounterHandle() tpm2.Handle
+}
+
+type SecbootSealedKeyObjectActor interface {
+	SecbootSealedKeyObjectGetter
+	SecbootSealedKeyObjectSetter
+}
+
+type SecbootLUKS2Backend interface {
+	ListLUKS2ContainerUnlockKeyNames(dev string) ([]string, error)
+	NewLUKS2KeyDataReader(dev, slot string) (sb.KeyDataReader, error)
+	NewLUKS2KeyDataWriter(dev, slot string) (sb.KeyDataWriter, error)
+
+	AddLUKS2ContainerUnlockKey(devicePath, keyslotName string, existingKey, newKey sb.DiskUnlockKey) error
+	RenameLUKS2ContainerKey(devicePath, oldName, newName string) error
+}
+
+type SecbootTPM2Backend interface {
+	SecbootTPM2KeyLoadingBackend
+
+	NewSealedKeyData(kd SecbootKeyDataActor) (SecbootSealedKeyDataActor, error)
+	NewFileSealedKeyObjectWriter(path string) sb.KeyDataWriter
+	UpdateKeyPCRProtectionPolicyMultiple(tpm *sb_tpm2.Connection, keys []SecbootSealedKeyObjectActor, authKey sb.PrimaryKey, pcrProfile *sb_tpm2.PCRProtectionProfile) error
+	UpdateKeyDataPCRProtectionPolicy(tpm *sb_tpm2.Connection, authKey sb.PrimaryKey, pcrProfile *sb_tpm2.PCRProtectionProfile, policyVersionOption sb_tpm2.PCRPolicyVersionOption, keys ...SecbootKeyDataActor) error
+}
+
+type SecbootTPM2KeyLoadingBackend interface {
+	NewKeyDataFromSealedKeyObjectFile(kf string) (SecbootKeyDataActor, error)
+	ReadSealedKeyObjectFromFile(kf string) (SecbootSealedKeyObjectActor, error)
+}
+
+type SecbootHooksKeyDataSetter interface {
+	SetAuthorizedSnapModels(r io.Reader, key sb.PrimaryKey, models ...sb.SnapModel) error
+}
+
+type SecbootHooksBackend interface {
+	NewKeyData(kd SecbootKeyDataGetter) (SecbootHooksKeyDataSetter, error)
+}
+
+type SecbootActivationBackend interface {
+	ActivateVolumeWithKey(volumeName, sourceDevicePath string, key []byte, options *sb.ActivateVolumeOptions) error
+	ActivateVolumeWithKeyData(volumeName, sourceDevicePath string, authRequestor sb.AuthRequestor, options *sb.ActivateVolumeOptions, keys ...SecbootKeyDataGetter) error
+	ActivateVolumeWithRecoveryKey(volumeName, sourceDevicePath string, authRequestor sb.AuthRequestor, options *sb.ActivateVolumeOptions) error
+	DeactivateVolume(volumeName string) error
+}
+
+type SecbootPlainkeyBackend interface {
+	SetProtectorKeys(keys ...[]byte)
+}
+
+type SecbootUnlockingBackend interface {
+	SecbootActivationBackend
+	SecbootKeyLoadingBackend
+}
+
+type SecbootKeyLoadingBackend interface {
+	SecbootTPM2KeyLoadingBackend
+
+	ReadKeyData(sb.KeyDataReader) (SecbootKeyDataActor, error)
+	NewFileKeyDataReader(kf string) (sb.KeyDataReader, error)
+}
+
+type SecbootBackend interface {
+	SecbootLUKS2Backend
+	SecbootTPM2Backend
+	SecbootHooksBackend
+	SecbootKeyLoadingBackend
+
+	NewFileKeyDataWriter(kf string) sb.KeyDataWriter
 }

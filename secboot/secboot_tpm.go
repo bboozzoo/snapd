@@ -244,12 +244,12 @@ func newAuthRequestor() (sb.AuthRequestor, error) {
 	)
 }
 
-func readKeyTokenImpl(devicePath, slotName string) (*sb.KeyData, error) {
-	kdReader, err := sb.NewLUKS2KeyDataReader(devicePath, slotName)
+func readKeyTokenImpl(b SecbootBackend, devicePath, slotName string) (SecbootKeyDataActor, error) {
+	kdReader, err := b.NewLUKS2KeyDataReader(devicePath, slotName)
 	if err != nil {
 		return nil, err
 	}
-	return sb.ReadKeyData(kdReader)
+	return b.ReadKeyData(kdReader)
 }
 
 var readKeyToken = readKeyTokenImpl
@@ -258,27 +258,27 @@ var readKeyToken = readKeyTokenImpl
 // enough.
 type keyLoader interface {
 	// LoadedKeyData keeps track of keys in KeyData format.
-	LoadedKeyData(kd *sb.KeyData)
+	LoadedKeyData(kd SecbootKeyDataActor)
 	// LoadedSealedKeyObject keeps track of sealed key object for
 	// legacy TPM This is useful for resealing. For unlocking, a
 	// matching KeyData will also be emitted.
-	LoadedSealedKeyObject(sko *sb_tpm2.SealedKeyObject)
+	LoadedSealedKeyObject(sko SecbootSealedKeyObjectActor)
 	// LoadedFDEHookKeyV1 keeps track of sealed key object for
 	// legacy FDE hooks. In this case no KeyData is emitted.
 	LoadedFDEHookKeyV1(sk []byte)
 }
 
 type defaultKeyLoader struct {
-	KeyData         *sb.KeyData
-	SealedKeyObject *sb_tpm2.SealedKeyObject
+	KeyData         SecbootKeyDataActor
+	SealedKeyObject SecbootSealedKeyObjectActor
 	FDEHookKeyV1    []byte
 }
 
-func (dkl *defaultKeyLoader) LoadedKeyData(kd *sb.KeyData) {
+func (dkl *defaultKeyLoader) LoadedKeyData(kd SecbootKeyDataActor) {
 	dkl.KeyData = kd
 }
 
-func (dkl *defaultKeyLoader) LoadedSealedKeyObject(sko *sb_tpm2.SealedKeyObject) {
+func (dkl *defaultKeyLoader) LoadedSealedKeyObject(sko SecbootSealedKeyObjectActor) {
 	dkl.SealedKeyObject = sko
 }
 
@@ -313,7 +313,7 @@ func hasOldSealedKeyPrefix(keyfile string) (bool, error) {
 // provided. This is uselful for resealing, as the associated KeyData
 // provided in that case will be enough for unlocking.
 // TODO: consider moving this to secboot
-func readKeyFileImpl(keyfile string, kl keyLoader, hintExpectFDEHook bool) error {
+func readKeyFileImpl(b SecbootKeyLoadingBackend, keyfile string, kl keyLoader, hintExpectFDEHook bool) error {
 	oldSealedKey, err := hasOldSealedKeyPrefix(keyfile)
 	if err != nil {
 		return err
@@ -335,11 +335,11 @@ func readKeyFileImpl(keyfile string, kl keyLoader, hintExpectFDEHook bool) error
 
 	case oldSealedKey && !hintExpectFDEHook:
 		// TPM sealed object
-		sealedObject, err := sbReadSealedKeyObjectFromFile(keyfile)
+		sealedObject, err := b.ReadSealedKeyObjectFromFile(keyfile)
 		if err != nil {
 			return fmt.Errorf("cannot read key object: %v", err)
 		}
-		keyData, err := sbNewKeyDataFromSealedKeyObjectFile(keyfile)
+		keyData, err := b.NewKeyDataFromSealedKeyObjectFile(keyfile)
 		if err != nil {
 			return fmt.Errorf("cannot read key object as key data: %v", err)
 		}
@@ -348,11 +348,11 @@ func readKeyFileImpl(keyfile string, kl keyLoader, hintExpectFDEHook bool) error
 		return nil
 
 	default:
-		reader, err := sbNewFileKeyDataReader(keyfile)
+		reader, err := b.NewFileKeyDataReader(keyfile)
 		if err != nil {
 			return fmt.Errorf("cannot open key data: %v", err)
 		}
-		keyData, err := sbReadKeyData(reader)
+		keyData, err := b.ReadKeyData(reader)
 		if err != nil {
 			return err
 		}
@@ -363,12 +363,12 @@ func readKeyFileImpl(keyfile string, kl keyLoader, hintExpectFDEHook bool) error
 
 var readKeyFile = readKeyFileImpl
 
-func (key KeyDataLocation) readTokenAndGetWriter() (*sb.KeyData, sb.KeyDataWriter, error) {
-	kd, err := readKeyToken(key.DevicePath, key.SlotName)
+func (key KeyDataLocation) readTokenAndGetWriter(b SecbootBackend) (SecbootKeyDataActor, sb.KeyDataWriter, error) {
+	kd, err := readKeyToken(b, key.DevicePath, key.SlotName)
 	if err != nil {
 		return nil, nil, err
 	}
-	writer, err := newLUKS2KeyDataWriter(key.DevicePath, key.SlotName)
+	writer, err := b.NewLUKS2KeyDataWriter(key.DevicePath, key.SlotName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -385,10 +385,10 @@ func (key KeyDataLocation) readTokenAndGetWriter() (*sb.KeyData, sb.KeyDataWrite
 // file. It will return only a KeyData if found in a token. If a
 // KeyData is returned, then a KeyDataWriter is also returned.
 // TODO: consider moving this to secboot_sb.go
-func readKeyData(key KeyDataLocation) (*sb.KeyData, *sb_tpm2.SealedKeyObject, sb.KeyDataWriter, error) {
+func readKeyData(b SecbootBackend, key KeyDataLocation) (SecbootKeyDataActor, SecbootSealedKeyObjectActor, sb.KeyDataWriter, error) {
 	// We try with the token first. If we find it, we will ignore
 	// the file.
-	kd, writer, tokenErr := key.readTokenAndGetWriter()
+	kd, writer, tokenErr := key.readTokenAndGetWriter(b)
 	if tokenErr == nil {
 		return kd, nil, writer, nil
 	}
@@ -397,11 +397,11 @@ func readKeyData(key KeyDataLocation) (*sb.KeyData, *sb_tpm2.SealedKeyObject, sb
 	// file.
 	loadedKey := &defaultKeyLoader{}
 	const hintExpectFDEHook = false
-	fileErr := readKeyFile(key.KeyFile, loadedKey, hintExpectFDEHook)
+	fileErr := readKeyFile(b, key.KeyFile, loadedKey, hintExpectFDEHook)
 
 	if fileErr == nil {
 		if loadedKey.SealedKeyObject == nil {
-			return loadedKey.KeyData, nil, sb.NewFileKeyDataWriter(key.KeyFile), nil
+			return loadedKey.KeyData, nil, b.NewFileKeyDataWriter(key.KeyFile), nil
 		} else {
 			// loadedKey.SealedKeyObject is not nil, then
 			// the KeyData is just a work-around for
@@ -553,6 +553,8 @@ func SealKeys(keys []SealKeyRequest, params *SealKeysParams) ([]byte, error) {
 // ResealKeys updates the PCR protection policy for the sealed encryption keys
 // according to the specified parameters.
 func ResealKeys(params *ResealKeysParams) error {
+	b := getMockableBackend()
+
 	numSealedKeyObjects := len(params.Keys)
 	if numSealedKeyObjects < 1 {
 		return fmt.Errorf("at least one key file is required")
@@ -578,11 +580,11 @@ func ResealKeys(params *ResealKeysParams) error {
 		return fmt.Errorf("cannot read the policy auth key file %s: %w", params.TPMPolicyAuthKeyFile, err)
 	}
 
-	keyDatas := make([]*sb.KeyData, 0, numSealedKeyObjects)
-	sealedKeyObjects := make([]*sb_tpm2.SealedKeyObject, 0, numSealedKeyObjects)
+	keyDatas := make([]SecbootKeyDataActor, 0, numSealedKeyObjects)
+	sealedKeyObjects := make([]SecbootSealedKeyObjectActor, 0, numSealedKeyObjects)
 	writers := make([]sb.KeyDataWriter, 0, numSealedKeyObjects)
 	for _, key := range params.Keys {
-		keyData, keyObject, writer, err := readKeyData(key)
+		keyData, keyObject, writer, err := readKeyData(b, key)
 		if err != nil {
 			return err
 		}
@@ -605,7 +607,7 @@ func ResealKeys(params *ResealKeysParams) error {
 	}
 
 	if hasOldSealedKeyObjects {
-		if err := sbUpdateKeyPCRProtectionPolicyMultiple(tpm, sealedKeyObjects, authKey, &pcrProfile); err != nil {
+		if err := b.UpdateKeyPCRProtectionPolicyMultiple(tpm, sealedKeyObjects, authKey, &pcrProfile); err != nil {
 			return fmt.Errorf("cannot update legacy PCR protection policy: %w", err)
 		}
 
@@ -618,12 +620,12 @@ func ResealKeys(params *ResealKeysParams) error {
 		}
 
 		// revoke old policies via the primary key object
-		if err := sbSealedKeyObjectRevokeOldPCRProtectionPolicies(sealedKeyObjects[0], tpm, authKey); err != nil {
+		if err := sealedKeyObjects[0].RevokeOldPCRProtectionPolicies(tpm, authKey); err != nil {
 			return fmt.Errorf("cannot revoke old PCR protection policies: %w", err)
 		}
 	} else {
 		// TODO: find out which context when revocation should happen
-		if err := sbUpdateKeyDataPCRProtectionPolicy(tpm, authKey, &pcrProfile, sb_tpm2.NoNewPCRPolicyVersion, keyDatas...); err != nil {
+		if err := b.UpdateKeyDataPCRProtectionPolicy(tpm, authKey, &pcrProfile, sb_tpm2.NoNewPCRPolicyVersion, keyDatas...); err != nil {
 			return fmt.Errorf("cannot update PCR protection policy: %w", err)
 		}
 
@@ -869,78 +871,13 @@ func resetLockoutCounter(lockoutAuthFile string) error {
 	return nil
 }
 
-type mockableSealedKeyData interface {
-	PCRPolicyCounterHandle() tpm2.Handle
-}
-
-type mockableSealedKeyObject interface {
-	PCRPolicyCounterHandle() tpm2.Handle
-}
-
-type mockableKeyData interface {
-	PlatformName() string
-	GetTPMSealedKeyData() (mockableSealedKeyData, error)
-}
-
-type realSealedKeyData struct {
-	*sb_tpm2.SealedKeyData
-}
-
-type realSealedKeyObject struct {
-	*sb_tpm2.SealedKeyObject
-}
-
-type realKeyData struct {
-	*sb.KeyData
-}
-
-func (keyData *realKeyData) GetTPMSealedKeyData() (mockableSealedKeyData, error) {
-	skd, err := sb_tpm2.NewSealedKeyData(keyData.KeyData)
-	if err != nil {
-		return nil, err
-	}
-	return &realSealedKeyData{skd}, nil
-}
-
-func mockableReadKeyDataImpl(r sb.KeyDataReader) (mockableKeyData, error) {
-	keyData, err := sb.ReadKeyData(r)
-	if err != nil {
-		return nil, err
-	}
-	return &realKeyData{keyData}, nil
-}
-
-var mockableReadKeyData = mockableReadKeyDataImpl
-
-type mockableKeyLoader struct {
-	KeyData         mockableKeyData
-	SealedKeyObject mockableSealedKeyObject
-	FDEHookKeyV1    []byte
-}
-
-func (dkl *mockableKeyLoader) LoadedKeyData(kd *sb.KeyData) {
-	dkl.KeyData = &realKeyData{kd}
-}
-
-func (dkl *mockableKeyLoader) LoadedSealedKeyObject(sko *sb_tpm2.SealedKeyObject) {
-	dkl.SealedKeyObject = &realSealedKeyObject{sko}
-}
-
-func (dkl *mockableKeyLoader) LoadedFDEHookKeyV1(sk []byte) {
-	dkl.FDEHookKeyV1 = sk
-}
-
-func mockableReadKeyFileImpl(keyFile string, keyLoader *mockableKeyLoader, hintExpectFDEHook bool) error {
-	return readKeyFile(keyFile, keyLoader, hintExpectFDEHook)
-}
-
-var mockableReadKeyFile = mockableReadKeyFileImpl
-
 // GetPCRHandle returns the handle used by a key. The key will be
 // searched on the token of the keySlot from the node. If that keySlot
 // has no KeyData, then the key will be loaded at path keyFile.
 func GetPCRHandle(node, keySlot, keyFile string) (uint32, error) {
-	slots, err := sbListLUKS2ContainerUnlockKeyNames(node)
+	b := getMockableBackend()
+
+	slots, err := b.ListLUKS2ContainerUnlockKeyNames(node)
 	if err != nil {
 		return 0, fmt.Errorf("cannot list slots in partition save partition: %v", err)
 	}
@@ -948,20 +885,20 @@ func GetPCRHandle(node, keySlot, keyFile string) (uint32, error) {
 	var readKeyDataErr error
 	for _, slot := range slots {
 		if slot == keySlot {
-			reader, err := sbNewLUKS2KeyDataReader(node, slot)
+			reader, err := b.NewLUKS2KeyDataReader(node, slot)
 			if err != nil {
 				// We save the error and try the file instead.
 				readKeyDataErr = err
 				break
 			}
-			keyData, err := mockableReadKeyData(reader)
+			keyData, err := b.ReadKeyData(reader)
 			if err != nil {
 				return 0, fmt.Errorf("cannot read key data for slot '%s': %w", keySlot, err)
 			}
 			if keyData.PlatformName() != "tpm2" {
 				return 0, nil
 			}
-			sealedKeyData, err := keyData.GetTPMSealedKeyData()
+			sealedKeyData, err := b.NewSealedKeyData(keyData)
 			if err != nil {
 				return 0, fmt.Errorf("cannot read sealed key data for slot '%s': %w", keySlot, err)
 			}
@@ -969,9 +906,9 @@ func GetPCRHandle(node, keySlot, keyFile string) (uint32, error) {
 		}
 	}
 
-	loadedKey := &mockableKeyLoader{}
+	loadedKey := &defaultKeyLoader{}
 	const hintExpectFDEHook = false
-	err = mockableReadKeyFile(keyFile, loadedKey, hintExpectFDEHook)
+	err = readKeyFile(b, keyFile, loadedKey, hintExpectFDEHook)
 	if err != nil {
 		if os.IsNotExist(err) {
 			if readKeyDataErr != nil {
@@ -995,7 +932,7 @@ func GetPCRHandle(node, keySlot, keyFile string) (uint32, error) {
 		if loadedKey.KeyData.PlatformName() != "tpm2" {
 			return 0, nil
 		}
-		sealedKeyData, err := loadedKey.KeyData.GetTPMSealedKeyData()
+		sealedKeyData, err := b.NewSealedKeyData(loadedKey.KeyData)
 		if err != nil {
 			return 0, fmt.Errorf("cannot read sealed key data from %s: %w", keyFile, err)
 		}
@@ -1011,7 +948,9 @@ func GetPCRHandle(node, keySlot, keyFile string) (uint32, error) {
 // reading old key object files.  If not TPM2 key is found, nothing
 // happens.
 func RemoveOldCounterHandles(node string, possibleOldKeys map[string]bool, possibleKeyFiles []string, hintExpectFDEHook bool) error {
-	slots, err := sbListLUKS2ContainerUnlockKeyNames(node)
+	b := getMockableBackend()
+
+	slots, err := b.ListLUKS2ContainerUnlockKeyNames(node)
 	if err != nil {
 		return fmt.Errorf("cannot list slots in partition save partition: %v", err)
 	}
@@ -1020,7 +959,7 @@ func RemoveOldCounterHandles(node string, possibleOldKeys map[string]bool, possi
 
 	for _, slot := range slots {
 		if possibleOldKeys[slot] {
-			reader, err := sbNewLUKS2KeyDataReader(node, slot)
+			reader, err := b.NewLUKS2KeyDataReader(node, slot)
 			if err != nil {
 				// FIXME: secboot should tell us if
 				// Data was nil, in that case we
@@ -1028,14 +967,14 @@ func RemoveOldCounterHandles(node string, possibleOldKeys map[string]bool, possi
 				// should return the error.
 				continue
 			}
-			keyData, err := mockableReadKeyData(reader)
+			keyData, err := b.ReadKeyData(reader)
 			if err != nil {
 				return fmt.Errorf("cannot read key data for slot '%s': %w", slot, err)
 			}
 			if keyData.PlatformName() != "tpm2" {
 				continue
 			}
-			sealedKeyData, err := keyData.GetTPMSealedKeyData()
+			sealedKeyData, err := b.NewSealedKeyData(keyData)
 			if err != nil {
 				return fmt.Errorf("cannot read sealed key data for slot '%s': %w", slot, err)
 			}
@@ -1044,8 +983,8 @@ func RemoveOldCounterHandles(node string, possibleOldKeys map[string]bool, possi
 	}
 
 	for _, keyFile := range possibleKeyFiles {
-		loadedKey := &mockableKeyLoader{}
-		err := mockableReadKeyFile(keyFile, loadedKey, hintExpectFDEHook)
+		loadedKey := &defaultKeyLoader{}
+		err := readKeyFile(b, keyFile, loadedKey, hintExpectFDEHook)
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue
@@ -1070,7 +1009,7 @@ func RemoveOldCounterHandles(node string, possibleOldKeys map[string]bool, possi
 			if loadedKey.KeyData.PlatformName() != "tpm2" {
 				continue
 			}
-			sealedKeyData, err := loadedKey.KeyData.GetTPMSealedKeyData()
+			sealedKeyData, err := b.NewSealedKeyData(loadedKey.KeyData)
 			if err != nil {
 				return fmt.Errorf("cannot read sealed key data from %s: %w", keyFile, err)
 			}
@@ -1129,3 +1068,96 @@ func FindFreeHandle() (uint32, error) {
 
 	return 0, fmt.Errorf("no free handle on TPM")
 }
+
+type defaultSecbootBackend struct{}
+
+func (f *defaultSecbootBackend) ReadKeyData(r sb.KeyDataReader) (SecbootKeyDataActor, error) {
+	return sb.ReadKeyData(r)
+}
+
+func (f *defaultSecbootBackend) NewKeyDataFromSealedKeyObjectFile(kf string) (SecbootKeyDataActor, error) {
+	return sb_tpm2.NewKeyDataFromSealedKeyObjectFile(kf)
+}
+
+func (f *defaultSecbootBackend) ReadSealedKeyObjectFromFile(kf string) (SecbootSealedKeyObjectActor, error) {
+	return sb_tpm2.ReadSealedKeyObjectFromFile(kf)
+}
+
+func (f *defaultSecbootBackend) NewFileKeyDataReader(kf string) (sb.KeyDataReader, error) {
+	return sb.NewFileKeyDataReader(kf)
+}
+
+func (f *defaultSecbootBackend) ListLUKS2ContainerUnlockKeyNames(dev string) ([]string, error) {
+	return sb.ListLUKS2ContainerUnlockKeyNames(dev)
+}
+
+func (f *defaultSecbootBackend) NewLUKS2KeyDataReader(dev, slot string) (sb.KeyDataReader, error) {
+	return sb.NewLUKS2KeyDataReader(dev, slot)
+}
+
+func (f *defaultSecbootBackend) NewLUKS2KeyDataWriter(dev, slot string) (sb.KeyDataWriter, error) {
+	return sb.NewLUKS2KeyDataWriter(dev, slot)
+}
+
+func (f *defaultSecbootBackend) NewSealedKeyData(kd SecbootKeyDataActor) (SecbootSealedKeyDataActor, error) {
+	return sb_tpm2.NewSealedKeyData(kd.(*sb.KeyData))
+}
+
+func (f *defaultSecbootBackend) AddLUKS2ContainerUnlockKey(devicePath, keyslotName string, existingKey, newKey sb.DiskUnlockKey) error {
+	return sb.AddLUKS2ContainerUnlockKey(devicePath, keyslotName, existingKey, newKey)
+}
+
+func (f *defaultSecbootBackend) RenameLUKS2ContainerKey(devicePath, oldName, newName string) error {
+	return sb.RenameLUKS2ContainerKey(devicePath, oldName, newName)
+}
+
+func (f *defaultSecbootBackend) NewFileKeyDataWriter(kf string) sb.KeyDataWriter {
+	return sb.NewFileKeyDataWriter(kf)
+}
+
+func (f *defaultSecbootBackend) NewFileSealedKeyObjectWriter(p string) sb.KeyDataWriter {
+	return sb_tpm2.NewFileSealedKeyObjectWriter(p)
+}
+
+func keysConvert[F any, T any](keys []F) []T {
+	keysTo := make([]T, len(keys))
+	for i := range keys {
+		keysTo[i] = any(keys[i]).(T)
+	}
+	return keysTo
+}
+
+func (f *defaultSecbootBackend) UpdateKeyDataPCRProtectionPolicy(tpm *sb_tpm2.Connection, authKey sb.PrimaryKey, pcrProfile *sb_tpm2.PCRProtectionProfile, policyVersionOption sb_tpm2.PCRPolicyVersionOption, keys ...SecbootKeyDataActor) error {
+	kdKeys := keysConvert[SecbootKeyDataActor, *sb.KeyData](keys)
+	return sb_tpm2.UpdateKeyDataPCRProtectionPolicy(tpm, authKey, pcrProfile, policyVersionOption, kdKeys...)
+}
+
+func (*defaultSecbootBackend) UpdateKeyPCRProtectionPolicyMultiple(tpm *sb_tpm2.Connection, keys []SecbootSealedKeyObjectActor, authKey sb.PrimaryKey, pcrProfile *sb_tpm2.PCRProtectionProfile) error {
+	skoKeys := keysConvert[SecbootSealedKeyObjectActor, *sb_tpm2.SealedKeyObject](keys)
+	return sb_tpm2.UpdateKeyPCRProtectionPolicyMultiple(tpm, skoKeys, authKey, pcrProfile)
+}
+
+func (*defaultSecbootBackend) ActivateVolumeWithKey(volumeName, sourceDevicePath string, key []byte, options *sb.ActivateVolumeOptions) error {
+	return sb.ActivateVolumeWithKey(volumeName, sourceDevicePath, key, options)
+}
+
+func (*defaultSecbootBackend) ActivateVolumeWithKeyData(volumeName, sourceDevicePath string, authRequestor sb.AuthRequestor, options *sb.ActivateVolumeOptions, keys ...SecbootKeyDataGetter) error {
+	kdKeys := keysConvert[SecbootKeyDataGetter, *sb.KeyData](keys)
+	return sb.ActivateVolumeWithKeyData(volumeName, sourceDevicePath, authRequestor, options, kdKeys...)
+}
+
+func (*defaultSecbootBackend) ActivateVolumeWithRecoveryKey(volumeName, sourceDevicePath string, authRequestor sb.AuthRequestor, options *sb.ActivateVolumeOptions) error {
+	return sb.ActivateVolumeWithRecoveryKey(volumeName, sourceDevicePath, authRequestor, options)
+}
+
+func (*defaultSecbootBackend) DeactivateVolume(volumeName string) error {
+	return sb.DeactivateVolume(volumeName)
+}
+
+func Backend() *defaultSecbootBackend {
+	return &defaultSecbootBackend{}
+}
+
+var getMockableBackend = func() SecbootBackend { return Backend() }
+
+var getMockableUnlockingBackend = func() SecbootUnlockingBackend { return Backend() }
