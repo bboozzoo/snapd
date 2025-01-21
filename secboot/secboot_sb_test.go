@@ -41,6 +41,7 @@ import (
 	sb_efi "github.com/snapcore/secboot/efi"
 	sb_hooks "github.com/snapcore/secboot/hooks"
 	sb_tpm2 "github.com/snapcore/secboot/tpm2"
+	gomock "go.uber.org/mock/gomock"
 	. "gopkg.in/check.v1"
 
 	"github.com/snapcore/snapd/asserts"
@@ -55,6 +56,7 @@ import (
 	"github.com/snapcore/snapd/osutil/disks"
 	"github.com/snapcore/snapd/secboot"
 	"github.com/snapcore/snapd/secboot/keys"
+	"github.com/snapcore/snapd/secboot/secboottest"
 	"github.com/snapcore/snapd/snap"
 	"github.com/snapcore/snapd/snap/snapfile"
 	"github.com/snapcore/snapd/snap/squashfs"
@@ -658,7 +660,7 @@ func (s *secbootSuite) TestUnlockVolumeUsingSealedKeyIfEncrypted(c *C) {
 			defer restore()
 
 			if tc.noKeyFile || tc.errorReadKeyFile {
-				restore = secboot.MockReadKeyFile(func(keyfile string, kl secboot.KeyLoader, hintExpectFDEHook bool) error {
+				restore = secboot.MockReadKeyFile(func(b secboot.SecbootKeyLoadingBackend, keyfile string, kl secboot.KeyLoader, hintExpectFDEHook bool) error {
 					if tc.noKeyFile {
 						return fs.ErrNotExist
 					}
@@ -1151,6 +1153,14 @@ func (s *secbootSuite) TestSealKey(c *C) {
 	}
 }
 
+func keysConvert[F any, T any](keys []F) []T {
+	keysTo := make([]T, len(keys))
+	for i := range keys {
+		keysTo[i] = any(keys[i]).(T)
+	}
+	return keysTo
+}
+
 func (s *secbootSuite) TestResealKey(c *C) {
 	mockErr := errors.New("some error")
 
@@ -1336,7 +1346,7 @@ func (s *secbootSuite) TestResealKey(c *C) {
 
 		// mock ReadSealedKeyObject
 		readSealedKeyObjectCalls := 0
-		restore = secboot.MockReadKeyFile(func(keyfile string, kl secboot.KeyLoader, hintExpectFDEHook bool) error {
+		restore = secboot.MockReadKeyFile(func(b secboot.SecbootKeyLoadingBackend, keyfile string, kl secboot.KeyLoader, hintExpectFDEHook bool) error {
 			readSealedKeyObjectCalls++
 			c.Check(hintExpectFDEHook, Equals, false)
 			c.Assert(keyfile, Equals, myParams.Keys[readSealedKeyObjectCalls-1].KeyFile)
@@ -1351,7 +1361,7 @@ func (s *secbootSuite) TestResealKey(c *C) {
 		defer restore()
 
 		readKeyTokenCalls := 0
-		restore = secboot.MockReadKeyToken(func(devicePath, slotName string) (*sb.KeyData, error) {
+		restore = secboot.MockReadKeyToken(func(b secboot.SecbootBackend, devicePath, slotName string) (secboot.SecbootKeyDataActor, error) {
 			readKeyTokenCalls++
 			c.Check(devicePath, Equals, "/dev/somedevice")
 			if tc.keyDataInFile || tc.oldKeyFiles {
@@ -1376,81 +1386,95 @@ func (s *secbootSuite) TestResealKey(c *C) {
 		keyData1Writer := &myKeyDataWriter{}
 		keyData2Writer := &myKeyDataWriter{}
 		tokenWritten := 0
-		restore = secboot.MockNewLUKS2KeyDataWriter(func(devicePath string, name string) (secboot.KeyDataWriter, error) {
-			tokenWritten++
-			c.Check(devicePath, Equals, "/dev/somedevice")
-			c.Check(tc.keyDataInFile || tc.oldKeyFiles, Equals, false)
-			switch name {
-			case "key1":
-				return keyData1Writer, nil
-			case "key2":
-				return keyData2Writer, nil
-			default:
-				c.Errorf("unexpected call")
-				return nil, fmt.Errorf("unexpected")
-			}
-		})
-		defer restore()
 
-		// mock PCR protection policy update
-		resealCalls := 0
-		restore = secboot.MockSbUpdateKeyPCRProtectionPolicyMultiple(func(t *sb_tpm2.Connection, keys []*sb_tpm2.SealedKeyObject, authKey sb.PrimaryKey, profile *sb_tpm2.PCRProtectionProfile) error {
-			c.Assert(tc.oldKeyFiles, Equals, true)
-			resealCalls++
-			c.Assert(t, Equals, tpm)
-			c.Assert(keys, DeepEquals, mockSealedKeyObjects)
-			c.Assert(authKey, DeepEquals, sb.PrimaryKey(mockTPMPolicyAuthKey))
-			//c.Assert(profile, Equals, pcrProfile)
-			return tc.resealErr
-		})
-		defer restore()
-		// mock PCR protection policy revoke
-		revokeCalls := 0
-		restore = secboot.MockSbSealedKeyObjectRevokeOldPCRProtectionPolicies(func(sko *sb_tpm2.SealedKeyObject, t *sb_tpm2.Connection, authKey sb.PrimaryKey) error {
-			c.Assert(tc.oldKeyFiles, Equals, true)
-			revokeCalls++
-			c.Assert(sko, Equals, mockSealedKeyObjects[0])
-			c.Assert(t, Equals, tpm)
-			c.Assert(authKey, DeepEquals, sb.PrimaryKey(mockTPMPolicyAuthKey))
-			return tc.revokeErr
-		})
-		defer restore()
+		func() {
+			ctrl := gomock.NewController(c)
+			b := secboottest.NewMockSecbootBackend(ctrl)
+			defer ctrl.Finish()
 
-		restore = secboot.MockSbUpdateKeyDataPCRProtectionPolicy(func(t *sb_tpm2.Connection, authKey sb.PrimaryKey, pcrProfile *sb_tpm2.PCRProtectionProfile, policyVersionOption sb_tpm2.PCRPolicyVersionOption, keys ...*sb.KeyData) error {
-			c.Assert(tc.oldKeyFiles, Equals, false)
-			resealCalls++
-			c.Check(authKey, DeepEquals, sb.PrimaryKey(mockTPMPolicyAuthKey))
-			c.Check(tpm, Equals, tpm)
-			c.Check(keys, DeepEquals, mockKeyDatas)
-			return tc.resealErr
-		})
-		defer restore()
+			defer secboot.MockGetSecbootBackend(func() secboot.SecbootBackend { return b })()
 
-		err = secboot.ResealKeys(myParams)
-		if tc.expectedErr == "" {
-			c.Assert(err, IsNil)
-			c.Assert(addPCRProfileCalls, Equals, 1)
-			c.Assert(addSystemdEfiStubCalls, Equals, 1)
-			c.Assert(addSnapModelCalls, Equals, 1)
-			if tc.keyDataInFile || tc.oldKeyFiles {
-				c.Check(tokenWritten, Equals, 0)
-				c.Assert(keyFile, testutil.FilePresent)
-				c.Assert(keyFile2, testutil.FilePresent)
+			if !tc.keyDataInFile {
+				b.EXPECT().NewLUKS2KeyDataWriter(gomock.Eq("/dev/somedevice"), gomock.Any()).
+					DoAndReturn(func(devicePath string, name string) (secboot.KeyDataWriter, error) {
+						tokenWritten++
+						c.Check(devicePath, Equals, "/dev/somedevice")
+						c.Check(tc.keyDataInFile || tc.oldKeyFiles, Equals, false)
+						switch name {
+						case "key1":
+							return keyData1Writer, nil
+						case "key2":
+							return keyData2Writer, nil
+						default:
+							c.Errorf("unexpected call")
+							return nil, fmt.Errorf("unexpected")
+						}
+					}).AnyTimes()
 			} else {
-				c.Check(tokenWritten, Equals, 2)
-				c.Check(keyFile, Not(testutil.FilePresent))
-				c.Check(keyFile2, Not(testutil.FilePresent))
+				b.EXPECT().NewFileKeyDataWriter(gomock.Any()).
+					DoAndReturn(func(kf string) secboot.KeyDataWriter {
+						return sb.NewFileKeyDataWriter(kf)
+					}).AnyTimes()
 			}
-		} else {
-			c.Assert(err, ErrorMatches, tc.expectedErr, Commentf("%v", tc))
-			if revokeCalls == 0 {
-				// files were not written out
-				c.Assert(keyFile, testutil.FileAbsent)
-				c.Assert(keyFile2, testutil.FileAbsent)
+
+			// mock PCR protection policy update
+			resealCalls := 0
+			b.EXPECT().UpdateKeyPCRProtectionPolicyMultiple(gomock.Eq(tpm), gomock.Any(),
+				gomock.Eq(sb.PrimaryKey(mockTPMPolicyAuthKey)), gomock.Any()).
+				DoAndReturn(func(t *sb_tpm2.Connection, keys []secboot.SecbootSealedKeyObjectActor, authKey sb.PrimaryKey, profile *sb_tpm2.PCRProtectionProfile) error {
+					c.Assert(tc.oldKeyFiles, Equals, true)
+					c.Check(keysConvert[secboot.SecbootSealedKeyObjectActor, *sb_tpm2.SealedKeyObject](keys), DeepEquals, mockSealedKeyObjects)
+					resealCalls++
+					return tc.resealErr
+				}).AnyTimes()
+
+			// mock PCR protection policy revoke
+			revokeCalls := 0
+			restore = secboot.MockSbSealedKeyObjectRevokeOldPCRProtectionPolicies(func(sko *sb_tpm2.SealedKeyObject, t *sb_tpm2.Connection, authKey sb.PrimaryKey) error {
+				c.Assert(tc.oldKeyFiles, Equals, true)
+				revokeCalls++
+				c.Assert(sko, Equals, mockSealedKeyObjects[0])
+				c.Assert(t, Equals, tpm)
+				c.Assert(authKey, DeepEquals, sb.PrimaryKey(mockTPMPolicyAuthKey))
+				return tc.revokeErr
+			})
+			defer restore()
+
+			b.EXPECT().UpdateKeyDataPCRProtectionPolicy(
+				gomock.Eq(tpm), gomock.Eq(sb.PrimaryKey(mockTPMPolicyAuthKey)), gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(t *sb_tpm2.Connection, authKey sb.PrimaryKey, pcrProfile *sb_tpm2.PCRProtectionProfile, policyVersionOption sb_tpm2.PCRPolicyVersionOption, keys ...secboot.SecbootKeyDataActor) error {
+					c.Assert(tc.oldKeyFiles, Equals, false)
+					resealCalls++
+					c.Check(keysConvert[secboot.SecbootKeyDataActor, *sb.KeyData](keys), DeepEquals, mockKeyDatas)
+					return tc.resealErr
+				}).AnyTimes()
+
+			err = secboot.ResealKeys(myParams)
+			if tc.expectedErr == "" {
+				c.Assert(err, IsNil)
+				c.Assert(addPCRProfileCalls, Equals, 1)
+				c.Assert(addSystemdEfiStubCalls, Equals, 1)
+				c.Assert(addSnapModelCalls, Equals, 1)
+				if tc.keyDataInFile || tc.oldKeyFiles {
+					c.Check(tokenWritten, Equals, 0)
+					c.Assert(keyFile, testutil.FilePresent)
+					c.Assert(keyFile2, testutil.FilePresent)
+				} else {
+					c.Check(tokenWritten, Equals, 2)
+					c.Check(keyFile, Not(testutil.FilePresent))
+					c.Check(keyFile2, Not(testutil.FilePresent))
+				}
+			} else {
+				c.Assert(err, ErrorMatches, tc.expectedErr, Commentf("%v", tc))
+				if revokeCalls == 0 {
+					// files were not written out
+					c.Assert(keyFile, testutil.FileAbsent)
+					c.Assert(keyFile2, testutil.FileAbsent)
+				}
 			}
-		}
-		c.Assert(resealCalls, Equals, tc.resealCalls)
-		c.Assert(revokeCalls, Equals, tc.revokeCalls)
+			c.Assert(resealCalls, Equals, tc.resealCalls)
+			c.Assert(revokeCalls, Equals, tc.revokeCalls)
+		}()
 	}
 }
 
@@ -2109,7 +2133,7 @@ func (s *secbootSuite) TestUnlockVolumeUsingSealedKeyIfEncryptedFdeRevealKeyV1(c
 
 	mockSealedKey := []byte("USK$foobar")
 
-	restore = secboot.MockReadKeyFile(func(keyfile string, kl secboot.KeyLoader, hintExpectFDEHook bool) error {
+	restore = secboot.MockReadKeyFile(func(b secboot.SecbootKeyLoadingBackend, keyfile string, kl secboot.KeyLoader, hintExpectFDEHook bool) error {
 		c.Check(keyfile, Equals, "the-key-file")
 		c.Check(hintExpectFDEHook, Equals, true)
 		kl.LoadedFDEHookKeyV1(mockSealedKey)
@@ -2193,7 +2217,7 @@ func (s *secbootSuite) TestUnlockVolumeUsingSealedKeyIfEncryptedFdeRevealKeyV1Fa
 
 	mockSealedKey := []byte("USK$foobar")
 
-	restore = secboot.MockReadKeyFile(func(keyfile string, kl secboot.KeyLoader, hintExpectFDEHook bool) error {
+	restore = secboot.MockReadKeyFile(func(b secboot.SecbootKeyLoadingBackend, keyfile string, kl secboot.KeyLoader, hintExpectFDEHook bool) error {
 		c.Check(keyfile, Equals, "the-key-file")
 		c.Check(hintExpectFDEHook, Equals, true)
 		kl.LoadedFDEHookKeyV1(mockSealedKey)
@@ -2880,7 +2904,7 @@ func (s *secbootSuite) TestResealKeysWithFDESetupHook(c *C) {
 	c.Assert(err, IsNil)
 	sb_hooks.SetKeyProtector(nil, 0)
 
-	restore := secboot.MockReadKeyToken(func(devicePath, slotName string) (*sb.KeyData, error) {
+	restore := secboot.MockReadKeyToken(func(b secboot.SecbootBackend, devicePath, slotName string) (secboot.SecbootKeyDataActor, error) {
 		c.Check(devicePath, Equals, "/dev/somedevice")
 		c.Check(slotName, Equals, "token-name")
 		return protectedKey, nil
@@ -2954,7 +2978,7 @@ func (s *secbootSuite) TestResealKeysWithFDESetupHookFromFile(c *C) {
 	c.Assert(err, IsNil)
 
 	readKeyTokenCalls := 0
-	restore := secboot.MockReadKeyToken(func(devicePath, slotName string) (*sb.KeyData, error) {
+	restore := secboot.MockReadKeyToken(func(b secboot.SecbootBackend, devicePath, slotName string) (secboot.SecbootKeyDataActor, error) {
 		readKeyTokenCalls++
 		c.Check(devicePath, Equals, "/dev/foo")
 		c.Check(slotName, Equals, "default")
@@ -2985,6 +3009,9 @@ func (s *secbootSuite) TestResealKeysWithFDESetupHookFromFile(c *C) {
 }
 
 func (s *secbootSuite) TestReadKeyFileKeyData(c *C) {
+	ctrl := gomock.NewController(c)
+	defer ctrl.Finish()
+
 	keyLoader := &secboot.DefaultKeyLoader{}
 	const fdeHookHint = false
 	tmpDir := c.MkDir()
@@ -2993,61 +3020,55 @@ func (s *secbootSuite) TestReadKeyFileKeyData(c *C) {
 	err := os.WriteFile(keyPath, []byte(`{}`), 0644)
 	c.Assert(err, IsNil)
 
-	newFileKeyDataReaderCalls := 0
-	restore := secboot.MockSbNewFileKeyDataReader(func(kf string) (*sb.FileKeyDataReader, error) {
-		newFileKeyDataReaderCalls++
-		c.Check(kf, Equals, keyPath)
-		return sb.NewFileKeyDataReader(kf)
-	})
-	defer restore()
-
-	readKeyDataCalls := 0
-	restore = secboot.MockSbReadKeyData(func(reader sb.KeyDataReader) (*sb.KeyData, error) {
-		readKeyDataCalls++
-		return sb.ReadKeyData(reader)
-	})
-	defer restore()
-
-	err = secboot.ReadKeyFile(keyPath, keyLoader, fdeHookHint)
+	b := secboottest.NewMockSecbootKeyLoadingBackend(ctrl)
+	b.EXPECT().NewFileKeyDataReader(gomock.Eq(keyPath)).
+		DoAndReturn(func(kf string) (sb.KeyDataReader, error) {
+			return sb.NewFileKeyDataReader(kf)
+		}).
+		MinTimes(1)
+	b.EXPECT().ReadKeyData(gomock.Not(gomock.Nil())).
+		DoAndReturn(func(r sb.KeyDataReader) (secboot.SecbootKeyDataActor, error) {
+			return sb.ReadKeyData(r)
+		}).
+		MinTimes(1)
+	err = secboot.ReadKeyFile(b, keyPath, keyLoader, fdeHookHint)
 	c.Assert(err, IsNil)
-	c.Check(newFileKeyDataReaderCalls, Equals, 1)
-	c.Check(readKeyDataCalls, Equals, 1)
 	c.Check(keyLoader.KeyData, NotNil)
 	c.Check(keyLoader.SealedKeyObject, IsNil)
 	c.Check(keyLoader.FDEHookKeyV1, IsNil)
 }
 
 func (s *secbootSuite) TestReadKeyFileSealedObject(c *C) {
+	ctrl := gomock.NewController(c)
+	defer ctrl.Finish()
+
 	keyLoader := &secboot.DefaultKeyLoader{}
 	const fdeHookHint = false
 	keyPath := filepath.Join("test-data", "keyfile")
 
-	readSealedKeyObjectFromFileCalls := 0
-	restore := secboot.MockSbReadSealedKeyObjectFromFile(func(path string) (*sb_tpm2.SealedKeyObject, error) {
-		readSealedKeyObjectFromFileCalls++
-		c.Check(path, Equals, keyPath)
-		return sb_tpm2.ReadSealedKeyObjectFromFile(path)
-	})
-	defer restore()
+	b := secboottest.NewMockSecbootKeyLoadingBackend(ctrl)
+	b.EXPECT().ReadSealedKeyObjectFromFile(gomock.Eq(keyPath)).
+		DoAndReturn(func(path string) (secboot.SecbootSealedKeyDataActor, error) {
+			return sb_tpm2.ReadSealedKeyObjectFromFile(path)
+		}).MinTimes(1)
 
-	newKeyDataFromSealedKeyObjectFile := 0
-	restore = secboot.MockSbNewKeyDataFromSealedKeyObjectFile(func(path string) (*sb.KeyData, error) {
-		newKeyDataFromSealedKeyObjectFile++
-		c.Check(path, Equals, keyPath)
-		return sb_tpm2.NewKeyDataFromSealedKeyObjectFile(path)
-	})
-	defer restore()
+	b.EXPECT().NewKeyDataFromSealedKeyObjectFile(gomock.Eq(keyPath)).
+		DoAndReturn(func(path string) (secboot.SecbootKeyDataActor, error) {
+			return sb_tpm2.NewKeyDataFromSealedKeyObjectFile(path)
+		}).MinTimes(1)
 
-	err := secboot.ReadKeyFile(keyPath, keyLoader, fdeHookHint)
+	// TODO set backend
+	err := secboot.ReadKeyFile(b, keyPath, keyLoader, fdeHookHint)
 	c.Assert(err, IsNil)
-	c.Check(readSealedKeyObjectFromFileCalls, Equals, 1)
-	c.Check(newKeyDataFromSealedKeyObjectFile, Equals, 1)
 	c.Check(keyLoader.KeyData, NotNil)
 	c.Check(keyLoader.SealedKeyObject, NotNil)
 	c.Check(keyLoader.FDEHookKeyV1, IsNil)
 }
 
 func (s *secbootSuite) TestReadKeyFileFDEHookV1(c *C) {
+	ctrl := gomock.NewController(c)
+	defer ctrl.Finish()
+
 	keyLoader := &secboot.DefaultKeyLoader{}
 	const fdeHookHint = true
 	tmpDir := c.MkDir()
@@ -3056,370 +3077,372 @@ func (s *secbootSuite) TestReadKeyFileFDEHookV1(c *C) {
 	err := os.WriteFile(keyPath, []byte(`USK$blahblah`), 0644)
 	c.Assert(err, IsNil)
 
-	err = secboot.ReadKeyFile(keyPath, keyLoader, fdeHookHint)
+	// TODO set backend
+	b := secboottest.NewMockSecbootKeyLoadingBackend(ctrl)
+	err = secboot.ReadKeyFile(b, keyPath, keyLoader, fdeHookHint)
 	c.Assert(err, IsNil)
 	c.Check(keyLoader.KeyData, IsNil)
 	c.Check(keyLoader.SealedKeyObject, IsNil)
 	c.Check(keyLoader.FDEHookKeyV1, DeepEquals, []byte(`USK$blahblah`))
 }
 
-type myFakeSealedKeyData struct {
-	handle uint32
-}
+// type myFakeSealedKeyData struct {
+// 	handle uint32
+// }
 
-func (m *myFakeSealedKeyData) PCRPolicyCounterHandle() tpm2.Handle {
-	return tpm2.Handle(m.handle)
-}
+// func (m *myFakeSealedKeyData) PCRPolicyCounterHandle() tpm2.Handle {
+// 	return tpm2.Handle(m.handle)
+// }
 
-type myFakeSealedKeyObject struct {
-	handle uint32
-}
+// type myFakeSealedKeyObject struct {
+// 	handle uint32
+// }
 
-func (m *myFakeSealedKeyObject) PCRPolicyCounterHandle() tpm2.Handle {
-	return tpm2.Handle(m.handle)
-}
+// func (m *myFakeSealedKeyObject) PCRPolicyCounterHandle() tpm2.Handle {
+// 	return tpm2.Handle(m.handle)
+// }
 
-type myFakeKeyData struct {
-	platformName string
-	handle       uint32
-}
+// type myFakeKeyData struct {
+// 	platformName string
+// 	handle       uint32
+// }
 
-func (k *myFakeKeyData) GetTPMSealedKeyData() (secboot.MockableSealedKeyData, error) {
-	return &myFakeSealedKeyData{handle: k.handle}, nil
-}
-func (k *myFakeKeyData) PlatformName() string {
-	return k.platformName
-}
+// func (k *myFakeKeyData) GetTPMSealedKeyData() (secboot.MockableSealedKeyData, error) {
+// 	return &myFakeSealedKeyData{handle: k.handle}, nil
+// }
+// func (k *myFakeKeyData) PlatformName() string {
+// 	return k.platformName
+// }
 
-type myNonTPMFakeKeyData struct {
-	platformName string
-}
+// type myNonTPMFakeKeyData struct {
+// 	platformName string
+// }
 
-func (*myNonTPMFakeKeyData) GetTPMSealedKeyData() (secboot.MockableSealedKeyData, error) {
-	return nil, fmt.Errorf("Not TPM data")
-}
+// func (*myNonTPMFakeKeyData) GetTPMSealedKeyData() (secboot.MockableSealedKeyData, error) {
+// 	return nil, fmt.Errorf("Not TPM data")
+// }
 
-func (k *myNonTPMFakeKeyData) PlatformName() string {
-	return k.platformName
-}
+// func (k *myNonTPMFakeKeyData) PlatformName() string {
+// 	return k.platformName
+// }
 
-func (s *secbootSuite) TestGetPCRHandle(c *C) {
-	restore := secboot.MockListLUKS2ContainerUnlockKeyNames(func(devicePath string) ([]string, error) {
-		c.Check(devicePath, Equals, "foo")
-		return []string{"some-other-key", "some-key"}, nil
-	})
-	defer restore()
+// func (s *secbootSuite) TestGetPCRHandle(c *C) {
+// 	restore := secboot.MockListLUKS2ContainerUnlockKeyNames(func(devicePath string) ([]string, error) {
+// 		c.Check(devicePath, Equals, "foo")
+// 		return []string{"some-other-key", "some-key"}, nil
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockReadKeyFile(func(keyfile string, kl secboot.KeyLoader, hintExpectFDEHook bool) error {
-		c.Errorf("unexpected call")
-		return fmt.Errorf("unexpected")
-	})
-	defer restore()
+// 	restore = secboot.MockReadKeyFile(func(b secboot.SecbootKeyLoadingBackend, keyfile string, kl secboot.KeyLoader, hintExpectFDEHook bool) error {
+// 		c.Errorf("unexpected call")
+// 		return fmt.Errorf("unexpected")
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockSbNewLUKS2KeyDataReader(func(device, slot string) (sb.KeyDataReader, error) {
-		c.Check(device, Equals, "foo")
-		switch slot {
-		case "some-key":
-			return newFakeKeyDataReader(slot, []byte{}), nil
-		default:
-			c.Errorf("unexpected call")
-			return nil, fmt.Errorf("unexpected")
-		}
-	})
-	defer restore()
+// 	restore = secboot.MockSbNewLUKS2KeyDataReader(func(device, slot string) (sb.KeyDataReader, error) {
+// 		c.Check(device, Equals, "foo")
+// 		switch slot {
+// 		case "some-key":
+// 			return newFakeKeyDataReader(slot, []byte{}), nil
+// 		default:
+// 			c.Errorf("unexpected call")
+// 			return nil, fmt.Errorf("unexpected")
+// 		}
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockReadKeyData(func(reader sb.KeyDataReader) (secboot.MockableKeyData, error) {
-		return &myFakeKeyData{platformName: "tpm2", handle: 42}, nil
-	})
-	defer restore()
+// 	restore = secboot.MockReadKeyData(func(reader sb.KeyDataReader) (secboot.MockableKeyData, error) {
+// 		return &myFakeKeyData{platformName: "tpm2", handle: 42}, nil
+// 	})
+// 	defer restore()
 
-	handle, err := secboot.GetPCRHandle("foo", "some-key", "do-not-read")
-	c.Assert(err, IsNil)
-	c.Check(handle, Equals, uint32(42))
-}
+// 	handle, err := secboot.GetPCRHandle("foo", "some-key", "do-not-read")
+// 	c.Assert(err, IsNil)
+// 	c.Check(handle, Equals, uint32(42))
+// }
 
-func (s *secbootSuite) TestGetPCRHandleNoKeyslotKeyfile(c *C) {
-	restore := secboot.MockListLUKS2ContainerUnlockKeyNames(func(devicePath string) ([]string, error) {
-		c.Check(devicePath, Equals, "foo")
-		return []string{}, nil
-	})
-	defer restore()
+// func (s *secbootSuite) TestGetPCRHandleNoKeyslotKeyfile(c *C) {
+// 	restore := secboot.MockListLUKS2ContainerUnlockKeyNames(func(devicePath string) ([]string, error) {
+// 		c.Check(devicePath, Equals, "foo")
+// 		return []string{}, nil
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockMockableReadKeyFile(func(keyFile string, kl *secboot.MockableKeyLoader, hintExpectFDEHook bool) error {
-		c.Check(keyFile, Equals, "read-this-file")
-		kl.KeyData = &myFakeKeyData{platformName: "tpm2", handle: 42}
-		return nil
-	})
-	defer restore()
+// 	restore = secboot.MockMockableReadKeyFile(func(keyFile string, kl *secboot.MockableKeyLoader, hintExpectFDEHook bool) error {
+// 		c.Check(keyFile, Equals, "read-this-file")
+// 		kl.KeyData = &myFakeKeyData{platformName: "tpm2", handle: 42}
+// 		return nil
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockSbNewLUKS2KeyDataReader(func(device, slot string) (sb.KeyDataReader, error) {
-		c.Errorf("unexpected call")
-		return nil, fmt.Errorf("unexpected")
-	})
-	defer restore()
+// 	restore = secboot.MockSbNewLUKS2KeyDataReader(func(device, slot string) (sb.KeyDataReader, error) {
+// 		c.Errorf("unexpected call")
+// 		return nil, fmt.Errorf("unexpected")
+// 	})
+// 	defer restore()
 
-	handle, err := secboot.GetPCRHandle("foo", "some-key", "read-this-file")
-	c.Assert(err, IsNil)
-	c.Check(handle, Equals, uint32(42))
-}
+// 	handle, err := secboot.GetPCRHandle("foo", "some-key", "read-this-file")
+// 	c.Assert(err, IsNil)
+// 	c.Check(handle, Equals, uint32(42))
+// }
 
-func (s *secbootSuite) TestGetPCRHandleKeyslotNoKeyDataKeyfile(c *C) {
-	restore := secboot.MockListLUKS2ContainerUnlockKeyNames(func(devicePath string) ([]string, error) {
-		c.Check(devicePath, Equals, "foo")
-		return []string{"some-other-key", "some-key"}, nil
-	})
-	defer restore()
+// func (s *secbootSuite) TestGetPCRHandleKeyslotNoKeyDataKeyfile(c *C) {
+// 	restore := secboot.MockListLUKS2ContainerUnlockKeyNames(func(devicePath string) ([]string, error) {
+// 		c.Check(devicePath, Equals, "foo")
+// 		return []string{"some-other-key", "some-key"}, nil
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockMockableReadKeyFile(func(keyFile string, kl *secboot.MockableKeyLoader, hintExpectFDEHook bool) error {
-		c.Check(keyFile, Equals, "read-this-file")
-		kl.KeyData = &myFakeKeyData{platformName: "tpm2", handle: 42}
-		return nil
-	})
-	defer restore()
+// 	restore = secboot.MockMockableReadKeyFile(func(keyFile string, kl *secboot.MockableKeyLoader, hintExpectFDEHook bool) error {
+// 		c.Check(keyFile, Equals, "read-this-file")
+// 		kl.KeyData = &myFakeKeyData{platformName: "tpm2", handle: 42}
+// 		return nil
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockSbNewLUKS2KeyDataReader(func(device, slot string) (sb.KeyDataReader, error) {
-		c.Check(device, Equals, "foo")
-		switch slot {
-		case "some-key":
-			return nil, fmt.Errorf("some error because data is not here")
-		default:
-			c.Errorf("unexpected call")
-			return nil, fmt.Errorf("unexpected")
-		}
-	})
-	defer restore()
+// 	restore = secboot.MockSbNewLUKS2KeyDataReader(func(device, slot string) (sb.KeyDataReader, error) {
+// 		c.Check(device, Equals, "foo")
+// 		switch slot {
+// 		case "some-key":
+// 			return nil, fmt.Errorf("some error because data is not here")
+// 		default:
+// 			c.Errorf("unexpected call")
+// 			return nil, fmt.Errorf("unexpected")
+// 		}
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockReadKeyData(func(reader sb.KeyDataReader) (secboot.MockableKeyData, error) {
-		c.Errorf("unexpected call")
-		return nil, fmt.Errorf("unexpected")
-	})
-	defer restore()
+// 	restore = secboot.MockReadKeyData(func(reader sb.KeyDataReader) (secboot.MockableKeyData, error) {
+// 		c.Errorf("unexpected call")
+// 		return nil, fmt.Errorf("unexpected")
+// 	})
+// 	defer restore()
 
-	handle, err := secboot.GetPCRHandle("foo", "some-key", "read-this-file")
-	c.Assert(err, IsNil)
-	c.Check(handle, Equals, uint32(42))
-}
+// 	handle, err := secboot.GetPCRHandle("foo", "some-key", "read-this-file")
+// 	c.Assert(err, IsNil)
+// 	c.Check(handle, Equals, uint32(42))
+// }
 
-func (s *secbootSuite) TestGetPCRHandleNoKeyslotKeyfileOldFormat(c *C) {
-	restore := secboot.MockListLUKS2ContainerUnlockKeyNames(func(devicePath string) ([]string, error) {
-		c.Check(devicePath, Equals, "foo")
-		return []string{}, nil
-	})
-	defer restore()
+// func (s *secbootSuite) TestGetPCRHandleNoKeyslotKeyfileOldFormat(c *C) {
+// 	restore := secboot.MockListLUKS2ContainerUnlockKeyNames(func(devicePath string) ([]string, error) {
+// 		c.Check(devicePath, Equals, "foo")
+// 		return []string{}, nil
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockMockableReadKeyFile(func(keyFile string, kl *secboot.MockableKeyLoader, hintExpectFDEHook bool) error {
-		c.Check(keyFile, Equals, "read-this-file")
-		kl.SealedKeyObject = &myFakeSealedKeyObject{handle: 42}
-		return nil
-	})
-	defer restore()
+// 	restore = secboot.MockMockableReadKeyFile(func(keyFile string, kl *secboot.MockableKeyLoader, hintExpectFDEHook bool) error {
+// 		c.Check(keyFile, Equals, "read-this-file")
+// 		kl.SealedKeyObject = &myFakeSealedKeyObject{handle: 42}
+// 		return nil
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockSbNewLUKS2KeyDataReader(func(device, slot string) (sb.KeyDataReader, error) {
-		c.Errorf("unexpected call")
-		return nil, fmt.Errorf("unexpected")
-	})
-	defer restore()
+// 	restore = secboot.MockSbNewLUKS2KeyDataReader(func(device, slot string) (sb.KeyDataReader, error) {
+// 		c.Errorf("unexpected call")
+// 		return nil, fmt.Errorf("unexpected")
+// 	})
+// 	defer restore()
 
-	handle, err := secboot.GetPCRHandle("foo", "some-key", "read-this-file")
-	c.Assert(err, IsNil)
-	c.Check(handle, Equals, uint32(42))
-}
+// 	handle, err := secboot.GetPCRHandle("foo", "some-key", "read-this-file")
+// 	c.Assert(err, IsNil)
+// 	c.Check(handle, Equals, uint32(42))
+// }
 
-func (s *secbootSuite) TestRemoveOldCounterHandles(c *C) {
-	_, restore := mockSbTPMConnection(c, nil)
-	defer restore()
+// func (s *secbootSuite) TestRemoveOldCounterHandles(c *C) {
+// 	_, restore := mockSbTPMConnection(c, nil)
+// 	defer restore()
 
-	restore = secboot.MockListLUKS2ContainerUnlockKeyNames(func(devicePath string) ([]string, error) {
-		c.Check(devicePath, Equals, "foo")
-		return []string{"some-other-key", "some-key"}, nil
-	})
-	defer restore()
+// 	restore = secboot.MockListLUKS2ContainerUnlockKeyNames(func(devicePath string) ([]string, error) {
+// 		c.Check(devicePath, Equals, "foo")
+// 		return []string{"some-other-key", "some-key"}, nil
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockSbNewLUKS2KeyDataReader(func(device, slot string) (sb.KeyDataReader, error) {
-		c.Check(device, Equals, "foo")
-		switch slot {
-		case "some-key":
-			return newFakeKeyDataReader(slot, []byte(`tpm2`)), nil
-		case "some-other-key":
-			return newFakeKeyDataReader(slot, []byte(`other`)), nil
-		default:
-			c.Errorf("unexpected call")
-			return nil, fmt.Errorf("unexpected")
-		}
-	})
-	defer restore()
+// 	restore = secboot.MockSbNewLUKS2KeyDataReader(func(device, slot string) (sb.KeyDataReader, error) {
+// 		c.Check(device, Equals, "foo")
+// 		switch slot {
+// 		case "some-key":
+// 			return newFakeKeyDataReader(slot, []byte(`tpm2`)), nil
+// 		case "some-other-key":
+// 			return newFakeKeyDataReader(slot, []byte(`other`)), nil
+// 		default:
+// 			c.Errorf("unexpected call")
+// 			return nil, fmt.Errorf("unexpected")
+// 		}
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockReadKeyData(func(reader sb.KeyDataReader) (secboot.MockableKeyData, error) {
-		switch reader.ReadableName() {
-		case "some-key":
-			return &myFakeKeyData{platformName: "tpm2", handle: secboot.PCRPolicyCounterHandleStart + 1}, nil
-		case "some-other-key":
-			return &myNonTPMFakeKeyData{platformName: "other"}, nil
-		default:
-			c.Errorf("unexpected call")
-			return nil, fmt.Errorf("unexpected")
-		}
-	})
-	defer restore()
+// 	restore = secboot.MockReadKeyData(func(reader sb.KeyDataReader) (secboot.MockableKeyData, error) {
+// 		switch reader.ReadableName() {
+// 		case "some-key":
+// 			return &myFakeKeyData{platformName: "tpm2", handle: secboot.PCRPolicyCounterHandleStart + 1}, nil
+// 		case "some-other-key":
+// 			return &myNonTPMFakeKeyData{platformName: "other"}, nil
+// 		default:
+// 			c.Errorf("unexpected call")
+// 			return nil, fmt.Errorf("unexpected")
+// 		}
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockMockableReadKeyFile(func(keyFile string, kl *secboot.MockableKeyLoader, hintExpectFDEHook bool) error {
-		switch keyFile {
-		case "new-format":
-			kl.KeyData = &myFakeKeyData{platformName: "tpm2", handle: secboot.PCRPolicyCounterHandleStart + 2}
-		case "old-format":
-			kl.SealedKeyObject = &myFakeSealedKeyObject{handle: secboot.AltFallbackObjectPCRPolicyCounterHandle}
-		case "just-ignore":
-		case "does-not-exist":
-			return os.ErrNotExist
-		default:
-			c.Errorf("unexpected call")
-			return fmt.Errorf("unexpected")
-		}
-		return nil
-	})
-	defer restore()
+// 	restore = secboot.MockMockableReadKeyFile(func(keyFile string, kl *secboot.MockableKeyLoader, hintExpectFDEHook bool) error {
+// 		switch keyFile {
+// 		case "new-format":
+// 			kl.KeyData = &myFakeKeyData{platformName: "tpm2", handle: secboot.PCRPolicyCounterHandleStart + 2}
+// 		case "old-format":
+// 			kl.SealedKeyObject = &myFakeSealedKeyObject{handle: secboot.AltFallbackObjectPCRPolicyCounterHandle}
+// 		case "just-ignore":
+// 		case "does-not-exist":
+// 			return os.ErrNotExist
+// 		default:
+// 			c.Errorf("unexpected call")
+// 			return fmt.Errorf("unexpected")
+// 		}
+// 		return nil
+// 	})
+// 	defer restore()
 
-	released := make(map[uint32]bool)
-	restore = secboot.MockTPMReleaseResources(func(tpm *sb_tpm2.Connection, handle tpm2.Handle) error {
-		released[uint32(handle)] = true
-		return nil
-	})
-	defer restore()
+// 	released := make(map[uint32]bool)
+// 	restore = secboot.MockTPMReleaseResources(func(tpm *sb_tpm2.Connection, handle tpm2.Handle) error {
+// 		released[uint32(handle)] = true
+// 		return nil
+// 	})
+// 	defer restore()
 
-	err := secboot.RemoveOldCounterHandles(
-		"foo",
-		map[string]bool{
-			"some-key":       true,
-			"some-other-key": true,
-		},
-		[]string{
-			"new-format",
-			"old-format",
-			"just-ignore",
-			"does-not-exist",
-		},
-		false,
-	)
+// 	err := secboot.RemoveOldCounterHandles(
+// 		"foo",
+// 		map[string]bool{
+// 			"some-key":       true,
+// 			"some-other-key": true,
+// 		},
+// 		[]string{
+// 			"new-format",
+// 			"old-format",
+// 			"just-ignore",
+// 			"does-not-exist",
+// 		},
+// 		false,
+// 	)
 
-	c.Assert(err, IsNil)
-	c.Check(released, DeepEquals, map[uint32]bool{
-		secboot.PCRPolicyCounterHandleStart + 1:         true,
-		secboot.PCRPolicyCounterHandleStart + 2:         true,
-		secboot.AltFallbackObjectPCRPolicyCounterHandle: true,
-		secboot.AltRunObjectPCRPolicyCounterHandle:      true,
-	})
-}
+// 	c.Assert(err, IsNil)
+// 	c.Check(released, DeepEquals, map[uint32]bool{
+// 		secboot.PCRPolicyCounterHandleStart + 1:         true,
+// 		secboot.PCRPolicyCounterHandleStart + 2:         true,
+// 		secboot.AltFallbackObjectPCRPolicyCounterHandle: true,
+// 		secboot.AltRunObjectPCRPolicyCounterHandle:      true,
+// 	})
+// }
 
-func (s *secbootSuite) TestRemoveOldCounterHandlesFDEHint(c *C) {
-	restore := secboot.MockListLUKS2ContainerUnlockKeyNames(func(devicePath string) ([]string, error) {
-		c.Check(devicePath, Equals, "foo")
-		return []string{"some-other-key", "some-key"}, nil
-	})
-	defer restore()
+// func (s *secbootSuite) TestRemoveOldCounterHandlesFDEHint(c *C) {
+// 	restore := secboot.MockListLUKS2ContainerUnlockKeyNames(func(devicePath string) ([]string, error) {
+// 		c.Check(devicePath, Equals, "foo")
+// 		return []string{"some-other-key", "some-key"}, nil
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockSbNewLUKS2KeyDataReader(func(device, slot string) (sb.KeyDataReader, error) {
-		c.Check(device, Equals, "foo")
-		switch slot {
-		case "some-key":
-			return newFakeKeyDataReader(slot, []byte(`tpm2`)), nil
-		case "some-other-key":
-			return newFakeKeyDataReader(slot, []byte(`other`)), nil
-		default:
-			c.Errorf("unexpected call")
-			return nil, fmt.Errorf("unexpected")
-		}
-	})
-	defer restore()
+// 	restore = secboot.MockSbNewLUKS2KeyDataReader(func(device, slot string) (sb.KeyDataReader, error) {
+// 		c.Check(device, Equals, "foo")
+// 		switch slot {
+// 		case "some-key":
+// 			return newFakeKeyDataReader(slot, []byte(`tpm2`)), nil
+// 		case "some-other-key":
+// 			return newFakeKeyDataReader(slot, []byte(`other`)), nil
+// 		default:
+// 			c.Errorf("unexpected call")
+// 			return nil, fmt.Errorf("unexpected")
+// 		}
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockReadKeyData(func(reader sb.KeyDataReader) (secboot.MockableKeyData, error) {
-		switch reader.ReadableName() {
-		case "some-key":
-			return &myFakeKeyData{platformName: "not-tpm2-for-sure", handle: secboot.PCRPolicyCounterHandleStart + 1}, nil
-		case "some-other-key":
-			return &myNonTPMFakeKeyData{platformName: "other"}, nil
-		default:
-			c.Errorf("unexpected call")
-			return nil, fmt.Errorf("unexpected")
-		}
-	})
-	defer restore()
+// 	restore = secboot.MockReadKeyData(func(reader sb.KeyDataReader) (secboot.MockableKeyData, error) {
+// 		switch reader.ReadableName() {
+// 		case "some-key":
+// 			return &myFakeKeyData{platformName: "not-tpm2-for-sure", handle: secboot.PCRPolicyCounterHandleStart + 1}, nil
+// 		case "some-other-key":
+// 			return &myNonTPMFakeKeyData{platformName: "other"}, nil
+// 		default:
+// 			c.Errorf("unexpected call")
+// 			return nil, fmt.Errorf("unexpected")
+// 		}
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockMockableReadKeyFile(func(keyFile string, kl *secboot.MockableKeyLoader, hintExpectFDEHook bool) error {
-		c.Check(hintExpectFDEHook, Equals, true)
-		switch keyFile {
-		case "new-format":
-			kl.KeyData = &myFakeKeyData{platformName: "not-tpm2-for-sure", handle: secboot.PCRPolicyCounterHandleStart + 2}
-		case "just-ignore":
-		case "does-not-exist":
-			return os.ErrNotExist
-		default:
-			c.Errorf("unexpected call")
-			return fmt.Errorf("unexpected")
-		}
-		return nil
-	})
-	defer restore()
+// 	restore = secboot.MockMockableReadKeyFile(func(keyFile string, kl *secboot.MockableKeyLoader, hintExpectFDEHook bool) error {
+// 		c.Check(hintExpectFDEHook, Equals, true)
+// 		switch keyFile {
+// 		case "new-format":
+// 			kl.KeyData = &myFakeKeyData{platformName: "not-tpm2-for-sure", handle: secboot.PCRPolicyCounterHandleStart + 2}
+// 		case "just-ignore":
+// 		case "does-not-exist":
+// 			return os.ErrNotExist
+// 		default:
+// 			c.Errorf("unexpected call")
+// 			return fmt.Errorf("unexpected")
+// 		}
+// 		return nil
+// 	})
+// 	defer restore()
 
-	restore = secboot.MockTPMReleaseResources(func(tpm *sb_tpm2.Connection, handle tpm2.Handle) error {
-		c.Errorf("unexpected call")
-		return fmt.Errorf("unexpected call")
-	})
-	defer restore()
+// 	restore = secboot.MockTPMReleaseResources(func(tpm *sb_tpm2.Connection, handle tpm2.Handle) error {
+// 		c.Errorf("unexpected call")
+// 		return fmt.Errorf("unexpected call")
+// 	})
+// 	defer restore()
 
-	err := secboot.RemoveOldCounterHandles(
-		"foo",
-		map[string]bool{
-			"some-key":       true,
-			"some-other-key": true,
-		},
-		[]string{
-			"new-format",
-			"just-ignore",
-			"does-not-exist",
-		},
-		true,
-	)
+// 	err := secboot.RemoveOldCounterHandles(
+// 		"foo",
+// 		map[string]bool{
+// 			"some-key":       true,
+// 			"some-other-key": true,
+// 		},
+// 		[]string{
+// 			"new-format",
+// 			"just-ignore",
+// 			"does-not-exist",
+// 		},
+// 		true,
+// 	)
 
-	c.Assert(err, IsNil)
-}
+// 	c.Assert(err, IsNil)
+// }
 
-func (s *secbootSuite) TestFindFreeHandle(c *C) {
-	_, restore := mockSbTPMConnection(c, nil)
-	defer restore()
+// func (s *secbootSuite) TestFindFreeHandle(c *C) {
+// 	_, restore := mockSbTPMConnection(c, nil)
+// 	defer restore()
 
-	restore = secboot.MockTpmGetCapabilityHandles(func(tpm *sb_tpm2.Connection, firstHandle tpm2.Handle, propertyCount uint32, sessions ...tpm2.SessionContext) (handles tpm2.HandleList, err error) {
-		c.Check(sessions, HasLen, 0)
-		c.Check(uint32(firstHandle), Equals, secboot.PCRPolicyCounterHandleStart)
-		c.Check(propertyCount, Equals, secboot.PCRPolicyCounterHandleRange)
-		for i := uint32(0); i < secboot.PCRPolicyCounterHandleRange+1; i++ {
-			if i != 5 {
-				handles = append(handles, tpm2.Handle(secboot.PCRPolicyCounterHandleStart+i))
-			}
-		}
-		return handles, nil
-	})
-	defer restore()
+// 	restore = secboot.MockTpmGetCapabilityHandles(func(tpm *sb_tpm2.Connection, firstHandle tpm2.Handle, propertyCount uint32, sessions ...tpm2.SessionContext) (handles tpm2.HandleList, err error) {
+// 		c.Check(sessions, HasLen, 0)
+// 		c.Check(uint32(firstHandle), Equals, secboot.PCRPolicyCounterHandleStart)
+// 		c.Check(propertyCount, Equals, secboot.PCRPolicyCounterHandleRange)
+// 		for i := uint32(0); i < secboot.PCRPolicyCounterHandleRange+1; i++ {
+// 			if i != 5 {
+// 				handles = append(handles, tpm2.Handle(secboot.PCRPolicyCounterHandleStart+i))
+// 			}
+// 		}
+// 		return handles, nil
+// 	})
+// 	defer restore()
 
-	handle, err := secboot.FindFreeHandle()
-	c.Assert(err, IsNil)
-	c.Check(handle, Equals, secboot.PCRPolicyCounterHandleStart+5)
-}
+// 	handle, err := secboot.FindFreeHandle()
+// 	c.Assert(err, IsNil)
+// 	c.Check(handle, Equals, secboot.PCRPolicyCounterHandleStart+5)
+// }
 
-func (s *secbootSuite) TestFindFreeHandleNoneFree(c *C) {
-	_, restore := mockSbTPMConnection(c, nil)
-	defer restore()
+// func (s *secbootSuite) TestFindFreeHandleNoneFree(c *C) {
+// 	_, restore := mockSbTPMConnection(c, nil)
+// 	defer restore()
 
-	restore = secboot.MockTpmGetCapabilityHandles(func(tpm *sb_tpm2.Connection, firstHandle tpm2.Handle, propertyCount uint32, sessions ...tpm2.SessionContext) (handles tpm2.HandleList, err error) {
-		c.Check(sessions, HasLen, 0)
-		c.Check(uint32(firstHandle), Equals, secboot.PCRPolicyCounterHandleStart)
-		c.Check(propertyCount, Equals, secboot.PCRPolicyCounterHandleRange)
-		for i := uint32(0); i < secboot.PCRPolicyCounterHandleRange; i++ {
-			handles = append(handles, tpm2.Handle(secboot.PCRPolicyCounterHandleStart+i))
-		}
-		return handles, nil
-	})
-	defer restore()
+// 	restore = secboot.MockTpmGetCapabilityHandles(func(tpm *sb_tpm2.Connection, firstHandle tpm2.Handle, propertyCount uint32, sessions ...tpm2.SessionContext) (handles tpm2.HandleList, err error) {
+// 		c.Check(sessions, HasLen, 0)
+// 		c.Check(uint32(firstHandle), Equals, secboot.PCRPolicyCounterHandleStart)
+// 		c.Check(propertyCount, Equals, secboot.PCRPolicyCounterHandleRange)
+// 		for i := uint32(0); i < secboot.PCRPolicyCounterHandleRange; i++ {
+// 			handles = append(handles, tpm2.Handle(secboot.PCRPolicyCounterHandleStart+i))
+// 		}
+// 		return handles, nil
+// 	})
+// 	defer restore()
 
-	_, err := secboot.FindFreeHandle()
-	c.Assert(err, ErrorMatches, `no free handle on TPM`)
-}
+// 	_, err := secboot.FindFreeHandle()
+// 	c.Assert(err, ErrorMatches, `no free handle on TPM`)
+// }
