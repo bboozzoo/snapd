@@ -50,7 +50,7 @@ qemu-system-x86_64 -enable-kvm -smp 4 -m 2048 -cpu host -machine q35 -global ICH
 # 4. enroll DBX?
 
 # reset
-# pwoeroff
+# poweroff
 ```
 
 
