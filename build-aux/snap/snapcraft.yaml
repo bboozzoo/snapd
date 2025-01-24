@@ -220,6 +220,7 @@ parts:
       - libcap-dev
       - libseccomp-dev
       - pkg-config
+      - libcap2-bin
     override-pull: |
       craftctl default
       # set version, this needs dpkg-parsechangelog (from dpkg-dev) and git
@@ -300,6 +301,10 @@ parts:
 
       make -j"${CRAFT_PARALLEL_BUILD_COUNT}"
       make DESTDIR="${CRAFT_PART_INSTALL}" install
+      echo "snap-confine capabilities"
+      setcap cap_sys_admin,cap_dac_override,cap_chown=ep \
+          "${CRAFT_PART_INSTALL}/usr/lib/snapd/snap-confine"
+      getcap "${CRAFT_PART_INSTALL}/usr/lib/snapd/snap-confine"
 
       cd "${CRAFT_PART_BUILD}"
 
