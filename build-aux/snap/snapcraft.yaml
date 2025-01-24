@@ -220,6 +220,7 @@ parts:
       - libcap-dev
       - libseccomp-dev
       - pkg-config
+      - libcap2-bin
     override-pull: |
       craftctl default
       # set version, this needs dpkg-parsechangelog (from dpkg-dev) and git
