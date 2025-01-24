@@ -419,7 +419,7 @@ endif
 	rmdir $(DESTDIR)$(snapdstatedir)/void || true
 
 install-exec-hook:
-	# Ensure snap-confine has the right capabilities
+# Ensure snap-confine has the right capabilities
 	setcap "$(SNAP_CONFINE_CAPS)" \
 		$(DESTDIR)$(libexecdir)/snap-confine
 
