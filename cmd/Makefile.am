@@ -13,7 +13,8 @@ if USE_INTERNAL_BPF_HEADERS
 VENDOR_BPF_HEADERS_CFLAGS = -I$(srcdir)/libsnap-confine-private/bpf/vendor
 endif
 
-SNAP_CONFINE_CAPS=cap_sys_admin=ep cap_dac_override=ep cap_dac_search=ep
+SNAP_CONFINE_CAPS=cap_sys_admin=ep cap_dac_override=ep cap_chown=ep
+
 subdirs = \
 		  libsnap-confine-private \
 		  snap-confine \
