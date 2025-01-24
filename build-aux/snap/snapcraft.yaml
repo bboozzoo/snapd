@@ -300,6 +300,8 @@ parts:
 
       make -j"${CRAFT_PARALLEL_BUILD_COUNT}"
       make DESTDIR="${CRAFT_PART_INSTALL}" install
+      echo "snap-confine capabilities"
+      getcap "${CRAFT_PART_INSTALL}/usr/lib/snapd/snap-confine"
 
       cd "${CRAFT_PART_BUILD}"
 
