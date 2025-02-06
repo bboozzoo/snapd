@@ -448,6 +448,7 @@ func snapMountDirProbe(rootdir string) string {
 	defaultDirDistros := []string{
 		"ubuntu",
 		"ubuntu-core",
+		"ubuntucoreinitramfs",
 		"debian",
 		"opensuse",
 		"suse",
