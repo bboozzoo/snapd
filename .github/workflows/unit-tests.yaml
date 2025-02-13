@@ -78,7 +78,7 @@ jobs:
       run: |
           cd cmd/ && make distcheck
 
-    - name: Test C (clang & check & ASan)
+    - name: Test C (clang & check & ASan & UBsan)
       run: |
           cd cmd/
           CC=clang ./autogen.sh --enable-sanitize
