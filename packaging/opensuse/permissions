@@ -1,1 +1,2 @@
-/usr/lib/snapd/snap-confine                             root:root         4755
+# TODO set caps
+/usr/lib/snapd/snap-confine root:root 0755 +capabilities cap_sys_admin,cap_dac_override,cap_chown=ep

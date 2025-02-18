@@ -1,5 +1,9 @@
 ## arg 1:  the new package version
 post_install() {
+  /usr/bin/setcap \
+    cap_sys_admin,cap_dac_override,cap_chown=ep \
+    /usr/lib/snapd/snap-confine
+
   echo
   echo 'To use snapd start/enable the snapd.socket'
   echo

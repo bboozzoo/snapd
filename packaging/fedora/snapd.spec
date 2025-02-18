@@ -901,8 +901,8 @@ make -C data -k check
 %license COPYING
 %dir %{_libexecdir}/snapd
 # For now, we can't use caps
-# FIXME: Switch to "%%attr(0755,root,root) %%caps(cap_sys_admin=pe)" asap!
-%attr(6755,root,root) %{_libexecdir}/snapd/snap-confine
+# TODO update caps
+%caps(cap_sys_admin,cap_dac_override,cap_chown=ep) %{_libexecdir}/snapd/snap-confine
 %{_libexecdir}/snapd/snap-device-helper
 %{_libexecdir}/snapd/snap-discard-ns
 %{_libexecdir}/snapd/snap-gdb-shim
@@ -1003,7 +1003,6 @@ if [ $1 -eq 0 ]; then
     %selinux_relabel_post
 fi
 %endif
-
 
 %changelog
 * Thu Feb 13 2025 Ernest Lotter <ernest.lotter@canonical.com>
