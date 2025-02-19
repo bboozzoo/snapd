@@ -372,18 +372,29 @@ int main(int argc, char **argv) {
     sc_debug_capabilities("initial caps");
 
     static const sc_cap_mask snap_confine_caps =
-        SC_CAP_TO_MASK(CAP_DAC_OVERRIDE) | SC_CAP_TO_MASK(CAP_DAC_READ_SEARCH) | SC_CAP_TO_MASK(CAP_SYS_ADMIN) |
-        SC_CAP_TO_MASK(CAP_SYS_CHROOT) | SC_CAP_TO_MASK(CAP_CHOWN) |
-        SC_CAP_TO_MASK(CAP_FOWNER) |     // to create tmp dir with sticky bit
-        SC_CAP_TO_MASK(CAP_SYS_PTRACE);  // to inspect the mount namespace of PID1
+        SC_CAP_TO_MASK(CAP_DAC_OVERRIDE) |     // poking around as a regular user
+        SC_CAP_TO_MASK(CAP_DAC_READ_SEARCH) |  // same as above
+        SC_CAP_TO_MASK(CAP_SYS_ADMIN) |        // mounts, unshare
+        SC_CAP_TO_MASK(CAP_SYS_CHROOT) |       // pivot_root into a new root
+        SC_CAP_TO_MASK(CAP_CHOWN) |            // file ownership
+        SC_CAP_TO_MASK(CAP_FOWNER) |           // to create tmp dir with sticky bit
+        SC_CAP_TO_MASK(CAP_SYS_PTRACE) |       // to inspect the mount namespace of PID1
+        SC_CAP_TO_MASK(CAP_SETUID) |           // assume user identity
+        SC_CAP_TO_MASK(CAP_SETGID) |           // and group identity, e.g. switching to root when running s-u-n
+        0;
 
     /* Since we are invoking snap-update-ns, we must also retain the
      * capabilities required by it. Make sure that this list is kept in sync
      * with the capabilities used in bootstrap.c in snap-update-ns code.
      */
-    static const sc_cap_mask snap_update_ns_caps = SC_CAP_TO_MASK(CAP_DAC_OVERRIDE) |  // needed for the lock file
-                                                   SC_CAP_TO_MASK(CAP_SYS_ADMIN) | SC_CAP_TO_MASK(CAP_CHOWN) |
-                                                   SC_CAP_TO_MASK(CAP_SETUID) | SC_CAP_TO_MASK(CAP_SETGID);
+    static const sc_cap_mask snap_update_ns_caps =
+        SC_CAP_TO_MASK(CAP_DAC_OVERRIDE) |     // poking around as a regular user
+        SC_CAP_TO_MASK(CAP_DAC_READ_SEARCH) |  // needed for the lock file
+        SC_CAP_TO_MASK(CAP_SYS_ADMIN) |        // mounts
+        SC_CAP_TO_MASK(CAP_CHOWN) |            // file ownership
+        SC_CAP_TO_MASK(CAP_SETUID) |           // assume user identity
+        SC_CAP_TO_MASK(CAP_SETGID) |           // assume group identity
+        0;
 
     if (use_capabilities) {
         /* Don't lose the permitted capabilities when switching user.
