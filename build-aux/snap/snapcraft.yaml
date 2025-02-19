@@ -308,7 +308,8 @@ parts:
       make -j"${CRAFT_PARALLEL_BUILD_COUNT}"
       make DESTDIR="${CRAFT_PART_INSTALL}" install
       echo "snap-confine capabilities"
-      setcap cap_sys_admin,cap_dac_override,cap_chown=ep \
+      setcap \
+          cap_dac_override,cap_dac_read_search,cap_sys_admin,cap_sys_chroot,cap_chown,cap_fowner,cap_sys_ptrace,cap_setuid,cap_setgid=ep \
           "${CRAFT_PART_INSTALL}/usr/lib/snapd/snap-confine"
       getcap "${CRAFT_PART_INSTALL}/usr/lib/snapd/snap-confine"
 
@@ -457,7 +458,8 @@ parts:
       fi
 
       # TODO: restore capabilities after stripping
-      setcap cap_sys_admin,cap_dac_override,cap_chown=ep \
+      setcap \
+          cap_dac_override,cap_dac_read_search,cap_sys_admin,cap_sys_chroot,cap_chown,cap_fowner,cap_sys_ptrace,cap_setuid,cap_setgid=ep \
           "${CRAFT_PART_INSTALL}/usr/lib/snapd/snap-confine"
       getcap "${CRAFT_PART_INSTALL}/usr/lib/snapd/snap-confine"
 
