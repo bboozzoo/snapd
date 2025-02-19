@@ -344,9 +344,10 @@ int main(int argc, char **argv) {
     debug("rgid: %d, egid: %d, sgid: %d", real_gid, effective_gid, saved_gid);
 
     // snap-confine needs to run as root for cgroup/udev/mount/apparmor/etc setup.
-    if (effective_uid != 0) {
-        die("need to run as root or suid");
-    }
+    /* TODO:nonsetuid: drop */
+    /* if (effective_uid != 0) { */
+    /*     die("need to run as root or suid"); */
+    /* } */
 
     struct sc_apparmor apparmor;
     sc_init_apparmor_support(&apparmor);
@@ -396,39 +397,39 @@ int main(int argc, char **argv) {
         SC_CAP_TO_MASK(CAP_SETGID) |           // assume group identity
         0;
 
-    if (use_capabilities) {
-        /* Don't lose the permitted capabilities when switching user.
-         * Note that there's no need to undo this operation later, since this
-         * flag is automatically cleared on execve(). */
-        sc_set_keep_caps_flag();
+    /* Don't lose the permitted capabilities when switching user.
+     * Note that there's no need to undo this operation later, since this
+     * flag is automatically cleared on execve(). */
+    /* TODO:  */
+    // sc_set_keep_caps_flag();
 
-        // Permanently drop if not root
-        debug("Dropping into user %d - %d", real_uid, real_gid);
-        // Note that we do not call setgroups() here because its ok
-        // that the user keeps the groups he already belongs to
-        if (setgid(real_gid) != 0) die("setgid failed");
-        if (setuid(real_uid) != 0) die("setuid failed");
+    // Permanently drop if not root
+    debug("Dropping into user %d - %d", real_uid, real_gid);
+    // Note that we do not call setgroups() here because its ok
+    // that the user keeps the groups he already belongs to
+    if (setgid(real_gid) != 0) die("setgid failed");
+    if (setuid(real_uid) != 0) die("setuid failed");
 
-        if (real_gid != 0 && (getuid() == 0 || geteuid() == 0)) die("permanently dropping privs did not work");
-        if (real_uid != 0 && (getgid() == 0 || getegid() == 0)) die("permanently dropping privs did not work");
+    if (real_gid != 0 && (getuid() == 0 || geteuid() == 0)) die("permanently dropping privs did not work");
+    if (real_uid != 0 && (getgid() == 0 || getegid() == 0)) die("permanently dropping privs did not work");
 
-        /* Capability setup:
-         * 1. Restore those capabilities that we really need into the
-         *    "effective" set.
-         * 2. Capabilities needed by either us or by any of our child processes
-         *    need to be set into the "permitted" set.
-         * 3. Capabilities needed by our helper child processes need to be set
-         *    into the "permitted", "inheritable" and "ambient" sets.
-         *
-         * Before executing the snap application we'll drop all capabilities.
-         */
-        sc_capabilities caps;
-        caps.effective = snap_confine_caps;
-        caps.permitted = snap_confine_caps | snap_update_ns_caps;
-        caps.inheritable = snap_update_ns_caps;
-        sc_set_capabilities(&caps);
-        sc_set_ambient_capabilities(snap_update_ns_caps);
-    }
+    /* Capability setup:
+     * 1. Restore those capabilities that we really need into the
+     *    "effective" set.
+     * 2. Capabilities needed by either us or by any of our child processes
+     *    need to be set into the "permitted" set.
+     * 3. Capabilities needed by our helper child processes need to be set
+     *    into the "permitted", "inheritable" and "ambient" sets.
+     *
+     * Before executing the snap application we'll drop all capabilities.
+     */
+    sc_capabilities caps;
+    caps.effective = snap_confine_caps;
+    caps.permitted = snap_confine_caps | snap_update_ns_caps;
+    caps.inheritable = snap_update_ns_caps;
+    sc_set_capabilities(&caps);
+    sc_set_ambient_capabilities(snap_update_ns_caps);
+
     // Remember certain properties of the process that are clobbered by
     // snap-confine during execution. Those are restored just before calling
     // execv.
