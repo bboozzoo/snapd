@@ -901,8 +901,9 @@ make -C data -k check
 %license COPYING
 %dir %{_libexecdir}/snapd
 # For now, we can't use caps
-# TODO update caps
-%caps(cap_sys_admin,cap_dac_override,cap_chown=ep) %{_libexecdir}/snapd/snap-confine
+# TODO:nonsetuid: update caps
+# TODO:nonsetuid: use define
+%caps(cap_dac_override,cap_dac_read_search,cap_sys_admin,cap_sys_chroot,cap_chown,cap_fowner,cap_sys_ptrace,cap_setuid,cap_setgid=ep) %{_libexecdir}/snapd/snap-confine
 %{_libexecdir}/snapd/snap-device-helper
 %{_libexecdir}/snapd/snap-discard-ns
 %{_libexecdir}/snapd/snap-gdb-shim
