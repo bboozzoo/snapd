@@ -277,3 +277,31 @@ static bool _sc_is_in_container(const char *p) {
 }
 
 bool sc_is_in_container(void) { return _sc_is_in_container(run_systemd_container); }
+
+int sc_ensure_mkdirat(int fd, const char *name, mode_t mode, uid_t uid, uid_t gid) {
+    if (mkdirat(fd, name, mode) < 0) {
+        if (errno != EEXIST) {
+            return -1;
+        }
+    } else {
+        // new directory: set the right permissions and mode
+        if (fchownat(fd, name, uid, gid, AT_SYMLINK_NOFOLLOW) < 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int sc_ensure_mkdir(const char *path, mode_t mode, uid_t uid, uid_t gid) {
+    if (mkdir(path, mode) < 0) {
+        if (errno != EEXIST) {
+            return -1;
+        }
+    } else {
+        // new directory: set the right permissions and mode
+        if (chown(path, uid, gid) < 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
