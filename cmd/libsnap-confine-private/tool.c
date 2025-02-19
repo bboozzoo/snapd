@@ -79,8 +79,10 @@ void sc_call_snap_update_ns(int snap_update_ns_fd, const char *snap_name, struct
 
     /* Switch the group to root so that directories, files and locks created by
      * snap-update-ns are owned by the root group. */
+    /* TODO:nonsetuid: drop in phase 2 */
     sc_identity old = sc_set_effective_identity(sc_root_group_identity());
     sc_call_snapd_tool_with_apparmor(snap_update_ns_fd, "snap-update-ns", apparmor, aa_profile, argv, envp);
+    /* TODO:nonsetuid: drop */
     (void)sc_set_effective_identity(old);
 }
 
