@@ -4,6 +4,10 @@ details: |
     The test verifies that snap-confine has the right file capabilities during
     runtime.
 
+systems:
+    # core18 has no getcap
+    - -ubuntu-core-18-*
+
 execute: |
     SNAP_MOUNT_DIR="$(os.paths snap-mount-dir)"
     LIBEXEC_DIR="$(os.paths libexec-dir)"
