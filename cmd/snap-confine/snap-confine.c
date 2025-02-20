@@ -364,12 +364,6 @@ int main(int argc, char **argv) {
             "Please make sure that the snapd.apparmor service is enabled and started.");
     }
 
-    /* Check if snap-confine was invoked by an ordinary user; if so, we want to
-     * drop the root privileges ASAP.  Before doing that, however, we must
-     * setup the capabilities that we want to retain.
-     */
-    bool use_capabilities = real_uid != 0;
-
     sc_debug_capabilities("initial caps");
 
     static const sc_cap_mask snap_confine_caps =
@@ -491,16 +485,15 @@ int main(int argc, char **argv) {
     log_startup_stage("snap-confine mount namespace finish");
 
     // Temporarily drop all capabilities, since we don't need any for a while.
-    if (use_capabilities) {
-        debug("dropping caps");
-        sc_capabilities caps;
-        caps.effective = 0;
-        // Don't alter permitted and inheritable capabilities, use the same
-        // values as before.
-        caps.permitted = snap_confine_caps | snap_update_ns_caps;
-        caps.inheritable = snap_update_ns_caps;
-        sc_set_capabilities(&caps);
-    }
+    debug("dropping caps");
+    memset(&caps, 0, sizeof caps);
+    caps.effective = 0;
+    // Don't alter permitted and inheritable capabilities, use the same
+    // values as before.
+    caps.permitted = snap_confine_caps | snap_update_ns_caps;
+    caps.inheritable = snap_update_ns_caps;
+    sc_set_capabilities(&caps);
+
     // Ensure that the user data path exists. When creating it use the identity
     // of the calling user (by using real user and group identifiers). This
     // allows the creation of directories inside ~/ on NFS with root_squash
@@ -525,23 +518,22 @@ int main(int argc, char **argv) {
     // NNP causes issues with AppArmor and exec transitions in certain
     // snapd interfaces, keep CAP_SYS_ADMIN temporarily when we are
     // permanently dropping privileges.
-    if (use_capabilities) {
-        debug("setting capabilities bounding set");
-        // clear all caps but SYS_ADMIN, with none inheritable
-        sc_capabilities caps;
-        caps.effective = SC_CAP_TO_MASK(CAP_SYS_ADMIN);
-        caps.permitted = caps.effective;
-        caps.inheritable = 0;
-        sc_set_capabilities(&caps);
-    }
+    debug("setting capabilities bounding set");
+    // clear all caps but SYS_ADMIN, with none inheritable
+    memset(&caps, 0, sizeof caps);
+    caps.effective = SC_CAP_TO_MASK(CAP_SYS_ADMIN);
+    caps.permitted = caps.effective;
+    caps.inheritable = 0;
+    sc_set_capabilities(&caps);
+
     // Now that we've dropped and regained SYS_ADMIN, we can load the
     // seccomp profiles.
     sc_apply_seccomp_profile_for_security_tag(invocation.security_tag);
-    if (use_capabilities) {
-        debug("dropping all capabilities");
-        sc_capabilities caps = {0};
-        sc_set_capabilities(&caps);
-    }
+
+    debug("dropping all capabilities");
+    memset(&caps, 0, sizeof caps);
+    sc_set_capabilities(&caps);
+
     // and exec the new executable
     argv[0] = (char *)invocation.executable;
     debug("execv(%s, %s...)", invocation.executable, argv[0]);
