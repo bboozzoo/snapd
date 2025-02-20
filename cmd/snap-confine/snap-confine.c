@@ -298,12 +298,6 @@ int main(int argc, char **argv) {
     log_startup_stage("snap-confine enter");
     sc_debug_capabilities("caps at startup");
 
-    // Figure out what is the SNAP_MOUNT_DIR in practice.
-    sc_probe_snap_mount_dir_from_pid_1_mount_ns(AT_FDCWD, &err);
-    sc_die_on_error(err);
-
-    debug("SNAP_MOUNT_DIR (probed): %s", sc_snap_mount_dir(NULL));
-
     // Use our super-defensive parser to figure out what we've been asked to do.
     struct sc_args *args SC_CLEANUP(sc_cleanup_args) = NULL;
     sc_preserved_process_state proc_state SC_CLEANUP(sc_cleanup_preserved_process_state) = {.orig_umask = 0,
@@ -328,8 +322,6 @@ int main(int argc, char **argv) {
     // SNAP_COMPONENT_NAME might not be set by the environment, so callers
     // should be prepared to handle NULL.
     const char *snap_component_name_env = getenv("SNAP_COMPONENT_NAME");
-
-    sc_init_invocation(&invocation, args, snap_instance_name_env, snap_component_name_env);
 
     // Who are we?
     uid_t real_uid, effective_uid, saved_uid;
@@ -366,30 +358,51 @@ int main(int argc, char **argv) {
 
     sc_debug_capabilities("initial caps");
 
-    static const sc_cap_mask snap_confine_caps =
-        SC_CAP_TO_MASK(CAP_DAC_OVERRIDE) |     // poking around as a regular user
-        SC_CAP_TO_MASK(CAP_DAC_READ_SEARCH) |  // same as above
-        SC_CAP_TO_MASK(CAP_SYS_ADMIN) |        // mounts, unshare
-        SC_CAP_TO_MASK(CAP_SYS_CHROOT) |       // pivot_root into a new root
-        SC_CAP_TO_MASK(CAP_CHOWN) |            // file ownership
-        SC_CAP_TO_MASK(CAP_FOWNER) |           // to create tmp dir with sticky bit
-        SC_CAP_TO_MASK(CAP_SYS_PTRACE) |       // to inspect the mount namespace of PID1
-        SC_CAP_TO_MASK(CAP_SETUID) |           // assume user identity
-        SC_CAP_TO_MASK(CAP_SETGID) |           // and group identity, e.g. switching to root when running s-u-n
-        0;
+    /* static const sc_cap_mask snap_confine_caps = */
+    /*     SC_CAP_TO_MASK(CAP_DAC_OVERRIDE) |     // poking around as a regular user */
+    /*     SC_CAP_TO_MASK(CAP_DAC_READ_SEARCH) |  // same as above */
+    /*     SC_CAP_TO_MASK(CAP_SYS_ADMIN) |        // mounts, unshare */
+    /*     SC_CAP_TO_MASK(CAP_SYS_CHROOT) |       // pivot_root into a new root */
+    /*     SC_CAP_TO_MASK(CAP_CHOWN) |            // file ownership */
+    /*     SC_CAP_TO_MASK(CAP_FOWNER) |           // to create tmp dir with sticky bit */
+    /*     SC_CAP_TO_MASK(CAP_SYS_PTRACE) |       // to inspect the mount namespace of PID1 */
+    /*     SC_CAP_TO_MASK(CAP_SETUID) |           // assume user identity */
+    /*     SC_CAP_TO_MASK(CAP_SETGID) |           // and group identity, e.g. switching to root when running s-u-n */
+    /*     0; */
+
+    static const cap_value_t snap_confine_caps_list[] = {
+        CAP_DAC_OVERRIDE,     // poking around as a regular user
+        CAP_DAC_READ_SEARCH,  // same as above
+        CAP_SYS_ADMIN,        // mounts, unshare
+        CAP_SYS_CHROOT,       // pivot_root into a new root
+        CAP_CHOWN,            // file ownership
+        CAP_FOWNER,           // to create tmp dir with sticky bit
+        CAP_SYS_PTRACE,       // to inspect the mount namespace of PID1
+        CAP_SETUID,           // assume user identity
+        CAP_SETGID,           // and group identity, e.g. switching to root when running s-u-n
+    };
 
     /* Since we are invoking snap-update-ns, we must also retain the
      * capabilities required by it. Make sure that this list is kept in sync
      * with the capabilities used in bootstrap.c in snap-update-ns code.
      */
-    static const sc_cap_mask snap_update_ns_caps =
-        SC_CAP_TO_MASK(CAP_DAC_OVERRIDE) |     // poking around as a regular user
-        SC_CAP_TO_MASK(CAP_DAC_READ_SEARCH) |  // needed for the lock file
-        SC_CAP_TO_MASK(CAP_SYS_ADMIN) |        // mounts
-        SC_CAP_TO_MASK(CAP_CHOWN) |            // file ownership
-        SC_CAP_TO_MASK(CAP_SETUID) |           // assume user identity
-        SC_CAP_TO_MASK(CAP_SETGID) |           // assume group identity
-        0;
+    /* static const sc_cap_mask snap_update_ns_caps = */
+    /*     SC_CAP_TO_MASK(CAP_DAC_OVERRIDE) |     // poking around as a regular user */
+    /*     SC_CAP_TO_MASK(CAP_DAC_READ_SEARCH) |  // needed for the lock file */
+    /*     SC_CAP_TO_MASK(CAP_SYS_ADMIN) |        // mounts */
+    /*     SC_CAP_TO_MASK(CAP_CHOWN) |            // file ownership */
+    /*     SC_CAP_TO_MASK(CAP_SETUID) |           // assume user identity */
+    /*     SC_CAP_TO_MASK(CAP_SETGID) |           // assume group identity */
+    /*     0; */
+
+    static const cap_value_t snap_update_ns_caps_list[] = {
+        CAP_DAC_OVERRIDE,     // poking around as a regular user
+        CAP_DAC_READ_SEARCH,  // needed for the lock file
+        CAP_SYS_ADMIN,        // mounts
+        CAP_CHOWN,            // file ownership
+        CAP_SETUID,           // assume user identity
+        CAP_SETGID,           // assume group identity
+    };
 
     /* Don't lose the permitted capabilities when switching user.
      * Note that there's no need to undo this operation later, since this
@@ -408,21 +421,68 @@ int main(int argc, char **argv) {
     if (real_uid != 0 && (getgid() == 0 || getegid() == 0)) die("permanently dropping privs did not work");
 
     /* Capability setup:
-     * 1. Restore those capabilities that we really need into the
+     * 1. Permitted caps are obtained from file.
+     * 2. Restore those capabilities that we really need into the
      *    "effective" set.
-     * 2. Capabilities needed by either us or by any of our child processes
+     * 3. Capabilities needed by either us or by any of our child processes
      *    need to be set into the "permitted" set.
-     * 3. Capabilities needed by our helper child processes need to be set
+     * 4. Capabilities needed by our helper child processes need to be set
      *    into the "permitted", "inheritable" and "ambient" sets.
      *
      * Before executing the snap application we'll drop all capabilities.
      */
-    sc_capabilities caps;
-    caps.effective = snap_confine_caps;
-    caps.permitted = snap_confine_caps | snap_update_ns_caps;
-    caps.inheritable = snap_update_ns_caps;
-    sc_set_capabilities(&caps);
-    sc_set_ambient_capabilities(snap_update_ns_caps);
+    cap_t caps_privileged SC_CLEANUP(cap_free) = cap_get_proc();
+    if (caps_privileged == NULL) {
+        die("cannot obtain current caps");
+    }
+
+    if (cap_set_flag(caps_privileged, CAP_EFFECTIVE, sizeof snap_confine_caps_list / sizeof snap_confine_caps_list[0],
+                     snap_confine_caps_list, CAP_SET) != 0) {
+        die("cannot fill capability set");
+    }
+    /* inheritable caps for s-u-n */
+    if (cap_set_flag(caps_privileged, CAP_INHERITABLE,
+                     sizeof snap_update_ns_caps_list / sizeof snap_update_ns_caps_list[0], snap_update_ns_caps_list,
+                     CAP_SET) != 0) {
+        die("cannot fill capability set");
+    }
+
+    cap_t caps_no_effective SC_CLEANUP(cap_free) = cap_dup(caps_privileged);
+    if (caps_no_effective == NULL) {
+        die("cannot copy caps");
+    }
+
+    cap_clear_flag(caps_no_effective, CAP_EFFECTIVE);
+    cap_clear_flag(caps_no_effective, CAP_INHERITABLE);
+
+    /* set privileged capabilities */
+    if (cap_set_proc(caps_privileged) != 0) {
+        die("cannot set capabilities");
+    }
+
+    sc_debug_capabilities("after setting privileged caps");
+
+    /* now that inheritable caps are set, we can also set ambient caps */
+    for (size_t i = 0; i < sizeof snap_update_ns_caps_list / sizeof snap_update_ns_caps_list[0]; i++) {
+        if (cap_set_ambient(snap_update_ns_caps_list[i], CAP_SET) != 0) {
+            const char *txt_cap SC_CLEANUP(cap_free) = cap_to_name(snap_update_ns_caps_list[i]);
+            die("cannot set ambient capability: %s", txt_cap);
+        }
+    }
+    /* sc_capabilities caps; */
+    /* caps.effective = snap_confine_caps; */
+    /* caps.permitted = snap_confine_caps | snap_update_ns_caps; */
+    /* caps.inheritable = snap_update_ns_caps; */
+    /* sc_set_capabilities(&caps); */
+    /* sc_set_ambient_capabilities(snap_update_ns_caps); */
+
+    // Figure out what is the SNAP_MOUNT_DIR in practice.
+    sc_probe_snap_mount_dir_from_pid_1_mount_ns(AT_FDCWD, &err);
+    sc_die_on_error(err);
+
+    debug("SNAP_MOUNT_DIR (probed): %s", sc_snap_mount_dir(NULL));
+
+    sc_init_invocation(&invocation, args, snap_instance_name_env, snap_component_name_env);
 
     // Remember certain properties of the process that are clobbered by
     // snap-confine during execution. Those are restored just before calling
@@ -486,13 +546,18 @@ int main(int argc, char **argv) {
 
     // Temporarily drop all capabilities, since we don't need any for a while.
     debug("dropping caps");
-    memset(&caps, 0, sizeof caps);
-    caps.effective = 0;
-    // Don't alter permitted and inheritable capabilities, use the same
-    // values as before.
-    caps.permitted = snap_confine_caps | snap_update_ns_caps;
-    caps.inheritable = snap_update_ns_caps;
-    sc_set_capabilities(&caps);
+    /* memset(&caps, 0, sizeof caps); */
+    /* caps.effective = 0; */
+    /* // Don't alter permitted and inheritable capabilities, use the same */
+    /* // values as before. */
+    /* caps.permitted = snap_confine_caps | snap_update_ns_caps; */
+    /* caps.inheritable = snap_update_ns_caps; */
+    /* sc_set_capabilities(&caps); */
+    if (cap_set_proc(caps_no_effective) != 0) {
+        die("cannot drop capabilities");
+    }
+
+    sc_debug_capabilities("after dropping effective caps");
 
     // Ensure that the user data path exists. When creating it use the identity
     // of the calling user (by using real user and group identifiers). This
@@ -519,20 +584,41 @@ int main(int argc, char **argv) {
     // snapd interfaces, keep CAP_SYS_ADMIN temporarily when we are
     // permanently dropping privileges.
     debug("setting capabilities bounding set");
-    // clear all caps but SYS_ADMIN, with none inheritable
-    memset(&caps, 0, sizeof caps);
-    caps.effective = SC_CAP_TO_MASK(CAP_SYS_ADMIN);
-    caps.permitted = caps.effective;
-    caps.inheritable = 0;
-    sc_set_capabilities(&caps);
+
+    /* only SYS_ADMIN  */
+    cap_t cap_only_sys_admin SC_CLEANUP(cap_free) = cap_init();
+    if (cap_only_sys_admin == NULL) {
+        die("cannot allocate only admin caps");
+    }
+    static const cap_value_t only_sys_admin_caps_list[] = {
+        CAP_SYS_ADMIN,  // seccomp
+    };
+    cap_set_flag(cap_only_sys_admin, CAP_EFFECTIVE, 1, only_sys_admin_caps_list, CAP_SET);
+    cap_set_flag(cap_only_sys_admin, CAP_PERMITTED, 1, only_sys_admin_caps_list, CAP_SET);
+    if (cap_set_proc(cap_only_sys_admin) != 0) {
+        die("cannot change capabilities");
+    }
+    sc_debug_capabilities("before seccomp");
+
+    /* memset(&caps, 0, sizeof caps); */
+    /* caps.effective = SC_CAP_TO_MASK(CAP_SYS_ADMIN); */
+    /* caps.permitted = caps.effective; */
+    /* caps.inheritable = 0; */
+    /* sc_set_capabilities(&caps); */
 
     // Now that we've dropped and regained SYS_ADMIN, we can load the
     // seccomp profiles.
     sc_apply_seccomp_profile_for_security_tag(invocation.security_tag);
 
     debug("dropping all capabilities");
-    memset(&caps, 0, sizeof caps);
-    sc_set_capabilities(&caps);
+    /* memset(&caps, 0, sizeof caps); */
+    /* sc_set_capabilities(&caps); */
+    cap_t cap_dropped SC_CLEANUP(cap_free) = cap_init();
+    if (cap_set_proc(cap_dropped) != 0) {
+        die("cannot drop capabilities");
+    }
+
+    sc_debug_capabilities("before exec to application");
 
     // and exec the new executable
     argv[0] = (char *)invocation.executable;
