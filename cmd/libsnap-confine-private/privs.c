@@ -89,6 +89,7 @@ void sc_set_capabilities(const sc_capabilities *capabilities) {
     cap_data[1].permitted = capabilities->permitted >> 32;
     cap_data[0].inheritable = capabilities->inheritable & 0xffffffff;
     cap_data[1].inheritable = capabilities->inheritable >> 32;
+    /* TODO:nonseuid: use libcap types */
     if (capset(&hdr, cap_data) != 0) {
         die("capset failed");
     }
@@ -114,7 +115,7 @@ void sc_set_ambient_capabilities(sc_cap_mask capabilities) {
     for (int i = 0; i < CAP_LAST_CAP; i++) {
         if (capabilities & SC_CAP_TO_MASK(i)) {
             debug("setting ambient capability %d", i);
-            if (prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_RAISE, i, 0, 0) < 0) {
+            if (cap_set_ambient(i, CAP_SET) < 0) {
                 die("cannot set ambient capability %d", i);
             }
         }
