@@ -116,7 +116,7 @@ void sc_set_ambient_capabilities(sc_cap_mask capabilities) {
     for (int i = 0; i < CAP_LAST_CAP; i++) {
         if (capabilities & SC_CAP_TO_MASK(i)) {
             debug("setting ambient capability %d", i);
-            if (cap_set_ambient(i, CAP_SET) < 0) {
+            if (sc_cap_set_ambient(i, CAP_SET) < 0) {
                 die("cannot set ambient capability %d", i);
             }
         }
@@ -135,7 +135,7 @@ void sc_debug_capabilities(const char *msg_prefix) {
 }
 
 int sc_cap_set_ambient(cap_value_t cap, cap_flag_value_t set) {
-#ifdef HAVE_CAP_SET_AMBIENT
+#if HAVE_CAP_SET_AMBIENT == 1
     return cap_set_ambient(cap, set);
 #else
     int val;
@@ -155,7 +155,7 @@ int sc_cap_set_ambient(cap_value_t cap, cap_flag_value_t set) {
 }
 
 int sc_cap_reset_ambient(void) {
-#ifdef HAVE_CAP_SET_AMBIENT
+#if HAVE_CAP_SET_AMBIENT == 1
     return cap_reset_ambient();
 #else
     return prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0);
