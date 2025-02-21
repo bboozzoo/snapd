@@ -15,12 +15,13 @@
  *
  */
 
-#include "privs.h"
+#include "config.h"
 
-#define _GNU_SOURCE
+#include "privs.h"
 
 #include <unistd.h>
 
+#include <errno.h>
 #include <grp.h>
 #include <linux/securebits.h>
 #include <stdbool.h>
@@ -131,4 +132,32 @@ void sc_debug_capabilities(const char *msg_prefix) {
         cap_free(caps_as_str);
         cap_free(caps);
     }
+}
+
+int sc_cap_set_ambient(cap_value_t cap, cap_flag_value_t set) {
+#ifdef HAVE_CAP_SET_AMBIENT
+    return cap_set_ambient(cap, set);
+#else
+    int val;
+    switch (set) {
+        case CAP_SET:
+            val = PR_CAP_AMBIENT_RAISE;
+            break;
+        case CAP_CLEAR:
+            val = PR_CAP_AMBIENT_LOWER;
+            break;
+        default:
+            errno = EINVAL;
+            return -1;
+    }
+    return prctl(PR_CAP_AMBIENT, val, cap, 0, 0);
+#endif
+}
+
+int sc_cap_reset_ambient(void) {
+#ifdef HAVE_CAP_SET_AMBIENT
+    return cap_reset_ambient();
+#else
+    return prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0);
+#endif
 }

@@ -442,12 +442,12 @@ int main(int argc, char **argv) {
     sc_debug_capabilities("after setting privileged caps");
 
     /* now that inheritable caps are set, we can also set ambient caps */
-    if (cap_reset_ambient() != 0) {
+    if (sc_cap_reset_ambient() != 0) {
         die("cannot reset ambient capabilities");
     }
 
     for (size_t i = 0; i < sizeof snap_update_ns_caps_list / sizeof snap_update_ns_caps_list[0]; i++) {
-        if (cap_set_ambient(snap_update_ns_caps_list[i], CAP_SET) != 0) {
+        if (sc_cap_set_ambient(snap_update_ns_caps_list[i], CAP_SET) != 0) {
             const char *txt_cap SC_CLEANUP(cap_free) = cap_to_name(snap_update_ns_caps_list[i]);
             die("cannot set ambient capability: %s", txt_cap);
         }
