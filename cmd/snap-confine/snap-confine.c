@@ -358,18 +358,6 @@ int main(int argc, char **argv) {
 
     sc_debug_capabilities("initial caps");
 
-    /* static const sc_cap_mask snap_confine_caps = */
-    /*     SC_CAP_TO_MASK(CAP_DAC_OVERRIDE) |     // poking around as a regular user */
-    /*     SC_CAP_TO_MASK(CAP_DAC_READ_SEARCH) |  // same as above */
-    /*     SC_CAP_TO_MASK(CAP_SYS_ADMIN) |        // mounts, unshare */
-    /*     SC_CAP_TO_MASK(CAP_SYS_CHROOT) |       // pivot_root into a new root */
-    /*     SC_CAP_TO_MASK(CAP_CHOWN) |            // file ownership */
-    /*     SC_CAP_TO_MASK(CAP_FOWNER) |           // to create tmp dir with sticky bit */
-    /*     SC_CAP_TO_MASK(CAP_SYS_PTRACE) |       // to inspect the mount namespace of PID1 */
-    /*     SC_CAP_TO_MASK(CAP_SETUID) |           // assume user identity */
-    /*     SC_CAP_TO_MASK(CAP_SETGID) |           // and group identity, e.g. switching to root when running s-u-n */
-    /*     0; */
-
     static const cap_value_t snap_confine_caps_list[] = {
         CAP_DAC_OVERRIDE,     // poking around as a regular user
         CAP_DAC_READ_SEARCH,  // same as above
@@ -386,15 +374,6 @@ int main(int argc, char **argv) {
      * capabilities required by it. Make sure that this list is kept in sync
      * with the capabilities used in bootstrap.c in snap-update-ns code.
      */
-    /* static const sc_cap_mask snap_update_ns_caps = */
-    /*     SC_CAP_TO_MASK(CAP_DAC_OVERRIDE) |     // poking around as a regular user */
-    /*     SC_CAP_TO_MASK(CAP_DAC_READ_SEARCH) |  // needed for the lock file */
-    /*     SC_CAP_TO_MASK(CAP_SYS_ADMIN) |        // mounts */
-    /*     SC_CAP_TO_MASK(CAP_CHOWN) |            // file ownership */
-    /*     SC_CAP_TO_MASK(CAP_SETUID) |           // assume user identity */
-    /*     SC_CAP_TO_MASK(CAP_SETGID) |           // assume group identity */
-    /*     0; */
-
     static const cap_value_t snap_update_ns_caps_list[] = {
         CAP_DAC_OVERRIDE,     // poking around as a regular user
         CAP_DAC_READ_SEARCH,  // needed for the lock file
@@ -463,12 +442,17 @@ int main(int argc, char **argv) {
     sc_debug_capabilities("after setting privileged caps");
 
     /* now that inheritable caps are set, we can also set ambient caps */
+    if (cap_reset_ambient() != 0) {
+        die("cannot reset ambient capabilities");
+    }
+
     for (size_t i = 0; i < sizeof snap_update_ns_caps_list / sizeof snap_update_ns_caps_list[0]; i++) {
         if (cap_set_ambient(snap_update_ns_caps_list[i], CAP_SET) != 0) {
             const char *txt_cap SC_CLEANUP(cap_free) = cap_to_name(snap_update_ns_caps_list[i]);
             die("cannot set ambient capability: %s", txt_cap);
         }
     }
+
     /* sc_capabilities caps; */
     /* caps.effective = snap_confine_caps; */
     /* caps.permitted = snap_confine_caps | snap_update_ns_caps; */
