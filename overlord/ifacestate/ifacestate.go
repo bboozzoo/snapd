@@ -628,3 +628,7 @@ func InterfacesRequestsControlHandlerServices(st *state.State) ([]*snap.AppInfo,
 
 	return handlers, nil
 }
+
+func ObserveReportedSystemKeyMismatch(st *state.State) (changeID string, err error) {
+	return "", fmt.Errorf("not implemented")
+}

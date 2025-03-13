@@ -37,6 +37,7 @@ import (
 	"github.com/snapcore/snapd/overlord/auth"
 	"github.com/snapcore/snapd/overlord/configstate/config"
 	"github.com/snapcore/snapd/overlord/devicestate"
+	"github.com/snapcore/snapd/overlord/ifacestate"
 	"github.com/snapcore/snapd/overlord/snapstate"
 	"github.com/snapcore/snapd/overlord/state"
 	"github.com/snapcore/snapd/release"
@@ -53,9 +54,11 @@ var (
 	}
 
 	sysInfoCmd = &Command{
-		Path:       "/v2/system-info",
-		GET:        sysInfo,
-		ReadAccess: interfaceOpenAccess{Interfaces: []string{"snap-interfaces-requests-control"}},
+		Path:        "/v2/system-info",
+		GET:         sysInfo,
+		POST:        sysInfoPost,
+		ReadAccess:  interfaceOpenAccess{Interfaces: []string{"snap-interfaces-requests-control"}},
+		WriteAccess: interfaceOpenAccess{Interfaces: []string{"snap-interfaces-requests-control"}},
 	}
 
 	stateChangeCmd = &Command{
@@ -170,6 +173,12 @@ func sysInfo(c *Command, r *http.Request, user *auth.UserState) Response {
 	}
 
 	return SyncResponse(m)
+}
+
+func sysInfoPost(c *Command, r *http.Request, user *auth.UserState) Response {
+	_, err := ifacestate.ObserveReportedSystemKeyMismatch(c.d.state)
+
+	return SyncResponse(err)
 }
 
 func formatRefreshTime(t time.Time) string {
