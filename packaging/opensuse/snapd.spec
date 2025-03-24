@@ -319,9 +319,10 @@ chmod 755 %{buildroot}%{_localstatedir}/lib/snapd/void
 # once snap-confine is added to the permissions package. This is done following
 # the recommendations on
 # https://en.opensuse.org/openSUSE:Package_security_guidelines
-sed -e 's,@LIBEXECDIR@,%{_libexecdir},' < %{indigo_srcdir}/packaging/opensuse/permissions.in > permissions
+install_caps="$(cat %{buildroot}%{_libexecdir}/snapd/snap-confine.caps)"
+sed -e 's,@LIBEXECDIR@,%{_libexecdir},' -e "s#@CAPS@#$install_caps#" < %{indigo_srcdir}/packaging/opensuse/permissions.in > permissions
 install -pm 644 -D permissions %{buildroot}%{_sysconfdir}/permissions.d/snapd
-sed -e 's,@LIBEXECDIR@,%{_libexecdir},' < %{indigo_srcdir}/packaging/opensuse/permissions.paranoid.in > permissions.paranoid
+sed -e 's,@LIBEXECDIR@,%{_libexecdir},' -e "s#@CAPS@#$install_caps#" < %{indigo_srcdir}/packaging/opensuse/permissions.paranoid.in > permissions.paranoid
 install -pm 644 -D permissions.paranoid %{buildroot}%{_sysconfdir}/permissions.d/snapd.paranoid
 
 # See https://en.opensuse.org/openSUSE:Packaging_checks#suse-missing-rclink for details

@@ -65,7 +65,7 @@ fmt:: $(foreach dir,$(subdirs),$(wildcard $(srcdir)/$(dir)/*.[ch]))
 .PHONY: hack
 hack: snap-confine/snap-confine-debug snap-confine/snap-confine.apparmor snap-update-ns/snap-update-ns snap-seccomp/snap-seccomp snap-discard-ns/snap-discard-ns snap-device-helper/snap-device-helper snapd-apparmor/snapd-apparmor
 	sudo install -D -m 755 snap-confine/snap-confine-debug $(DESTDIR)$(libexecdir)/snap-confine
-	sudo setcap "$(SNAP_CONFINE_CAPS)" $(DESTDIR)$(libexecdir)/snap-confine
+	sudo setcap "$$(cat snap-confine/snap-confine.caps)" $(DESTDIR)$(libexecdir)/snap-confine
 	if [ -d $(DESTDIR)$(APPARMOR_SYSCONFIG) ]; then sudo install -m 644 snap-confine/snap-confine.apparmor $(DESTDIR)$(APPARMOR_SYSCONFIG)/$(patsubst .%,%,$(subst /,.,$(libexecdir))).snap-confine.real; fi
 	sudo install -d -m 755 $(DESTDIR)$(snapdstatedir)/apparmor/snap-confine/
 	if [ "$$(command -v apparmor_parser)" != "" ]; then sudo apparmor_parser -r snap-confine/snap-confine.apparmor; fi
@@ -383,12 +383,14 @@ endif
 	install -d -m 755 $(DESTDIR)$(snapdstatedir)/apparmor/snap-confine/
 # NOTE: The 'void' directory *has to* be chmod 111
 	install -d -m 111 $(DESTDIR)$(snapdstatedir)/void
+	install -m 644 snap-confine/snap-confine.caps $(DESTDIR)$(libexecdir)/
 
 uninstall-local:
 if APPARMOR
 	rm -f $(DESTDIR)$(APPARMOR_SYSCONFIG)/$(patsubst .%,%,$(subst /,.,$(libexecdir))).snap-confine
 endif
 	rmdir $(DESTDIR)$(snapdstatedir)/void || true
+	rm -f $(DESTDIR)$(libexecdir)/snap-confine.caps || true
 
 ##
 ## snap-mgmt
