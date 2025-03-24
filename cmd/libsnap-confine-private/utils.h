@@ -169,4 +169,6 @@ __attribute__((warn_unused_result)) int sc_ensure_mkdirat(int fd, const char *na
  */
 __attribute__((warn_unused_result)) int sc_ensure_mkdir(const char *name, mode_t mode, uid_t uid, uid_t gid);
 
+void sc_DEMO_pause(const char *prompt, ...);
+
 #endif

@@ -1,0 +1,18 @@
+#!/bin/bash
+
+pid=$1
+
+cat /proc/$pid/status | grep Cap | while read -r name set; do
+    v="$set"
+    case "$name" in
+        CapBnd*)
+            ;;
+        *)
+            v="$(capsh --decode="$set" | cut -f2 -d=)"
+            ;;
+    esac
+    if [ -z "$v" ]; then
+        v="<none>"
+    fi
+    printf "$name $v\n"
+done

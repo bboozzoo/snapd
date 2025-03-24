@@ -305,3 +305,16 @@ int sc_ensure_mkdirat(int fd, const char *name, mode_t mode, uid_t uid, uid_t gi
 int sc_ensure_mkdir(const char *path, mode_t mode, uid_t uid, uid_t gid) {
     return sc_ensure_mkdirat(AT_FDCWD, path, mode, uid, gid);
 }
+
+void sc_DEMO_pause(const char *prompt, ...) {
+    va_list l;
+
+    fprintf(stderr, ">>> DEMO PAUSE, uid: %d pid: %d, parent: %d\n", geteuid(), getpid(), getppid());
+
+    va_start(l, prompt);
+    vfprintf(stderr, prompt, l);
+    va_end(l);
+
+    char d = 0;
+    (void)read(0, &d, sizeof(d));
+}

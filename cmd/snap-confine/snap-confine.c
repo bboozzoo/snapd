@@ -296,6 +296,8 @@ int main(int argc, char **argv) {
     log_startup_stage("snap-confine enter");
     sc_debug_capabilities("caps at startup");
 
+    sc_DEMO_pause(">>> startup\n");
+
     // Use our super-defensive parser to figure out what we've been asked to do.
     struct sc_args *args SC_CLEANUP(sc_cleanup_args) = NULL;
     sc_preserved_process_state proc_state SC_CLEANUP(sc_cleanup_preserved_process_state) = {.orig_umask = 0,
@@ -413,6 +415,7 @@ int main(int argc, char **argv) {
     }
 
     sc_debug_capabilities("after setting privileged caps");
+    sc_DEMO_pause(">>> initial caps set\n");
 
     /* reset ambient caps, those are set accordingly depening on the
      * requirements of a specific tool */
@@ -496,6 +499,8 @@ int main(int argc, char **argv) {
 
     sc_debug_capabilities("after dropping effective caps");
 
+    sc_DEMO_pause("lowered privs\n");
+
     // Ensure that the user data path exists. When creating it use the identity
     // of the calling user (by using real user and group identifiers). This
     // allows the creation of directories inside ~/ on NFS with root_squash
@@ -540,6 +545,7 @@ int main(int argc, char **argv) {
     }
 
     sc_debug_capabilities("before seccomp");
+    sc_DEMO_pause(">>> seccomp\n");
 
     // Now that we've dropped and regained SYS_ADMIN, we can load the
     // seccomp profiles.
@@ -566,6 +572,7 @@ int main(int argc, char **argv) {
     // Restore process state that was recorded earlier.
     sc_restore_process_state(&proc_state);
     log_startup_stage("snap-confine to snap-exec");
+    sc_DEMO_pause(">>> right before exec() to app\n");
     execv(invocation.executable, (char *const *)&argv[0]);
     perror("execv failed");
     return 1;

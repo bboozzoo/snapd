@@ -30,6 +30,7 @@
 #include <grp.h>
 #include <limits.h>
 #include <sched.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,6 +40,19 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+static void sc_DEMO_pause(const char *prompt, ...) {
+    va_list l;
+
+    fprintf(stderr, ">>> DEMO PAUSE, uid: %d pid: %d, parent: %d\n", geteuid(), getpid(), getppid());
+
+    va_start(l, prompt);
+    vfprintf(stderr, prompt, l);
+    va_end(l);
+
+    char d = 0;
+    (void)read(0, &d, sizeof(d));
+}
 
 /* copied from libsnap-confine-private/utils.h */
 #define SC_ARRAY_SIZE(arr)                                                                                  \
@@ -480,6 +494,8 @@ void bootstrap(int argc, char **argv, char **envp) {
     if (verify_caps() != 0) {
         return;
     }
+
+    sc_DEMO_pause(">>> snap-bootstrap-ns\n");
 
     // Analyze the read process cmdline to find the snap name and decide if we
     // should use setns to jump into the mount namespace of a particular snap.

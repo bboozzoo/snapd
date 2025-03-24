@@ -249,6 +249,9 @@ static void sc_call_snapd_tool_with_apparmor(int tool_fd, const char *tool_name,
         if (apparmor != NULL && aa_profile != NULL) {
             sc_maybe_aa_change_onexec(apparmor, aa_profile);
         }
+
+        sc_DEMO_pause(">>> child before exec\n");
+
         fexecve(tool_fd, argv, envp);
         die("cannot execute snapd tool %s", tool_name);
     } else {
