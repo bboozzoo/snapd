@@ -31,6 +31,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -1503,6 +1504,20 @@ func (x *cmdRun) runSnapConfine(info *snap.Info, runner runnable, beforeExec fun
 	// We have a new location for the ticket, update the environment variable.
 	if len(krb5ccnamePath) > 0 {
 		env["KRB5CCNAME"] = krb5ccnamePath
+	}
+
+	// Workaround Go 1.25 changes, where the runtime attempts to probe
+	// /proc/self/mountinfo to find the cpu controller and raises a denial. In
+	// order to silence it we would need to grant access to
+	// /proc/self/mountinfo, which is only granted when mount-observe plug is
+	// connected. Setting GOMAXPROCS bypasses the runtime setup. As a
+	// workaround, when GOMAXPROCS isn't set, we explicitly set it and leave a
+	// flag indicating that workaround is in place. If the snap-exec which
+	// executes in snap mount namespace is unaware of the workaround, the value
+	// of GOMAXPROCS still makes reasonable sense.
+	if !needsClassic && os.Getenv("GOMAXPROCS") == "" {
+		os.Setenv("GOMAXPROCS", strconv.Itoa(runtime.NumCPU()))
+		os.Setenv("SNAPD_SET_GOMAXPROCS", "1")
 	}
 
 	// on each run variant path this will be used once to get

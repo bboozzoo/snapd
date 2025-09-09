@@ -191,6 +191,12 @@ func execApp(snapTarget, revision, command string, args []string) error {
 		return err
 	}
 
+	// Workaround for Go 1.25 runtime was applied.
+	if os.Getenv("GOMAXPROCS") != "" && os.Getenv("SNAPD_SET_GOMAXPROCS") != "" {
+		os.Unsetenv("SNAPD_SET_GOMAXPROCS")
+		os.Unsetenv("GOMAXPROCS")
+	}
+
 	// build the environment from the yaml, translating TMPDIR and
 	// similar variables back from where they were hidden when
 	// invoking the setuid snap-confine.
