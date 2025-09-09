@@ -1516,8 +1516,8 @@ func (x *cmdRun) runSnapConfine(info *snap.Info, runner runnable, beforeExec fun
 	// executes in snap mount namespace is unaware of the workaround, the value
 	// of GOMAXPROCS still makes reasonable sense.
 	if !needsClassic && os.Getenv("GOMAXPROCS") == "" {
-		os.Setenv("GOMAXPROCS", strconv.Itoa(runtime.NumCPU()))
-		os.Setenv("SNAPD_SET_GOMAXPROCS", "1")
+		env["GOMAXPROCS"] = strconv.Itoa(runtime.NumCPU())
+		env["SNAPD_SET_GOMAXPROCS"] = "1"
 	}
 
 	// on each run variant path this will be used once to get
