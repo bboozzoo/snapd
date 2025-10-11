@@ -28,6 +28,8 @@ enum ErrorCode {
     SC_SNAP_INVALID_NAME = 1,
     SC_SNAP_INVALID_INSTANCE_KEY = 2,
     SC_SNAP_INVALID_INSTANCE_NAME = 3,
+    SC_SNAP_MOUNT_DIR_UNSUPPORTED = 4,
+    SC_SNAP_INVALID_COMPONENT = 5,
 }
 
 static SC_SNAP_DOMAIN: &str = "snap";
@@ -114,6 +116,68 @@ pub unsafe extern "C" fn sc_instance_key_validate(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn sc_snap_component_validate(
+    snap_component: *const c_char,
+    snap_instance: *const c_char,
+    sc_err: *mut *const error::sc_error,
+) {
+    let component = if snap_component.is_null() {
+        sc_error_forward(
+            sc_err,
+            error::new(
+                SC_SNAP_DOMAIN,
+                ErrorCode::SC_SNAP_INVALID_COMPONENT as i32,
+                "snap component cannot be NULL",
+            )
+            .into_boxed_ptr(),
+        );
+        return;
+    } else {
+        match unsafe { CStr::from_ptr(snap_component).to_str() } {
+            Err(_) => {
+                sc_error_forward(
+                    sc_err,
+                    error::new(
+                        SC_SNAP_DOMAIN,
+                        ErrorCode::SC_SNAP_INVALID_NAME as i32,
+                        "snap component is not a valid string",
+                    )
+                    .into_boxed_ptr(),
+                );
+                return;
+            }
+            Ok(s) => s,
+        }
+    };
+
+    let instance = if snap_instance.is_null() {
+        None
+    } else {
+        match unsafe { CStr::from_ptr(snap_instance).to_str() } {
+            Ok(s) => Some(s),
+            Err(err) => {
+                sc_error_forward(
+                    sc_err,
+                    error::new(
+                        SC_SNAP_DOMAIN,
+                        ErrorCode::SC_SNAP_INVALID_NAME as i32,
+                        "snap component is not a valid string",
+                    )
+                    .into_boxed_ptr(),
+                );
+                return;
+            }
+        }
+    };
+
+    if let Err(err) = snap::sc_snap_component_validate(component, instance) {
+        sc_error_forward(sc_err, error::sc_error::from(err).into_boxed_ptr());
+    } else {
+        sc_error_forward(sc_err, ptr::null());
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn sc_snap_name_validate(
     snap_name: *const c_char,
     sc_err: *mut *const error::sc_error,
@@ -173,6 +237,26 @@ pub unsafe extern "C" fn sc_security_tag_validate(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn sc_security_tag_to_unit_name(
+    c_instance_name: *const c_char,
+) -> *mut c_char {
+    if c_instance_name.is_null() {
+        die!("internal error: cannot split instance name when it is unset");
+    }
+
+    let s_instance = unsafe { CStr::from_ptr(c_instance_name).to_str().unwrap_or("") };
+
+    let c_dup_unit_name = match snap::sc_security_tag_to_unit_name(s_instance) {
+        Ok(unit_name) => match CString::new(unit_name) {
+            Ok(cs) => libc::strdup(cs.as_c_str().as_ptr()),
+            Err(err) => die!("cannot convert to C string {}", err),
+        },
+        Err(err) => die!("{}", err.msg()),
+    };
+    c_dup_unit_name
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn sc_snap_split_instance_name(
     instance_name: *const c_char,
     snap_name: *mut u8,
@@ -229,7 +313,54 @@ pub unsafe extern "C" fn sc_snap_drop_instance_key(
     sc_snap_split_instance_name(instance_name, snap_name, snap_name_size, ptr::null_mut(), 0);
 }
 
-// TODO add sc_snap_split_snap_component
+#[no_mangle]
+pub unsafe extern "C" fn sc_snap_split_snap_component(
+    c_snap_component: *const c_char,
+    c_snap_name: *mut u8,
+    c_snap_name_size: usize,
+    c_component_name: *mut u8,
+    c_component_name_size: usize,
+) {
+    if c_snap_component.is_null() {
+        die!("internal error: cannot split instance name when it is unset");
+    }
+    if c_snap_name.is_null() && c_component_name.is_null() {
+        die!("internal error: cannot split instance name when both snap name and instance key are unset");
+    }
+    // TODO die on error?
+    let s_component = unsafe { CStr::from_ptr(c_snap_component).to_str().unwrap_or("") };
+
+    let (snap_name, component_name) = snap::sc_snap_split_snap_component(s_component);
+    if !c_snap_name.is_null() {
+        let snap_name_raw = match CString::new(snap_name) {
+            Ok(cs) => cs.into_bytes_with_nul(),
+            Err(err) => die!("cannot convert to C string: {}", err),
+        };
+        if snap_name_raw.len() > c_snap_name_size {
+            die!("snap name buffer too small");
+        }
+        let c_snap_name_buf = slice::from_raw_parts_mut(c_snap_name, c_snap_name_size);
+        c_snap_name_buf[..snap_name_raw.len()].copy_from_slice(&snap_name_raw);
+    }
+
+    if !c_component_name.is_null() {
+        let c_component_name_buf =
+            slice::from_raw_parts_mut(c_component_name, c_component_name_size);
+        if let Some(component_name) = component_name {
+            let component_name_raw = match CString::new(component_name) {
+                Ok(cs) => cs.into_bytes_with_nul(),
+                Err(err) => die!("cannot convert to C string: {}", err),
+            };
+            if component_name_raw.len() > c_component_name_size {
+                die!("instance key buffer too small");
+            }
+            c_component_name_buf[..component_name_raw.len()].copy_from_slice(&component_name_raw);
+        } else {
+            // terminate buffer with \0
+            c_component_name_buf[0] = 0;
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
