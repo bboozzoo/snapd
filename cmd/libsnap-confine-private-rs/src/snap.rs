@@ -159,6 +159,59 @@ pub fn sc_snap_name_validate(snap_name: &str) -> Result<(), Error> {
     }
 }
 
+pub fn sc_snap_component_validate(
+    snap_component: &str,
+    snap_instance: Option<&str>,
+) -> Result<(), Error<'static>> {
+    // const char *pos = strchr(snap_component, '+');
+    // if (pos == NULL) {
+    //     err = sc_error_init(SC_SNAP_DOMAIN, SC_SNAP_INVALID_COMPONENT, "snap component must contain a +");
+    //     goto out;
+    // }
+
+    // size_t snap_name_len = pos - snap_component;
+    // if (snap_name_len > SNAP_NAME_LEN) {
+    //     err = sc_error_init(SC_SNAP_DOMAIN, SC_SNAP_INVALID_COMPONENT, "snap name must be shorter than 40 characters");
+    //     goto out;
+    // }
+
+    // size_t component_name_len = strlen(pos + 1);
+    // if (component_name_len > SNAP_NAME_LEN) {
+    //     err = sc_error_init(SC_SNAP_DOMAIN, SC_SNAP_INVALID_COMPONENT,
+    //                         "component name must be shorter than 40 characters");
+    //     goto out;
+    // }
+
+    // char snap_name[SNAP_NAME_LEN + 1] = {0};
+    // strncpy(snap_name, snap_component, snap_name_len);
+
+    // char component_name[SNAP_NAME_LEN + 1] = {0};
+    // strncpy(component_name, pos + 1, sizeof(component_name) - 1);
+
+    // validate_as_snap_or_component_name(snap_name, SC_SNAP_INVALID_COMPONENT, "snap name in component", &err);
+    // if (err != NULL) {
+    //     goto out;
+    // }
+
+    // validate_as_snap_or_component_name(component_name, SC_SNAP_INVALID_COMPONENT, "component name", &err);
+    // if (err != NULL) {
+    //     goto out;
+    // }
+
+    // if Some(instance) = snap_instance {
+    //     char snap_name_in_instance[SNAP_NAME_LEN + 1] = {0};
+    //     sc_snap_drop_instance_key(snap_instance, snap_name_in_instance, sizeof snap_name_in_instance);
+
+    //     if (strcmp(snap_name, snap_name_in_instance) != 0) {
+    //         err = sc_error_init(SC_SNAP_DOMAIN, SC_SNAP_INVALID_COMPONENT,
+    //                             "snap name in component must match snap name in instance");
+    //         goto out;
+    //     }
+    // }
+
+    Err(Error::new(ErrorKind::InvalidName, "not implemented"))
+}
+
 pub fn sc_is_hook_security_tag(security_tag: &str) -> bool {
     let hook_security_tag_re =
         "^snap\\.[a-z](-?[a-z0-9])*(_[a-z0-9]{1,10})?\\.(hook\\.[a-z](-?[a-z0-9])*)$";
@@ -226,6 +279,10 @@ pub fn sc_snap_split_snap_component(component: &str) -> (&str, Option<&str>) {
         None => (component, None),
         Some(pos) => (&component[..pos], Some(&component[pos + 1..])),
     }
+}
+
+pub fn sc_security_tag_to_unit_name(instance_name: &str) -> Result<String, Error> {
+    Ok("".to_string())
 }
 
 #[cfg(test)]
@@ -478,6 +535,35 @@ mod tests {
         // long_tag[sizeof long_tag - 2] = '\0';
         // assert!(sc_security_tag_validate(long_tag, "foo"));
     }
+
+    #[test]
+    fn test_sc_security_tag_to_unit_name() {
+        assert_eq!(
+            sc_security_tag_to_unit_name("snap.foo+comp.hook.install"),
+            Ok("snap.foo\\x2bcomp.hook.install".to_string())
+        );
+
+        assert_eq!(
+            sc_security_tag_to_unit_name("snap.foo.bar"),
+            Ok("snap.foo.bar".to_string())
+        );
+        assert_eq!(
+            sc_security_tag_to_unit_name("snap.foo_dev.bar"),
+            Ok("snap.foo_dev.bar".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sc_security_tag_to_unit_name_invalid() {
+        assert_eq!(
+            sc_security_tag_to_unit_name("snap.foo|dev.bar"),
+            exp_error!(
+                ErrorKind::InvalidName,
+                "unexpected character '|' in a validated security tag: 'snap.foo|dev.bar'"
+            )
+        );
+    }
+
     fn test_snap_or_instance_name_validate(validate: fn(&str) -> Result<(), Error>) {
         assert_eq!(validate("hello-world"), Ok(()));
         assert_eq!(
