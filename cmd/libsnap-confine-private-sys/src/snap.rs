@@ -34,7 +34,7 @@ enum ErrorCode {
 
 static SC_SNAP_DOMAIN: &str = "snap";
 
-impl From<snap::Error<'_>> for error::sc_error {
+impl From<snap::Error> for error::sc_error {
     fn from(err: snap::Error) -> error::sc_error {
         error::new(
             SC_SNAP_DOMAIN,
@@ -42,6 +42,7 @@ impl From<snap::Error<'_>> for error::sc_error {
                 snap::ErrorKind::InvalidName => ErrorCode::SC_SNAP_INVALID_NAME,
                 snap::ErrorKind::InvalidInstanceName => ErrorCode::SC_SNAP_INVALID_INSTANCE_NAME,
                 snap::ErrorKind::InvalidInstanceKey => ErrorCode::SC_SNAP_INVALID_INSTANCE_KEY,
+                snap::ErrorKind::InvalidComponent => ErrorCode::SC_SNAP_INVALID_COMPONENT,
             } as i32,
             err.msg(),
         )
@@ -222,18 +223,38 @@ pub unsafe extern "C" fn sc_is_hook_security_tag(security_tag: *const c_char) ->
 
 #[no_mangle]
 pub unsafe extern "C" fn sc_security_tag_validate(
-    security_tag: *const c_char,
-    snap_name: *const c_char,
-    component_name: *const c_char,
+    c_security_tag: *const c_char,
+    c_snap_name: *const c_char,
+    c_component_name: *const c_char,
 ) -> bool {
-    let s_security_tag = unsafe { CStr::from_ptr(security_tag).to_str().unwrap_or("") };
-    let s_snap_name = unsafe { CStr::from_ptr(snap_name).to_str().unwrap_or("") };
-    let s_component_name = if component_name.is_null() {
+    let security_tag = if c_security_tag.is_null() {
+        return false;
+    } else {
+        match { CStr::from_ptr(c_security_tag).to_str() } {
+            Ok(s) => s,
+            Err(_) => return false,
+        }
+    };
+
+    let snap_name = if c_snap_name.is_null() {
+        return false;
+    } else {
+        match unsafe { CStr::from_ptr(c_snap_name).to_str() } {
+            Err(_) => return false,
+            Ok(s) => s,
+        }
+    };
+
+    let component_name = if c_component_name.is_null() {
         None
     } else {
-        Some(unsafe { CStr::from_ptr(snap_name).to_str().unwrap_or("") })
+        Some(match unsafe { CStr::from_ptr(c_component_name).to_str() } {
+            Ok(s) => s,
+            Err(_) => return false,
+        })
     };
-    snap::sc_security_tag_validate(s_security_tag, s_snap_name, s_component_name)
+
+    snap::sc_security_tag_validate(security_tag, snap_name, component_name)
 }
 
 #[no_mangle]

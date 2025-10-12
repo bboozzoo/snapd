@@ -26,20 +26,25 @@ pub enum ErrorKind {
     InvalidName,
     InvalidInstanceKey,
     InvalidInstanceName,
+    InvalidComponent,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Error<'a> {
+pub struct Error {
     error_kind: ErrorKind,
-    msg: &'a str,
+    msg: String,
 }
 
-impl Error<'_> {
-    pub fn new(kind: ErrorKind, msg: &str) -> Error {
+impl Error {
+    pub fn new(kind: ErrorKind, msg: &str) -> Self {
         Error {
             error_kind: kind,
-            msg,
+            msg: msg.to_string(),
         }
+    }
+
+    pub fn new_with_string(kind: ErrorKind, msg: String) -> Self {
+        Self::new(kind, &msg)
     }
 
     pub fn kind(&self) -> ErrorKind {
@@ -47,7 +52,7 @@ impl Error<'_> {
     }
 
     pub fn msg(&self) -> &str {
-        self.msg
+        &self.msg
     }
 }
 
@@ -102,6 +107,47 @@ pub fn sc_instance_key_validate(instance_key: &str) -> Result<(), Error> {
     }
 }
 
+fn validate_as_snap_or_component_name(snap_name: &str) -> Result<(), &str> {
+    let mut got_letter = false;
+    let mut last: Option<char> = None;
+    for c in snap_name.chars() {
+        match c {
+            'a'..='z' => {
+                got_letter = true;
+                last = Some(c);
+                continue;
+            }
+            '0'..='9' => {
+                last = Some(c);
+                continue;
+            }
+            '-' => {
+                match last {
+                    Some('-') => return Err("cannot contain two consecutive dashes"),
+                    None => return Err("cannot start with a dash"),
+                    _ => (),
+                }
+                last = Some(c);
+                continue;
+            }
+            _ => {
+                return Err("must use lower case letters, digits or dashes");
+            }
+        }
+    }
+    if last == Some('-') {
+        return Err("cannot end with a dash");
+    }
+    if !got_letter {
+        return Err("must contain at least one letter");
+    }
+    match snap_name.len() {
+        0..=1 => Err("must be longer than 1 character"),
+        2..=SNAP_NAME_LEN => Ok(()),
+        _ => Err("must be shorter than 40 characters"),
+    }
+}
+
 pub fn sc_snap_name_validate(snap_name: &str) -> Result<(), Error> {
     // NOTE: This function should be synchronized with the two other
     // implementations: validate_snap_name and snap.ValidateName.
@@ -113,103 +159,74 @@ pub fn sc_snap_name_validate(snap_name: &str) -> Result<(), Error> {
     // The only motivation for not using regular expressions is so that we
     // don't run untrusted input against a potentially complex regular
     // expression engine.
-    fn validate(snap_name: &str) -> Result<(), &str> {
-        let mut got_letter = false;
-        let mut last: Option<char> = None;
-        for c in snap_name.chars() {
-            match c {
-                'a'..='z' => {
-                    got_letter = true;
-                    last = Some(c);
-                    continue;
-                }
-                '0'..='9' => {
-                    last = Some(c);
-                    continue;
-                }
-                '-' => {
-                    match last {
-                        Some('-') => return Err("snap name cannot contain two consecutive dashes"),
-                        None => return Err("snap name cannot start with a dash"),
-                        _ => (),
-                    }
-                    last = Some(c);
-                    continue;
-                }
-                _ => {
-                    return Err("snap name must use lower case letters, digits or dashes");
-                }
-            }
-        }
-        if last == Some('-') {
-            return Err("snap name cannot end with a dash");
-        }
-        if !got_letter {
-            return Err("snap name must contain at least one letter");
-        }
-        match snap_name.len() {
-            0..=1 => Err("snap name must be longer than 1 character"),
-            2..=SNAP_NAME_LEN => Ok(()),
-            _ => Err("snap name must be shorter than 40 characters"),
-        }
-    }
-    match validate(snap_name) {
+    match validate_as_snap_or_component_name(snap_name) {
         Ok(()) => Ok(()),
-        Err(err) => Err(Error::new(ErrorKind::InvalidName, err)),
+        Err(err) => Err(Error::new_with_string(
+            ErrorKind::InvalidName,
+            format!("snap name {}", err),
+        )),
     }
 }
 
 pub fn sc_snap_component_validate(
     snap_component: &str,
     snap_instance: Option<&str>,
-) -> Result<(), Error<'static>> {
-    // const char *pos = strchr(snap_component, '+');
-    // if (pos == NULL) {
-    //     err = sc_error_init(SC_SNAP_DOMAIN, SC_SNAP_INVALID_COMPONENT, "snap component must contain a +");
-    //     goto out;
-    // }
+) -> Result<(), Error> {
+    let (snap_name, component_name) = match snap_component.find('+') {
+        None => {
+            return Err(Error::new(
+                ErrorKind::InvalidComponent,
+                "snap component must contain a +",
+            ))
+        }
+        Some(pos) => (&snap_component[..pos], &snap_component[pos + 1..]),
+    };
 
-    // size_t snap_name_len = pos - snap_component;
-    // if (snap_name_len > SNAP_NAME_LEN) {
-    //     err = sc_error_init(SC_SNAP_DOMAIN, SC_SNAP_INVALID_COMPONENT, "snap name must be shorter than 40 characters");
-    //     goto out;
-    // }
+    if snap_name.len() > SNAP_NAME_LEN {
+        return Err(Error::new(
+            ErrorKind::InvalidComponent,
+            "snap name must be shorter than 40 characters",
+        ));
+    }
 
-    // size_t component_name_len = strlen(pos + 1);
-    // if (component_name_len > SNAP_NAME_LEN) {
-    //     err = sc_error_init(SC_SNAP_DOMAIN, SC_SNAP_INVALID_COMPONENT,
-    //                         "component name must be shorter than 40 characters");
-    //     goto out;
-    // }
+    if component_name.len() > SNAP_NAME_LEN {
+        return Err(Error::new(
+            ErrorKind::InvalidComponent,
+            "component name must be shorter than 40 characters",
+        ));
+    }
 
-    // char snap_name[SNAP_NAME_LEN + 1] = {0};
-    // strncpy(snap_name, snap_component, snap_name_len);
+    if let Err(err) = validate_as_snap_or_component_name(snap_name) {
+        return Err(Error::new_with_string(
+            ErrorKind::InvalidComponent,
+            format!("snap name in component {}", err),
+        ));
+    }
 
-    // char component_name[SNAP_NAME_LEN + 1] = {0};
-    // strncpy(component_name, pos + 1, sizeof(component_name) - 1);
+    if let Err(err) = validate_as_snap_or_component_name(component_name) {
+        return Err(Error::new_with_string(
+            ErrorKind::InvalidComponent,
+            format!("component name {}", err),
+        ));
+    }
 
-    // validate_as_snap_or_component_name(snap_name, SC_SNAP_INVALID_COMPONENT, "snap name in component", &err);
-    // if (err != NULL) {
-    //     goto out;
-    // }
+    if let Some(snap_instance) = snap_instance {
+        match sc_snap_drop_instance_key(snap_instance) {
+            Ok(instance_snap_name) => {
+                if instance_snap_name != snap_name {
+                    return Err(Error::new(
+                        ErrorKind::InvalidComponent,
+                        "snap name in component must match snap name in instance",
+                    ));
+                }
+            }
+            Err(err) => {
+                return Err(Error::new(ErrorKind::InvalidComponent, err));
+            }
+        }
+    }
 
-    // validate_as_snap_or_component_name(component_name, SC_SNAP_INVALID_COMPONENT, "component name", &err);
-    // if (err != NULL) {
-    //     goto out;
-    // }
-
-    // if Some(instance) = snap_instance {
-    //     char snap_name_in_instance[SNAP_NAME_LEN + 1] = {0};
-    //     sc_snap_drop_instance_key(snap_instance, snap_name_in_instance, sizeof snap_name_in_instance);
-
-    //     if (strcmp(snap_name, snap_name_in_instance) != 0) {
-    //         err = sc_error_init(SC_SNAP_DOMAIN, SC_SNAP_INVALID_COMPONENT,
-    //                             "snap name in component must match snap name in instance");
-    //         goto out;
-    //     }
-    // }
-
-    Err(Error::new(ErrorKind::InvalidName, "not implemented"))
+    Ok(())
 }
 
 pub fn sc_is_hook_security_tag(security_tag: &str) -> bool {
@@ -282,7 +299,20 @@ pub fn sc_snap_split_snap_component(component: &str) -> (&str, Option<&str>) {
 }
 
 pub fn sc_security_tag_to_unit_name(instance_name: &str) -> Result<String, Error> {
-    Ok("".to_string())
+    let mut s = String::new();
+    for c in instance_name.chars() {
+        match c {
+            '0'..='9' | 'a'..='z' | 'A'..='Z' | '_' | '-' | '.' => s.push(c),
+            '+' => s.push_str("\\x2b"),
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::InvalidName,
+                    "unexpected character in a validated security tag",
+                ))
+            }
+        }
+    }
+    Ok(s)
 }
 
 #[cfg(test)]
@@ -294,7 +324,7 @@ mod tests {
         ($kind:expr, $msg:expr) => {
             Err(Error {
                 error_kind: $kind,
-                msg: $msg,
+                msg: $msg.to_string(),
             })
         };
     }
@@ -559,7 +589,7 @@ mod tests {
             sc_security_tag_to_unit_name("snap.foo|dev.bar"),
             exp_error!(
                 ErrorKind::InvalidName,
-                "unexpected character '|' in a validated security tag: 'snap.foo|dev.bar'"
+                "unexpected character in a validated security tag"
             )
         );
     }
@@ -793,5 +823,88 @@ mod tests {
         assert_eq!(sc_snap_split_instance_name("foo_"), ("foo", Some("")));
     }
 
-    // TODO add sc_snap_split_snap_component tests
+    #[test]
+    fn test_sc_snap_component_validate() {
+        assert_eq!(
+            sc_snap_component_validate("snapname+compname", None),
+            Ok(())
+        );
+
+        assert_eq!(
+            sc_snap_component_validate("snap-name+comp-name", None),
+            Ok(())
+        );
+
+        // check that we fail if the snap name isn't in the snap component
+        assert_eq!(
+            sc_snap_component_validate("snapname+compname", Some("othername")),
+            exp_error!(
+                ErrorKind::InvalidComponent,
+                "snap name in component must match snap name in instance"
+            )
+        );
+
+        assert_eq!(
+            sc_snap_component_validate("snapname+compname", Some("othername_instance")),
+            exp_error!(
+                ErrorKind::InvalidComponent,
+                "snap name in component must match snap name in instance"
+            )
+        );
+
+        // component name should never have an instance key in it, so this should
+        // fail
+        assert_eq!(
+            sc_snap_component_validate("snapname_instance+compname", Some("snapname_instance")),
+            exp_error!(
+                ErrorKind::InvalidComponent,
+                "snap name in component must use lower case letters, digits or dashes"
+            )
+        );
+
+        assert_eq!(
+            sc_snap_component_validate("snapname_instance+compname", Some("snapname")),
+            exp_error!(
+                ErrorKind::InvalidComponent,
+                "snap name in component must use lower case letters, digits or dashes"
+            )
+        );
+
+        // check that we can validate the snap name in the snap component
+        assert_eq!(
+            sc_snap_component_validate("snapname+compname", Some("snapname")),
+            Ok(())
+        );
+        assert_eq!(
+            sc_snap_component_validate("snapname+compname", Some("snapname_instance")),
+            Ok(())
+        );
+
+        let cases = [
+            "snap-name+",
+            "+comp-name",
+            "snap-name",
+            "snap-name+comp_name",
+            "loooooooooooooooooooooooooooong-snap-name+comp-name",
+            "snap-name+loooooooooooooooooooooooooooong-comp-name",
+        ];
+
+        for case in cases {
+            let res = sc_snap_component_validate(case, None);
+            assert!(res.is_err());
+            let err = res.err().unwrap();
+            assert_eq!(err.kind(), ErrorKind::InvalidComponent);
+        }
+    }
+
+    #[test]
+    fn test_sc_snap_component_validate_respects_error_protocol() {
+        assert_eq!(
+            sc_snap_component_validate("hello world+comp name", None),
+            exp_error!(
+                ErrorKind::InvalidComponent,
+                "snap name in component must use lower case letters, digits or dashes"
+            )
+        );
+    }
 }

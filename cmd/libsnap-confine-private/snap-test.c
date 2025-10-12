@@ -171,7 +171,7 @@ static void test_sc_security_tag_to_unit_name_invalid(void) {
     }
     g_test_trap_subprocess(NULL, 0, 0);
     g_test_trap_assert_failed();
-    g_test_trap_assert_stderr("unexpected character '|' in a validated security tag: 'snap.foo|dev.bar'\n");
+    g_test_trap_assert_stderr("unexpected character in a validated security tag\n");
 }
 
 static void test_sc_snap_or_instance_name_validate(gconstpointer data) {
