@@ -18,6 +18,7 @@
 use libc;
 use std::boxed::Box;
 use std::ffi::{CStr, CString};
+use std::fmt;
 use std::os::raw::{c_char, c_int};
 
 use crate::utils::die;
@@ -29,6 +30,12 @@ pub struct sc_error {
     domain: CString,
     code: c_int,
     msg: CString,
+}
+
+impl fmt::Display for sc_error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.msg.to_string_lossy())
+    }
 }
 
 #[no_mangle]
