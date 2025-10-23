@@ -21,7 +21,7 @@ use std::ptr;
 
 use libsnap_confine_private_rs::snap;
 
-use crate::error::{self, sc_error_forward};
+use crate::error::{self, sc_error, sc_error_forward};
 use crate::utils::die;
 
 enum ErrorCode {
@@ -34,86 +34,118 @@ enum ErrorCode {
 
 static SC_SNAP_DOMAIN: &str = "snap";
 
-impl From<snap::Error> for error::sc_error {
-    fn from(err: snap::Error) -> error::sc_error {
+impl From<&snap::Error> for error::sc_error {
+    fn from(err: &snap::Error) -> error::sc_error {
         error::new(
             SC_SNAP_DOMAIN,
-            match err.kind() {
-                snap::ErrorKind::InvalidName => ErrorCode::SC_SNAP_INVALID_NAME,
-                snap::ErrorKind::InvalidInstanceName => ErrorCode::SC_SNAP_INVALID_INSTANCE_NAME,
-                snap::ErrorKind::InvalidInstanceKey => ErrorCode::SC_SNAP_INVALID_INSTANCE_KEY,
-                snap::ErrorKind::InvalidComponent => ErrorCode::SC_SNAP_INVALID_COMPONENT,
+            match err {
+                snap::Error::InvalidName(_) => ErrorCode::SC_SNAP_INVALID_NAME,
+                snap::Error::InvalidInstanceName(_) => ErrorCode::SC_SNAP_INVALID_INSTANCE_NAME,
+                snap::Error::InvalidInstanceKey(_) => ErrorCode::SC_SNAP_INVALID_INSTANCE_KEY,
+                snap::Error::InvalidComponent(_) => ErrorCode::SC_SNAP_INVALID_COMPONENT,
             } as i32,
-            err.msg(),
+            &err.to_string(),
         )
     }
 }
 
-// TODO mediate between FFI cand pure Rust
+fn internal_sc_instance_name_validate(instance_name: *const c_char) -> Result<(), error::sc_error> {
+    if instance_name.is_null() {
+        return Err(error::new(
+            SC_SNAP_DOMAIN,
+            ErrorCode::SC_SNAP_INVALID_INSTANCE_NAME as i32,
+            "snap instance name cannot be NULL",
+        ));
+    }
+
+    unsafe { CStr::from_ptr(instance_name).to_str() }
+        .map_err(|_| {
+            error::new(
+                SC_SNAP_DOMAIN,
+                ErrorCode::SC_SNAP_INVALID_NAME as i32,
+                "snap instance name is not a valid string",
+            )
+        })
+        .and_then(|name| {
+            snap::sc_instance_name_validate(name).map_err(|err| error::sc_error::from(&err))
+        })?;
+    Ok(())
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn sc_instance_name_validate(
     instance_name: *const c_char,
     sc_err: *mut *const error::sc_error,
 ) {
-    if instance_name.is_null() {
-        sc_error_forward(
-            sc_err,
-            error::new(
-                SC_SNAP_DOMAIN,
-                ErrorCode::SC_SNAP_INVALID_INSTANCE_NAME as i32,
-                "snap instance name cannot be NULL",
-            )
-            .into_boxed_ptr(),
-        );
-        return;
-    }
-    let instance_name = match unsafe { CStr::from_ptr(instance_name).to_str() } {
-        Ok(s) => s,
-        Err(_) => {
-            sc_error_forward(
-                sc_err,
-                error::new(
-                    SC_SNAP_DOMAIN,
-                    ErrorCode::SC_SNAP_INVALID_NAME as i32,
-                    "snap instance name is not a valid string",
-                )
-                .into_boxed_ptr(),
-            );
-            return;
-        }
-    };
-    if let Err(err) = snap::sc_instance_name_validate(instance_name) {
-        sc_error_forward(sc_err, error::sc_error::from(err).into_boxed_ptr());
+    if let Err(err) = internal_sc_instance_name_validate(instance_name) {
+        sc_error_forward(sc_err, err.into_boxed_ptr());
     } else {
         sc_error_forward(sc_err, ptr::null());
     }
 }
 
+fn internal_sc_instance_key_validate(instance_key: *const c_char) -> Result<(), error::sc_error> {
+    unsafe { CStr::from_ptr(instance_key).to_str() }
+        .map_err(|_| {
+            error::new(
+                SC_SNAP_DOMAIN,
+                ErrorCode::SC_SNAP_INVALID_INSTANCE_KEY as i32,
+                "snap name is not a valid string",
+            )
+        })
+        .and_then(|key| {
+            snap::sc_instance_key_validate(key).map_err(|err| error::sc_error::from(&err))
+        })?;
+    Ok(())
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn sc_instance_key_validate(
     instance_key: *const c_char,
-    sc_err: *mut *mut error::sc_error,
+    sc_err: *mut *const error::sc_error,
 ) {
-    let instance_key = match unsafe { CStr::from_ptr(instance_key).to_str() } {
-        Ok(s) => s,
-        Err(_) => {
-            unsafe {
-                *sc_err = error::new(
-                    SC_SNAP_DOMAIN,
-                    ErrorCode::SC_SNAP_INVALID_INSTANCE_KEY as i32,
-                    "snap name is not a valid string",
-                )
-                .into_boxed_ptr();
-            }
-            return;
-        }
-    };
-    if let Err(err) = snap::sc_instance_key_validate(instance_key) {
-        unsafe {
-            *sc_err = error::sc_error::from(err).into_boxed_ptr();
-        }
+    if let Err(err) = internal_sc_instance_key_validate(instance_key) {
+        sc_error_forward(sc_err, err.into_boxed_ptr());
+    } else {
+        sc_error_forward(sc_err, ptr::null());
     }
+}
+
+fn internal_sc_snap_component_validate(
+    snap_component: *const c_char,
+    snap_instance: *const c_char,
+) -> Result<(), error::sc_error> {
+    let component = if snap_component.is_null() {
+        return Err(error::new(
+            SC_SNAP_DOMAIN,
+            ErrorCode::SC_SNAP_INVALID_COMPONENT as i32,
+            "snap component cannot be NULL",
+        ));
+    } else {
+        unsafe { CStr::from_ptr(snap_component).to_str() }.map_err(|_| {
+            error::new(
+                SC_SNAP_DOMAIN,
+                ErrorCode::SC_SNAP_INVALID_NAME as i32,
+                "snap component is not a valid string",
+            )
+        })
+    }?;
+
+    let instance = if snap_instance.is_null() {
+        None
+    } else {
+        unsafe { CStr::from_ptr(snap_instance).to_str() }
+            .map_err(|_| {
+                error::new(
+                    SC_SNAP_DOMAIN,
+                    ErrorCode::SC_SNAP_INVALID_NAME as i32,
+                    "snap component is not a valid string",
+                )
+            })
+            .map(|s| Some(s))?
+    };
+
+    snap::sc_snap_component_validate(component, instance).map_err(|err| error::sc_error::from(&err))
 }
 
 #[no_mangle]
@@ -122,60 +154,31 @@ pub unsafe extern "C" fn sc_snap_component_validate(
     snap_instance: *const c_char,
     sc_err: *mut *const error::sc_error,
 ) {
-    let component = if snap_component.is_null() {
-        sc_error_forward(
-            sc_err,
-            error::new(
-                SC_SNAP_DOMAIN,
-                ErrorCode::SC_SNAP_INVALID_COMPONENT as i32,
-                "snap component cannot be NULL",
-            )
-            .into_boxed_ptr(),
-        );
-        return;
-    } else {
-        match unsafe { CStr::from_ptr(snap_component).to_str() } {
-            Err(_) => {
-                sc_error_forward(
-                    sc_err,
-                    error::new(
-                        SC_SNAP_DOMAIN,
-                        ErrorCode::SC_SNAP_INVALID_NAME as i32,
-                        "snap component is not a valid string",
-                    )
-                    .into_boxed_ptr(),
-                );
-                return;
-            }
-            Ok(s) => s,
-        }
-    };
-
-    let instance = if snap_instance.is_null() {
-        None
-    } else {
-        match unsafe { CStr::from_ptr(snap_instance).to_str() } {
-            Ok(s) => Some(s),
-            Err(err) => {
-                sc_error_forward(
-                    sc_err,
-                    error::new(
-                        SC_SNAP_DOMAIN,
-                        ErrorCode::SC_SNAP_INVALID_NAME as i32,
-                        "snap component is not a valid string",
-                    )
-                    .into_boxed_ptr(),
-                );
-                return;
-            }
-        }
-    };
-
-    if let Err(err) = snap::sc_snap_component_validate(component, instance) {
-        sc_error_forward(sc_err, error::sc_error::from(err).into_boxed_ptr());
+    if let Err(err) = internal_sc_snap_component_validate(snap_component, snap_instance) {
+        sc_error_forward(sc_err, err.into_boxed_ptr());
     } else {
         sc_error_forward(sc_err, ptr::null());
     }
+}
+
+fn internal_sc_snap_name_validate(snap_name: *const c_char) -> Result<(), error::sc_error> {
+    if snap_name.is_null() {
+        return Err(error::new(
+            SC_SNAP_DOMAIN,
+            ErrorCode::SC_SNAP_INVALID_NAME as i32,
+            "snap name cannot be NULL",
+        ));
+    };
+
+    unsafe { CStr::from_ptr(snap_name).to_str() }
+        .map_err(|_| {
+            error::new(
+                SC_SNAP_DOMAIN,
+                ErrorCode::SC_SNAP_INVALID_NAME as i32,
+                "snap name is not a valid string",
+            )
+        })
+        .and_then(|s| snap::sc_snap_name_validate(s).map_err(|err| error::sc_error::from(&err)))
 }
 
 #[no_mangle]
@@ -183,42 +186,89 @@ pub unsafe extern "C" fn sc_snap_name_validate(
     snap_name: *const c_char,
     sc_err: *mut *const error::sc_error,
 ) {
-    if snap_name.is_null() {
-        sc_error_forward(
-            sc_err,
+    if let Err(err) = internal_sc_snap_name_validate(snap_name) {
+        sc_error_forward(sc_err, err.into_boxed_ptr());
+    } else {
+        sc_error_forward(sc_err, ptr::null());
+    }
+}
+
+fn internal_sc_is_hook_security_tag(security_tag: *const c_char) -> Result<bool, sc_error> {
+    unsafe { CStr::from_ptr(security_tag).to_str() }
+        .map_err(|_| {
             error::new(
                 SC_SNAP_DOMAIN,
                 ErrorCode::SC_SNAP_INVALID_NAME as i32,
-                "snap name cannot be NULL",
+                "hook security tag is not a valid string",
             )
-            .into_boxed_ptr(),
-        );
-    } else {
-        let maybe_s = unsafe { CStr::from_ptr(snap_name).to_str() };
-        if let Ok(s) = maybe_s {
-            if let Err(err) = snap::sc_snap_name_validate(s) {
-                sc_error_forward(sc_err, error::sc_error::from(err).into_boxed_ptr());
-            } else {
-                sc_error_forward(sc_err, ptr::null());
-            }
-        } else {
-            sc_error_forward(
-                sc_err,
-                error::new(
-                    SC_SNAP_DOMAIN,
-                    ErrorCode::SC_SNAP_INVALID_NAME as i32,
-                    "snap name is not a valid string",
-                )
-                .into_boxed_ptr(),
-            );
-        }
-    }
+        })
+        .and_then(|s| Ok(snap::sc_is_hook_security_tag(s)))
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sc_is_hook_security_tag(security_tag: *const c_char) -> bool {
-    let s_security_tag = unsafe { CStr::from_ptr(security_tag).to_str().unwrap_or("") };
-    snap::sc_is_hook_security_tag(s_security_tag)
+    match internal_sc_is_hook_security_tag(security_tag) {
+        Err(_) => false,
+        Ok(v) => v,
+    }
+}
+
+fn internal_sc_security_tag_validate(
+    c_security_tag: *const c_char,
+    c_snap_name: *const c_char,
+    c_component_name: *const c_char,
+) -> Result<bool, sc_error> {
+    let security_tag = if c_security_tag.is_null() {
+        return Err(error::new(
+            SC_SNAP_DOMAIN,
+            ErrorCode::SC_SNAP_INVALID_NAME as i32,
+            "security tag cannot be NULL",
+        ));
+    } else {
+        unsafe { CStr::from_ptr(c_security_tag).to_str() }.map_err(|_| {
+            error::new(
+                SC_SNAP_DOMAIN,
+                ErrorCode::SC_SNAP_INVALID_NAME as i32,
+                "security tag is not a valid string",
+            )
+        })?
+    };
+
+    let snap_name = if c_snap_name.is_null() {
+        return Err(error::new(
+            SC_SNAP_DOMAIN,
+            ErrorCode::SC_SNAP_INVALID_NAME as i32,
+            "snap name cannot be NULL",
+        ));
+    } else {
+        unsafe { CStr::from_ptr(c_snap_name).to_str() }.map_err(|_| {
+            error::new(
+                SC_SNAP_DOMAIN,
+                ErrorCode::SC_SNAP_INVALID_NAME as i32,
+                "snap name is not a valid string",
+            )
+        })?
+    };
+
+    let component_name = if c_component_name.is_null() {
+        None
+    } else {
+        unsafe { CStr::from_ptr(c_component_name).to_str() }
+            .map_err(|_| {
+                error::new(
+                    SC_SNAP_DOMAIN,
+                    ErrorCode::SC_SNAP_INVALID_NAME as i32,
+                    "component name is not a valid string",
+                )
+            })
+            .map(|s| Some(s))?
+    };
+
+    Ok(snap::sc_security_tag_validate(
+        security_tag,
+        snap_name,
+        component_name,
+    ))
 }
 
 #[no_mangle]
@@ -227,52 +277,48 @@ pub unsafe extern "C" fn sc_security_tag_validate(
     c_snap_name: *const c_char,
     c_component_name: *const c_char,
 ) -> bool {
-    let security_tag = if c_security_tag.is_null() {
-        return false;
-    } else {
-        match { CStr::from_ptr(c_security_tag).to_str() } {
-            Ok(s) => s,
-            Err(_) => return false,
-        }
-    };
+    match internal_sc_security_tag_validate(c_security_tag, c_snap_name, c_component_name) {
+        Err(_) => false,
+        Ok(v) => v,
+    }
+}
 
-    let snap_name = if c_snap_name.is_null() {
-        return false;
+fn internal_sc_security_tag_to_unit_name(
+    c_instance_name: *const c_char,
+) -> Result<String, error::sc_error> {
+    if c_instance_name.is_null() {
+        Err(error::new(
+            SC_SNAP_DOMAIN,
+            ErrorCode::SC_SNAP_INVALID_NAME as i32,
+            "internal error: cannot split instance name when it is unset",
+        ))
     } else {
-        match unsafe { CStr::from_ptr(c_snap_name).to_str() } {
-            Err(_) => return false,
-            Ok(s) => s,
-        }
-    };
-
-    let component_name = if c_component_name.is_null() {
-        None
-    } else {
-        Some(match unsafe { CStr::from_ptr(c_component_name).to_str() } {
-            Ok(s) => s,
-            Err(_) => return false,
-        })
-    };
-
-    snap::sc_security_tag_validate(security_tag, snap_name, component_name)
+        unsafe { CStr::from_ptr(c_instance_name).to_str() }
+            .map_err(|_| {
+                error::new(
+                    SC_SNAP_DOMAIN,
+                    ErrorCode::SC_SNAP_INVALID_NAME as i32,
+                    "snap component is not a valid string",
+                )
+            })
+            .and_then(|tag| {
+                snap::sc_security_tag_to_unit_name(tag).map_err(|err| error::sc_error::from(&err))
+            })
+    }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sc_security_tag_to_unit_name(
     c_instance_name: *const c_char,
 ) -> *mut c_char {
-    if c_instance_name.is_null() {
-        die!("internal error: cannot split instance name when it is unset");
-    }
-
-    let s_instance = unsafe { CStr::from_ptr(c_instance_name).to_str().unwrap_or("") };
-
-    let c_dup_unit_name = match snap::sc_security_tag_to_unit_name(s_instance) {
-        Ok(unit_name) => match CString::new(unit_name) {
-            Ok(cs) => libc::strdup(cs.as_c_str().as_ptr()),
-            Err(err) => die!("cannot convert to C string {}", err),
-        },
-        Err(err) => die!("{}", err.msg()),
+    let c_dup_unit_name = match internal_sc_security_tag_to_unit_name(c_instance_name) {
+        Err(err) => die!("{}", err),
+        Ok(s) => libc::strdup(
+            CString::new(s)
+                .expect("cannot convert to C string")
+                .as_c_str()
+                .as_ptr(),
+        ),
     };
     c_dup_unit_name
 }
@@ -381,9 +427,4 @@ pub unsafe extern "C" fn sc_snap_split_snap_component(
             c_component_name_buf[0] = 0;
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 }
