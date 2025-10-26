@@ -32,6 +32,14 @@ pub struct sc_error {
     msg: CString,
 }
 
+pub enum ErrorCode {
+    SC_SNAP_INVALID_NAME = 1,
+    SC_SNAP_INVALID_INSTANCE_KEY = 2,
+    SC_SNAP_INVALID_INSTANCE_NAME = 3,
+    SC_SNAP_MOUNT_DIR_UNSUPPORTED = 4,
+    SC_SNAP_INVALID_COMPONENT = 5,
+}
+
 impl fmt::Display for sc_error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.msg.to_string_lossy())
