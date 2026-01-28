@@ -1225,3 +1225,24 @@ func (s *ContentSuite) TestStaticInfo(c *C) {
 	c.Assert(si.BaseDeclarationSlots, testutil.Contains, "compatibility: $SLOT_COMPAT(compatibility)")
 	c.Assert(si.AffectsPlugOnRefresh, Equals, true)
 }
+
+func (s *ContentSuite) TestSupportsDelayedEffectForMountBackend(c *C) {
+	// this is already asserted at build time
+	d, ok := s.iface.(interfaces.DelayedEffectApplicable)
+	c.Check(ok, Equals, true)
+	c.Check(d.SupportsDelayedEffect(interfaces.SecurityMount), Equals, true)
+
+	// now call through a wrapper
+	c.Assert(interfaces.SupportsDelayedEffects(s.iface, interfaces.SecurityMount), Equals, true)
+}
+
+func (s *ContentSuite) TestSupportsDelayedEffectForOtherBackends(c *C) {
+	d := s.iface.(interfaces.DelayedEffectApplicable)
+	c.Assert(d, NotNil)
+	c.Check(d.SupportsDelayedEffect(interfaces.SecurityAppArmor), Equals, false)
+
+	c.Assert(interfaces.SupportsDelayedEffects(s.iface, interfaces.SecurityAppArmor), Equals, false)
+	c.Assert(interfaces.SupportsDelayedEffects(s.iface, interfaces.SecuritySecComp), Equals, false)
+	c.Assert(interfaces.SupportsDelayedEffects(s.iface, interfaces.SecurityDBus), Equals, false)
+	c.Assert(interfaces.SupportsDelayedEffects(s.iface, interfaces.SecurityUDev), Equals, false)
+}

@@ -351,6 +351,13 @@ func (iface *contentInterface) MountConnectedPlug(spec *mount.Specification, plu
 	return nil
 }
 
+var _ interfaces.DelayedEffectApplicable = (*contentInterface)(nil)
+
+func (iface *contentInterface) SupportsDelayedEffect(backend interfaces.SecuritySystem) bool {
+	// content interface only supports delayed updates of consumer mount namespace
+	return backend == interfaces.SecurityMount
+}
+
 func init() {
 	registerIface(&contentInterface{})
 }
