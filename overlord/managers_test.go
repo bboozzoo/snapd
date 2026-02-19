@@ -155,6 +155,9 @@ type baseMgrsSuite struct {
 	logbuf *bytes.Buffer
 
 	storeObserver func(r *http.Request)
+
+	requestedRestart restart.RestartType
+	restartHandler   func(rt restart.RestartType)
 }
 
 var (
@@ -170,10 +173,12 @@ var (
 	deviceKey, _ = assertstest.GenerateKey(752)
 )
 
-func verifyLastTasksetIsRerefresh(c *C, tts []*state.TaskSet) {
-	ts := tts[len(tts)-1]
+func verifyReRefreshTasks(c *C, ts *state.TaskSet) {
 	c.Assert(ts.Tasks(), HasLen, 1)
-	c.Check(ts.Tasks()[0].Kind(), Equals, "check-rerefresh")
+	reRefresh := ts.Tasks()[0]
+	c.Check(reRefresh.Kind(), Equals, "check-rerefresh")
+	// nothing should wait on it
+	c.Check(reRefresh.NumHaltTasks(), Equals, 0)
 }
 
 func (s *baseMgrsSuite) SetUpTest(c *C) {
@@ -271,7 +276,12 @@ func (s *baseMgrsSuite) SetUpTest(c *C) {
 
 	s.AddCleanup(ifacestate.MockSecurityBackends(nil))
 
-	o, err := overlord.New(nil)
+	o, err := overlord.New(snapstatetest.MockRestartHandler(func(restartType restart.RestartType) {
+		fmt.Printf("---- overlord handle restart %v\n", restartType)
+		if s.restartHandler != nil {
+			s.restartHandler(restartType)
+		}
+	}))
 	c.Assert(err, IsNil)
 	st := o.State()
 	st.Lock()
@@ -577,6 +587,21 @@ func (ms *baseMgrsSuite) mockInstalledSnapWithRevAndFiles(c *C, snapYaml string,
 	return info
 }
 
+func (ms *baseMgrsSuite) settleSupportingRestarts(c *C) error {
+	c.Logf(">>> settle start")
+	defer c.Logf("<<<< settle end")
+	ms.requestedRestart = restart.RestartUnset
+	ms.restartHandler = func(rt restart.RestartType) {
+		fmt.Printf("handler ---------\n")
+		ms.requestedRestart = rt
+	}
+	err := ms.o.SettleWithBreakCondition(settleTimeout, func() bool {
+		c.Logf("eval, have restart: %v\n", ms.requestedRestart)
+		return ms.requestedRestart != restart.RestartUnset
+	})
+	return err
+}
+
 type mgrsSuite struct {
 	baseMgrsSuite
 }
@@ -727,6 +752,8 @@ hooks:
 				expectedStatus = state.HoldStatus
 			}
 			which += fmt.Sprintf("[%s]", hs.Hook)
+		case "process-delayed-security-backend-effects":
+			expectedStatus = state.HoldStatus
 		}
 		c.Assert(t.Status(), Equals, expectedStatus, Commentf("%s", which))
 	}
@@ -2293,7 +2320,7 @@ version: @VERSION@
 	c.Assert(err, IsNil)
 	c.Assert(updated, DeepEquals, []string{"foo"})
 	c.Assert(tss, HasLen, 2)
-	verifyLastTasksetIsRerefresh(c, tss)
+	verifyReRefreshTasks(c, tss[1])
 	chg = st.NewChange("upgrade-snaps", "...")
 	chg.AddAll(tss[0])
 
@@ -2699,14 +2726,23 @@ type: kernel`
 	c.Assert(err, IsNil)
 
 	terr := st.NewTask("error-trigger", "provoking total undo")
-	terr.WaitFor(ts.Tasks()[len(ts.Tasks())-1])
+	terr.WaitFor(ts.Tasks()[len(ts.Tasks())-2])
 	ts.AddTask(terr)
 	chg := st.NewChange("install-snap", "...")
 	chg.AddAll(ts)
 
+	breakSettle := false
+	s.restartHandler = func(restartType restart.RestartType) {
+		fmt.Printf("--------------------------------- handle restart: %v\n", restartType)
+		breakSettle = true
+	}
+
 	// run, this will trigger a wait for the restart
 	st.Unlock()
-	err = s.o.Settle(settleTimeout)
+	err = s.o.SettleWithBreakCondition(settleTimeout, func() bool {
+		fmt.Printf("break check\n")
+		return breakSettle
+	})
 	st.Lock()
 	c.Assert(err, IsNil)
 
@@ -2725,14 +2761,19 @@ type: kernel`
 	// pretend we restarted
 	s.mockSuccessfulReboot(c, chg, bloader, []snap.Type{snap.TypeKernel})
 
+	fmt.Printf("#### after reboot\n")
+	breakSettle = false
 	st.Unlock()
-	err = s.o.Settle(settleTimeout)
+	err = s.o.SettleWithBreakCondition(settleTimeout, func() bool {
+		fmt.Printf("break check\n")
+		return breakSettle
+	})
 	st.Lock()
 	c.Assert(err, IsNil)
 
 	// undoing will have retriggered a restart, and put the change
 	// back into wait
-	c.Assert(chg.Status(), Equals, state.WaitStatus)
+	c.Check(chg.Status(), Equals, state.WaitStatus)
 
 	// and we undo the bootvars and trigger a reboot
 	c.Check(bloader.BootVars, DeepEquals, map[string]string{
@@ -3028,7 +3069,7 @@ type: kernel`
 	c.Assert(err, IsNil)
 
 	terr := st.NewTask("error-trigger", "provoking total undo")
-	terr.WaitFor(ts.Tasks()[len(ts.Tasks())-1])
+	terr.WaitFor(ts.Tasks()[len(ts.Tasks())-2])
 	ts.AddTask(terr)
 	chg := st.NewChange("install-snap", "...")
 	chg.AddAll(ts)
@@ -3461,7 +3502,7 @@ apps:
 	c.Assert(err, IsNil)
 	c.Assert(updated, DeepEquals, []string{"foo"})
 	c.Assert(tss, HasLen, 2)
-	verifyLastTasksetIsRerefresh(c, tss)
+	verifyReRefreshTasks(c, tss[1])
 	chg = st.NewChange("upgrade-snaps", "...")
 	chg.AddAll(tss[0])
 
@@ -3709,7 +3750,7 @@ apps:
 	sort.Strings(updated)
 	c.Assert(updated, DeepEquals, []string{"bar", "foo"})
 	c.Assert(tss, HasLen, 4)
-	verifyLastTasksetIsRerefresh(c, tss)
+	verifyReRefreshTasks(c, tss[3])
 	chg = st.NewChange("upgrade-snaps", "...")
 	chg.AddAll(tss[0])
 	chg.AddAll(tss[1])
@@ -3835,7 +3876,7 @@ apps:
 	c.Assert(err, IsNil)
 	c.Assert(updated, DeepEquals, []string{"foo"})
 	c.Assert(tss, HasLen, 2)
-	verifyLastTasksetIsRerefresh(c, tss)
+	verifyReRefreshTasks(c, tss[1])
 	chg = st.NewChange("upgrade-snaps", "...")
 	chg.AddAll(tss[0])
 
@@ -3872,7 +3913,7 @@ apps:
 	c.Assert(err, IsNil)
 	c.Assert(updated, DeepEquals, []string{"foo"})
 	c.Assert(tss, HasLen, 2)
-	verifyLastTasksetIsRerefresh(c, tss)
+	verifyReRefreshTasks(c, tss[1])
 	chg = st.NewChange("upgrade-snaps", "...")
 	chg.AddAll(tss[0])
 
@@ -4275,16 +4316,30 @@ func (s *mgrsSuite) testTwoInstalls(c *C, snapName1, snapYaml1, snapName2, snapY
 	st.Lock()
 	defer st.Unlock()
 
-	ts1, _, err := snapstate.InstallPath(st, &snap.SideInfo{RealName: snapName1, SnapID: fakeSnapID(snapName1), Revision: snap.R(3)}, snapPath1, "", "", snapstate.Flags{DevMode: true}, nil)
-	c.Assert(err, IsNil)
 	chg := st.NewChange("install-snap", "...")
-	chg.AddAll(ts1)
+	// ts1, _, err := snapstate.InstallPath(st, &snap.SideInfo{RealName: snapName1, SnapID: fakeSnapID(snapName1), Revision: snap.R(3)}, snapPath1, "", "", snapstate.Flags{DevMode: true}, nil)
+	// c.Assert(err, IsNil)
 
-	ts2, _, err := snapstate.InstallPath(st, &snap.SideInfo{RealName: snapName2, SnapID: fakeSnapID(snapName2), Revision: snap.R(3)}, snapPath2, "", "", snapstate.Flags{DevMode: true}, nil)
+	// ts2, _, err := snapstate.InstallPath(st, &snap.SideInfo{RealName: snapName2, SnapID: fakeSnapID(snapName2), Revision: snap.R(3)}, snapPath2, "", "", snapstate.Flags{DevMode: true}, nil)
+	// c.Assert(err, IsNil)
+
+	tss, err := snapstate.InstallPathMany(context.Background(), st,
+		[]*snap.SideInfo{
+			{RealName: snapName1, SnapID: fakeSnapID(snapName1), Revision: snap.R(3)},
+			{RealName: snapName2, SnapID: fakeSnapID(snapName2), Revision: snap.R(3)},
+		},
+		[]string{snapPath1, snapPath2},
+		0,
+		&snapstate.Flags{DevMode: true},
+	)
 	c.Assert(err, IsNil)
 
-	ts2.WaitAll(ts1)
-	chg.AddAll(ts2)
+	// chg.AddAll(ts1)
+	// ts2.WaitAll(ts1)
+	// chg.AddAll(ts2)
+	for _, ts := range tss {
+		chg.AddAll(ts)
+	}
 
 	st.Unlock()
 	err = s.o.Settle(settleTimeout)
@@ -4458,11 +4513,15 @@ version: @VERSION@`
 	c.Assert(err, IsNil)
 	c.Check(updates, HasLen, 3)
 	c.Assert(tts, HasLen, 4)
-	verifyLastTasksetIsRerefresh(c, tts)
+	verifyReRefreshTasks(c, tts[3])
 
 	// to make TaskSnapSetup work
 	chg := st.NewChange("refresh", "...")
-	for _, ts := range tts[:len(tts)-1] {
+	for _, ts := range tts {
+		if ts.Tasks()[0].Kind() == "check-rerefresh" {
+			c.Logf("skipping rerefresh")
+			continue
+		}
 		chg.AddAll(ts)
 	}
 
@@ -4470,7 +4529,8 @@ version: @VERSION@`
 	tts[2].Tasks()[0].SetStatus(state.HoldStatus)
 
 	st.Unlock()
-	err = s.o.Settle(settleTimeout)
+	// err = s.o.Settle(settleTimeout)
+	s.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil)
 
@@ -4565,7 +4625,7 @@ version: 1`
 	c.Assert(err, IsNil)
 	c.Check(updates, HasLen, 1)
 	c.Assert(tts, HasLen, 2)
-	verifyLastTasksetIsRerefresh(c, tts)
+	verifyReRefreshTasks(c, tts[1])
 
 	// to make TaskSnapSetup work
 	chg := st.NewChange("refresh", "...")
@@ -4652,7 +4712,7 @@ apps:
 	c.Assert(err, IsNil)
 	c.Check(updates, HasLen, 1)
 	c.Assert(tts, HasLen, 2)
-	verifyLastTasksetIsRerefresh(c, tts)
+	verifyReRefreshTasks(c, tts[1])
 
 	// to make TaskSnapSetup work
 	chg := st.NewChange("refresh", "...")
@@ -10430,7 +10490,7 @@ NeedDaemonReload=no
 	})
 	s.AddCleanup(r)
 	// make sure that we get the expected number of systemctl calls
-	s.AddCleanup(func() { c.Assert(systemctlCalls, Equals, 13) })
+	defer func() { c.Check(systemctlCalls, Equals, 13) }()
 
 	// also add the snapd snap to state which we will refresh
 	si1 := &snap.SideInfo{RealName: "snapd", Revision: snap.R(1)}
@@ -10473,6 +10533,10 @@ NeedDaemonReload=no
 	// make sure we don't try to ensure snap services before the restart
 	r = servicestate.MockEnsuredSnapServices(s.o.ServiceManager(), true)
 	defer r()
+
+	s.restartHandler = func(restartType restart.RestartType) {
+		fmt.Printf("--------------------------------- handle restart: %v\n", restartType)
+	}
 
 	// run, this will trigger wait for restart
 	st.Unlock()
@@ -11061,6 +11125,7 @@ func (s *mgrsSuite) testNonUC20RunUpdateManagedBootConfig(c *C, snapPath string,
 	st.Lock()
 	c.Assert(err, IsNil)
 
+	fmt.Printf("check pending restart\n")
 	restarting, restartType := restart.Pending(st)
 	switch restartType {
 	case restart.RestartDaemon:
@@ -11081,6 +11146,7 @@ func (s *mgrsSuite) testNonUC20RunUpdateManagedBootConfig(c *C, snapPath string,
 		})
 	}
 
+	fmt.Printf("settle again\n")
 	st.Unlock()
 	err = s.o.Settle(settleTimeout)
 	st.Lock()
@@ -11585,12 +11651,6 @@ func (s *mgrsSuiteCore) testUpdateKernelBaseSingleRebootSetup(c *C) (*boottest.R
 	c.Assert(affected, DeepEquals, []string{"core20", "pc-kernel", "some-snap"})
 	chg := st.NewChange("update-many", "...")
 	for _, ts := range tss {
-		// skip the taskset of UpdateMany that does the
-		// check-rerefresh, see tsWithoutReRefresh for details
-		if ts.Tasks()[0].Kind() == "check-rerefresh" {
-			c.Logf("skipping rerefresh")
-			continue
-		}
 		chg.AddAll(ts)
 	}
 	return bloader, chg
@@ -11603,7 +11663,7 @@ func (s *mgrsSuiteCore) TestUpdateKernelBaseSingleRebootHappy(c *C) {
 	defer st.Unlock()
 
 	st.Unlock()
-	err := s.o.Settle(settleTimeout)
+	err := s.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil, Commentf(s.logbuf.String()))
 
@@ -11669,7 +11729,7 @@ func (s *mgrsSuiteCore) TestUpdateKernelBaseSingleRebootKernelUndo(c *C) {
 	defer st.Unlock()
 
 	st.Unlock()
-	err := s.o.Settle(settleTimeout)
+	err := s.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil, Commentf(s.logbuf.String()))
 
@@ -11754,7 +11814,16 @@ func (s *mgrsSuiteCore) TestUpdateKernelBaseSingleRebootKernelUndo(c *C) {
 	}
 }
 
-func (s *mgrsSuiteCore) testUpdateKernelBaseSingleRebootWithGadgetSetup(c *C, snapYamlGadget string) (*boottest.RunBootenv20, []*state.TaskSet, *state.Change) {
+type testUpdateKernelBaseSingleRebootWithGadgetSetupOption int
+
+const (
+	none          = 0
+	skipRerefresh = 1
+)
+
+func (s *mgrsSuiteCore) testUpdateKernelBaseSingleRebootWithGadgetSetup(
+	c *C, snapYamlGadget string, opt testUpdateKernelBaseSingleRebootWithGadgetSetupOption,
+) (*boottest.RunBootenv20, []*state.TaskSet, *state.Change) {
 	bloader := boottest.MockUC20RunBootenv(bootloadertest.Mock("mock", c.MkDir()))
 	bootloader.Force(bloader)
 	s.AddCleanup(func() { bootloader.Force(nil) })
@@ -11882,9 +11951,9 @@ func (s *mgrsSuiteCore) testUpdateKernelBaseSingleRebootWithGadgetSetup(c *C, sn
 	c.Assert(affected, DeepEquals, []string{"core20", "pc", "pc-kernel", "snapd"})
 	chg := st.NewChange("update-many", "...")
 	for _, ts := range tss {
-		// skip the taskset of UpdateMany that does the
-		// check-rerefresh, see tsWithoutReRefresh for details
-		if ts.Tasks()[0].Kind() == "check-rerefresh" {
+		// optionally skip check-rerefresh if the caller intends to
+		// reorganize task dependencies
+		if opt == skipRerefresh && ts.Tasks()[0].Kind() == "check-rerefresh" {
 			c.Logf("skipping rerefresh")
 			continue
 		}
@@ -12003,14 +12072,14 @@ version: 1.0
 type: gadget
 base: core20
 `
-	bloader, _, chg := s.testUpdateKernelBaseSingleRebootWithGadgetSetup(c, pcGadget)
+	bloader, _, chg := s.testUpdateKernelBaseSingleRebootWithGadgetSetup(c, pcGadget, none)
 
 	st := s.o.State()
 	st.Lock()
 	defer st.Unlock()
 
 	st.Unlock()
-	err := s.o.Settle(settleTimeout)
+	err := s.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil, Commentf(s.logbuf.String()))
 	c.Logf(s.logbuf.String())
@@ -12022,7 +12091,7 @@ base: core20
 	restart.MockPending(st, restart.RestartUnset)
 	restart.MockAfterRestartForChange(chg)
 
-	autoConnectStatus := func(inDoing, inWait string, done []string) {
+	autoConnectStatus := func(inWait string, done []string) {
 		autoConnectCount := 0
 		for _, tsk := range chg.Tasks() {
 			if tsk.Kind() == "auto-connect" {
@@ -12030,9 +12099,7 @@ base: core20
 				expectedStatus := state.DoStatus
 				snapsup, err := snapstate.TaskSnapSetup(tsk)
 				c.Assert(err, IsNil)
-				if snapsup.InstanceName() == inDoing {
-					expectedStatus = state.DoingStatus
-				} else if snapsup.InstanceName() == inWait {
+				if snapsup.InstanceName() == inWait {
 					expectedStatus = state.DoStatus
 				} else if strutil.ListContains(done, snapsup.InstanceName()) {
 					expectedStatus = state.DoneStatus
@@ -12044,10 +12111,10 @@ base: core20
 		// one for snapd, one for kernel, one for gadget, one for base
 		c.Check(autoConnectCount, Equals, 4)
 	}
-	autoConnectStatus("snapd", "", nil)
+	autoConnectStatus("snapd", nil)
 
 	st.Unlock()
-	err = s.o.Settle(settleTimeout)
+	err = s.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil, Commentf(s.logbuf.String()))
 	c.Logf(s.logbuf.String())
@@ -12056,9 +12123,9 @@ base: core20
 	c.Assert(ok, Equals, true)
 	c.Assert(rst, Equals, restart.RestartSystem)
 
-	autoConnectStatus("", "core20", []string{"snapd"})
-	autoConnectStatus("", "pc", []string{"snapd"})
-	autoConnectStatus("", "pc-kernel", []string{"snapd"})
+	autoConnectStatus("core20", []string{"snapd"})
+	autoConnectStatus("pc", []string{"snapd"})
+	autoConnectStatus("pc-kernel", []string{"snapd"})
 
 	// we are trying out a new base
 	m, err := boot.ReadModeenv("")
@@ -12086,9 +12153,11 @@ base: core20
 
 	// go on
 	st.Unlock()
-	err = s.o.Settle(settleTimeout)
+	err = s.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil)
+	ok, _ = restart.Pending(st)
+	c.Assert(ok, Equals, false)
 
 	c.Assert(chg.Status(), Equals, state.DoneStatus, Commentf("change failed with: %v", chg.Err()))
 }
@@ -12200,7 +12269,7 @@ version: 1.0
 type: gadget
 base: core20
 `
-	_, tss, chg := s.testUpdateKernelBaseSingleRebootWithGadgetSetup(c, pcGadget)
+	_, tss, chg := s.testUpdateKernelBaseSingleRebootWithGadgetSetup(c, pcGadget, skipRerefresh)
 	c.Assert(rearrangeBaseKernelForCyclicDependency(s.o.State(), tss), IsNil)
 
 	st := s.o.State()
@@ -12216,7 +12285,7 @@ base: core20
 	c.Assert(snapst.Current, Equals, snap.R(1))
 
 	st.Unlock()
-	err = s.o.Settle(settleTimeout)
+	err = s.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil, Commentf(s.logbuf.String()))
 	c.Logf(s.logbuf.String())
@@ -12229,7 +12298,7 @@ base: core20
 	restart.MockPending(st, restart.RestartUnset)
 
 	st.Unlock()
-	err = s.o.Settle(settleTimeout)
+	err = s.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil, Commentf(s.logbuf.String()))
 	c.Logf(s.logbuf.String())
@@ -12253,7 +12322,7 @@ base: core20
 	chg.AbortUnreadyLanes()
 
 	st.Unlock()
-	err = s.o.Settle(settleTimeout)
+	err = s.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil, Commentf(s.logbuf.String()))
 	c.Logf(s.logbuf.String())
@@ -12296,7 +12365,7 @@ base: core20
 	// restart to the new snapd which uses a new prune interval that
 	// effectively aborts unready lanes and thus the buggy change completes,
 	// while the new version of snaps remains
-	_, tss, chg := s.testUpdateKernelBaseSingleRebootWithGadgetSetup(c, pcGadget)
+	_, tss, chg := s.testUpdateKernelBaseSingleRebootWithGadgetSetup(c, pcGadget, skipRerefresh)
 	c.Assert(rearrangeBaseKernelForCyclicDependency(s.o.State(), tss), IsNil)
 
 	st := s.o.State()
@@ -12312,7 +12381,7 @@ base: core20
 	c.Assert(snapst.Current, Equals, snap.R(1))
 
 	st.Unlock()
-	err = s.o.Settle(settleTimeout)
+	err = s.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil, Commentf(s.logbuf.String()))
 	c.Logf(s.logbuf.String())
@@ -12325,7 +12394,7 @@ base: core20
 	restart.MockPending(st, restart.RestartUnset)
 
 	st.Unlock()
-	err = s.o.Settle(settleTimeout)
+	err = s.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil, Commentf(s.logbuf.String()))
 	c.Logf(s.logbuf.String())
@@ -12413,7 +12482,7 @@ version: 1.0
 type: gadget
 base: core20
 `
-	bloader, _, chg := s.testUpdateKernelBaseSingleRebootWithGadgetSetup(c, pcGadget)
+	bloader, _, chg := s.testUpdateKernelBaseSingleRebootWithGadgetSetup(c, pcGadget, none)
 
 	st := s.o.State()
 	st.Lock()
@@ -12425,7 +12494,7 @@ base: core20
 	c.Assert(snapst.Current, Equals, snap.R(1))
 
 	st.Unlock()
-	err = s.o.Settle(settleTimeout)
+	err = s.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil, Commentf(s.logbuf.String()))
 	c.Logf(s.logbuf.String())
@@ -12438,7 +12507,7 @@ base: core20
 	restart.MockPending(st, restart.RestartUnset)
 
 	st.Unlock()
-	err = s.o.Settle(settleTimeout)
+	err = s.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil, Commentf(s.logbuf.String()))
 	c.Logf(s.logbuf.String())
@@ -12476,10 +12545,12 @@ base: core20
 
 	// go on
 	st.Unlock()
-	err = s.o.Settle(settleTimeout)
+	err = s.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil)
 
+	ok, _ = restart.Pending(st)
+	c.Assert(ok, Equals, false)
 	c.Assert(chg.IsReady(), Equals, true)
 	c.Assert(chg.Status(), Equals, state.DoneStatus)
 
@@ -12609,26 +12680,6 @@ func (ms *gadgetUpdatesSuite) makeMockedDev(c *C, structureName string) {
 	})
 }
 
-// tsWithoutReRefresh removes the re-refresh task from the given taskset.
-//
-// It assumes that re-refresh is the last task and will fail if that is
-// not the case.
-//
-// This is needed because settle() will not converge with the re-refresh
-// task because re-refresh will always be in doing state.
-//
-// TODO: have variant of Settle() that ends if ensure next time is
-// stable or in the future by a value larger than some threshold, and
-// then we would mock the rerefresh interval to something large and
-// distinct from practical wait time even on slow systems. Once that
-// is done this function can be removed.
-func tsWithoutReRefresh(c *C, ts *state.TaskSet) *state.TaskSet {
-	refreshIdx := len(ts.Tasks()) - 1
-	c.Assert(ts.Tasks()[refreshIdx].Kind(), Equals, "check-rerefresh")
-	ts = state.NewTaskSet(ts.Tasks()[:refreshIdx-1]...)
-	return ts
-}
-
 // mockSnapUpgradeWithFiles will put a "rev 2" of the given snapYaml/files
 // into the mock snapstore
 func (ms *gadgetUpdatesSuite) mockSnapUpgradeWithFiles(c *C, snapYaml string, files [][]string) {
@@ -12680,16 +12731,19 @@ volumes:
 
 	ts, err := snapstate.Update(st, "pi", nil, 0, snapstate.Flags{})
 	c.Assert(err, IsNil)
-	// remove the re-refresh as it will prevent settle from converging
-	ts = tsWithoutReRefresh(c, ts)
 
 	chg := st.NewChange("upgrade-gadget", "...")
 	chg.AddAll(ts)
 
 	st.Unlock()
-	err = ms.o.Settle(settleTimeout)
+	err = ms.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil)
+
+	ok, rst := restart.Pending(st)
+	c.Assert(ok, Equals, true)
+	c.Assert(rst, Equals, restart.RestartSystem)
+	restart.MockPending(st, restart.RestartUnset)
 
 	// pretend we restarted
 	c.Assert(chg.Status(), Equals, state.WaitStatus, Commentf("upgrade-snap change failed with: %v", chg.Err()))
@@ -12765,17 +12819,20 @@ volumes:
 
 	ts, err := snapstate.Update(st, "pi-kernel", nil, 0, snapstate.Flags{})
 	c.Assert(err, IsNil)
-	// remove the re-refresh as it will prevent settle from converging
-	ts = tsWithoutReRefresh(c, ts)
 
 	chg := st.NewChange("upgrade-kernel", "...")
 	chg.AddAll(ts)
 
 	st.Unlock()
-	err = ms.o.Settle(settleTimeout)
+	// remove the re-refresh as it will prevent settle from converging
+	err = ms.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil)
 	c.Assert(chg.Err(), IsNil)
+
+	ok, rst := restart.Pending(st)
+	c.Assert(ok, Equals, true)
+	c.Assert(rst, Equals, restart.RestartSystem)
 
 	// pretend we restarted
 	t := findKind(chg, "auto-connect")
@@ -12786,7 +12843,7 @@ volumes:
 
 	// settle again
 	st.Unlock()
-	err = ms.o.Settle(settleTimeout)
+	err = ms.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil)
 	c.Assert(chg.Err(), IsNil)
@@ -12861,18 +12918,23 @@ volumes:
 
 	ts, err := snapstate.Update(st, "pi", nil, 0, snapstate.Flags{})
 	c.Assert(err, IsNil)
-	// remove the re-refresh as it will prevent settle from converging
-	ts = tsWithoutReRefresh(c, ts)
 
 	chg := st.NewChange("upgrade-gadget", "...")
 	chg.AddAll(ts)
 
+	dumpTasks(c, "before", ts.Tasks())
 	st.Unlock()
-	err = ms.o.Settle(settleTimeout)
+	err = ms.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil)
 	c.Assert(chg.Err(), IsNil)
 
+	ok, rst := restart.Pending(st)
+	c.Assert(ok, Equals, true)
+	c.Assert(rst, Equals, restart.RestartSystem)
+	restart.MockPending(st, restart.RestartUnset)
+
+	fmt.Printf("--- first settle done\n")
 	// pretend we restarted
 	c.Assert(chg.Status(), Equals, state.WaitStatus, Commentf("upgrade-snap change failed with: %v", chg.Err()))
 	ms.mockRestartAndSettle(c, st, chg)
@@ -12979,19 +13041,18 @@ volumes:
 
 	chg := st.NewChange("upgrade-snaps", "...")
 	for _, ts := range tasksets {
-		// skip the taskset of UpdateMany that does the
-		// check-rerefresh, see tsWithoutReRefresh for details
-		if ts.Tasks()[0].Kind() == "check-rerefresh" {
-			continue
-		}
 		chg.AddAll(ts)
 	}
 
 	st.Unlock()
-	err = ms.o.Settle(settleTimeout)
+	err = ms.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil)
 	c.Assert(chg.Err(), IsNil)
+
+	ok, rst := restart.Pending(st)
+	c.Assert(ok, Equals, true)
+	c.Assert(rst, Equals, restart.RestartSystem)
 
 	// At this point the gadget and kernel are updated and the kernel
 	// required a restart. Check that *before* this restart the DTB
@@ -13132,8 +13193,7 @@ volumes:
 
 	addTaskSetsToChange := func(chg *state.Change, tss []*state.TaskSet) {
 		for _, ts := range tasksets {
-			// skip the taskset of UpdateMany that does the
-			// check-rerefresh, see tsWithoutReRefresh for details
+			// the test is stepping through epochs manually, avoid re-refresh which makes it automatic
 			if ts.Tasks()[0].Kind() == "check-rerefresh" {
 				continue
 			}
@@ -13162,9 +13222,15 @@ volumes:
 	addTaskSetsToChange(chg, tasksets)
 
 	st.Unlock()
-	err = ms.o.Settle(settleTimeout)
+	err = ms.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil)
+
+	ok, rst := restart.Pending(st)
+	c.Assert(ok, Equals, true)
+	c.Assert(rst, Equals, restart.RestartSystem)
+	restart.MockPending(st, restart.RestartUnset)
+
 	// A restart request is made by 'unlink-current-snap', which needs to be handled
 	// here. This comment is added after changes to the restart system which now
 	// correctly marks changes for reboot and does not skip reboots in unit tests which
@@ -13201,7 +13267,7 @@ epoch: 1
 		{"meta/gadget.yaml", intermediaryGadgetYaml},
 		{"boot-assets/start.elf", "start.elf rev1"},
 		// the intermediary gadget snap has these files but it doesn't really
-		// mattter since update does not set an edition, so no update is
+		// matter since update does not set an edition, so no update is
 		// attempted using these files
 		{"bcm2710-rpi-2-b.dtb", "bcm2710-rpi-2-b.dtb rev1"},
 		{"bcm2710-rpi-3-b.dtb", "bcm2710-rpi-3-b.dtb rev1"},
@@ -13220,7 +13286,7 @@ epoch: 1
 	addTaskSetsToChange(chg, tasksets)
 
 	st.Unlock()
-	err = ms.o.Settle(settleTimeout)
+	err = ms.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil)
 	c.Assert(chg.Err(), IsNil)
@@ -13250,7 +13316,7 @@ epoch: 1
 	addTaskSetsToChange(chg, tasksets)
 
 	st.Unlock()
-	err = ms.o.Settle(settleTimeout)
+	err = ms.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil)
 	c.Assert(chg.Err(), IsNil)
@@ -13427,17 +13493,10 @@ volumes:
 	chg := st.NewChange("upgrade-snaps", "...")
 	tError := st.NewTask("error-trigger", "gadget failed")
 	for _, ts := range tasksets {
-		// skip the taskset of UpdateMany that does the
-		// check-rerefresh, see tsWithoutReRefresh for details
 		tasks := ts.Tasks()
-		if tasks[0].Kind() == "check-rerefresh" {
-			continue
-		}
-
 		snapsup, err := snapstate.TaskSnapSetup(tasks[0])
-		c.Assert(err, IsNil)
-		// trigger an error as last operation of gadget refresh
-		if snapsup.SnapName() == "pi" {
+		if err == nil && snapsup.SnapName() == "pi" {
+			// trigger an error as last operation of gadget refresh
 			last := tasks[len(tasks)-1]
 			tError.WaitFor(last)
 			// XXX: or just use "snap-setup" here?
@@ -13454,7 +13513,7 @@ volumes:
 	}
 
 	st.Unlock()
-	err = ms.o.Settle(settleTimeout)
+	err = ms.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil)
 
@@ -13582,17 +13641,11 @@ volumes:
 	chg := st.NewChange("upgrade-snaps", "...")
 	tError := st.NewTask("error-trigger", "kernel failed")
 	for _, ts := range tasksets {
-		// skip the taskset of UpdateMany that does the
-		// check-rerefresh, see tsWithoutReRefresh for details
 		tasks := ts.Tasks()
-		if tasks[0].Kind() == "check-rerefresh" {
-			continue
-		}
 
 		snapsup, err := snapstate.TaskSnapSetup(tasks[0])
-		c.Assert(err, IsNil)
-		// trigger an error as last operation of gadget refresh
-		if snapsup.SnapName() == "pi-kernel" {
+		if err == nil && snapsup.SnapName() == "pi-kernel" {
+			// trigger an error as last operation of gadget refresh
 			last := tasks[len(tasks)-1]
 			tError.WaitFor(last)
 			// XXX: or just use "snap-setup" here?
@@ -13609,10 +13662,14 @@ volumes:
 	}
 
 	st.Unlock()
-	err = ms.o.Settle(settleTimeout)
+	err = ms.settleSupportingRestarts(c)
 	st.Lock()
 	c.Assert(err, IsNil)
 	c.Check(chg.Err(), IsNil)
+
+	ok, rst := restart.Pending(st)
+	c.Assert(ok, Equals, true)
+	c.Assert(rst, Equals, restart.RestartSystem)
 
 	// At this point the gadget and kernel are updated and the kernel
 	// required a restart. Check that *before* this restart the DTB
@@ -13718,12 +13775,6 @@ volumes:
 	// there is no "state.TaskSet.RemoveTask" nor a "state.Task.Unwait()"
 	chg := st.NewChange("upgrade-snaps", "...")
 	for _, ts := range tasksets {
-		// skip the taskset of UpdateMany that does the
-		// check-rerefresh, see tsWithoutReRefresh for details
-		if ts.Tasks()[0].Kind() == "check-rerefresh" {
-			continue
-		}
-
 		chg.AddAll(ts)
 	}
 
