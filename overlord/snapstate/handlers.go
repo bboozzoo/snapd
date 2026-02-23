@@ -2662,6 +2662,7 @@ func (m *SnapManager) finishTaskWithMaybeRestart(t *state.Task, status state.Sta
 	st := t.State()
 
 	if restartPoss.RebootRequired {
+		fmt.Printf("reboot required\n")
 		return FinishTaskWithRestart(t, status, restart.RestartSystem, &restartPoss.RebootInfo)
 	}
 
@@ -2683,6 +2684,7 @@ func (m *SnapManager) finishTaskWithMaybeRestart(t *state.Task, status state.Sta
 	}
 
 	t.Logf(restartReason)
+	fmt.Printf("daemon restart required\n")
 	return FinishTaskWithRestart(t, status, restart.RestartDaemon, nil)
 }
 
@@ -4739,6 +4741,7 @@ func changeReadyUpToTask(task *state.Task, considerTasks map[string]bool) bool {
 			continue
 		}
 		if !task.Status().Ready() {
+			fmt.Printf("re-refresh check: %v not ready\n", task.Summary())
 			return false
 		}
 	}
