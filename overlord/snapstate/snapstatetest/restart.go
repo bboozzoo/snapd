@@ -20,6 +20,8 @@
 package snapstatetest
 
 import (
+	"fmt"
+
 	"github.com/snapcore/snapd/boot"
 	"github.com/snapcore/snapd/overlord/restart"
 	"github.com/snapcore/snapd/overlord/state"
