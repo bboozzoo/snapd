@@ -12162,6 +12162,7 @@ func verifyDelayedEffectsTasks(c *C, ts *state.TaskSet, expectedLanes []int) {
 	c.Assert(ts.Tasks(), HasLen, 1)
 	c.Check(taskKinds(ts.Tasks()), DeepEquals, []string{"mock-process-delayed-security-backend-effects"})
 	eff := ts.Tasks()[0]
+	fmt.Printf("task %+v\n", eff)
 	var lanes []int
 	eff.Get("mock-monitored-lanes", &lanes)
 	sort.Ints(lanes)
