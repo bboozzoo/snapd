@@ -2167,6 +2167,11 @@ func (s *snapmgrTestSuite) TestInstallUndoRunThroughJustOneSnap(c *C) {
 			name: "some-snap",
 			path: filepath.Join(dirs.SnapMountDir, "some-snap"),
 		},
+		{
+			op:   "storesvc-cleanup-download-artifacts",
+			name: "",
+			path: filepath.Join(dirs.SnapBlobDir, "some-snap_11.snap"),
+		},
 	}
 	// start with an easier-to-read error if this fails:
 	c.Assert(s.fakeBackend.ops.Ops(), DeepEquals, expected.Ops())
@@ -4625,6 +4630,11 @@ func (s *snapmgrTestSuite) TestUndoMountSnapFailsInCopyData(c *C) {
 			op:   "remove-snap-dir",
 			name: "some-snap",
 			path: filepath.Join(dirs.SnapMountDir, "some-snap"),
+		},
+		{
+			op:   "storesvc-cleanup-download-artifacts",
+			name: "",
+			path: filepath.Join(dirs.SnapBlobDir, "some-snap_11.snap"),
 		},
 	}
 	// start with an easier-to-read error if this fails:
@@ -7538,7 +7548,6 @@ type testInstallComponentsFromPathRunThroughOpts struct {
 	undo        bool
 	removePaths bool
 	unasserted  bool
-	download    bool
 }
 
 func (s *snapmgrTestSuite) testInstallComponentsFromPathRunThrough(c *C, opts testInstallComponentsFromPathRunThroughOpts) {
@@ -7807,13 +7816,6 @@ components:
 
 	if opts.undo {
 		expected = append(expected, undoOps(instanceName, opts.snapType, expectedSeq, nil)...)
-		if opts.download {
-			expected = append(expected, fakeOp{
-				op:   "storesvc-cleanup-download-artifacts",
-				sha3: "some-hash",
-				path: snap.MountFile(instanceName, snapRevision),
-			})
-		}
 	} else {
 		expected = append(expected, fakeOp{
 			op:    "cleanup-trash",
