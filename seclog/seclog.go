@@ -157,7 +157,7 @@ func (r Reason) String() string {
 // securityLogger defines the interface for emitting structured security
 // audit events. Implementations are created by an [implFactory] and write
 // to a configured sink.
-type securityLogger interface {
+type SecurityLogger interface {
 	// LogLoggingEnabled and LogLoggingDisabled are internal events
 	// emitted automatically when the logger is enabled or disabled.
 	LogLoggingEnabled()
@@ -172,24 +172,6 @@ type loggerSetup struct {
 	sink     Sink
 	appID    string
 	minLevel Level
-}
-
-// implFactory provides functions required for constructing a [securityLogger].
-// It is intended for registration of available loggers.
-type implFactory interface {
-	// New creates a securityLogger that writes to writer. Messages with a
-	// severity below minLevel are silently dropped.
-	New(writer io.Writer, appID string, minLevel Level) securityLogger
-}
-
-// sinkFactory creates an [io.Writer] for a log output destination.
-// The appID identifies the application opening the sink and may be
-// used by implementations for tagging or routing.
-//
-// If the returned writer also implements [io.Closer], it will be closed
-// automatically when the sink is replaced or disabled.
-type sinkFactory interface {
-	Open(appID string) (io.Writer, error)
 }
 
 var (
@@ -216,20 +198,11 @@ const maxWriteFailures = 3
 //
 // Although Setup is reentrant, it is intended to be called exactly
 // once per application, typically during early initialization.
-func Setup(impl Impl, sink Sink, appID string, minLevel Level) error {
+func Setup(sl SecurityLogger) error {
 	lock.Lock()
 	defer lock.Unlock()
 
-	if _, exists := implementations[impl]; !exists {
-		return fmt.Errorf("cannot set up security logger: unknown implementation %q", string(impl))
-	}
-
-	if _, exists := sinks[sink]; !exists {
-		return fmt.Errorf("cannot set up security logger: unknown sink %q", string(sink))
-	}
-
-	globalSetup = &loggerSetup{impl: impl, sink: sink, appID: appID, minLevel: minLevel}
-	if err := enableLocked(); err != nil {
+	if err := enableLocked(sl); err != nil {
 		return fmt.Errorf("security logger disabled: %v", err)
 	}
 
@@ -282,67 +255,10 @@ func LogLoginFailure(user SnapdUser, reason Reason) {
 	globalLogger.LogLoginFailure(user, reason)
 }
 
-// registerImpl makes a logger factory available by name. The registration
-// pattern allows implementations to be conditionally compiled via build tags
-// without requiring the core package to import them directly.
-//
-// Should be called from the init() of the implementation file.
-func registerImpl(name Impl, factory implFactory) {
-	lock.Lock()
-	defer lock.Unlock()
-
-	if _, exists := implementations[name]; exists {
-		panic(fmt.Sprintf("attempting re-registration for existing logger %q", name))
-	}
-	implementations[name] = factory
-}
-
-// registerSink makes a sink factory available by name. The registration
-// pattern allows sinks to be conditionally compiled via build tags without
-// requiring the core package to import them directly.
-//
-// Should be called from the init() of the sink file.
-func registerSink(name Sink, factory sinkFactory) {
-	lock.Lock()
-	defer lock.Unlock()
-
-	if _, exists := sinks[name]; exists {
-		panic(fmt.Sprintf("attempting re-registration for existing sink %q", name))
-	}
-	sinks[name] = factory
-}
-
 // enableLocked resolves the logger factory, opens the sink, and activates the
 // logger. Must be called with lock held and globalSetup non-nil.
-func enableLocked() error {
-	factory, exists := implementations[globalSetup.impl]
-	if !exists {
-		return fmt.Errorf("internal error: implementation %q missing", string(globalSetup.impl))
-	}
-
-	newSink, exists := sinks[globalSetup.sink]
-	if !exists {
-		return fmt.Errorf("internal error: sink %q missing", string(globalSetup.sink))
-	}
-
-	writer, err := openSinkLocked(newSink, globalSetup.appID)
-	if err != nil {
-		return fmt.Errorf("cannot enable security logger: %v", err)
-	}
-
-	// Wrap the writer with failure tracking so that repeated write
-	// errors automatically disable the logger.
-	tracked := &failureTrackingWriter{
-		writer:        writer,
-		writeFailures: &writeFailures,
-		failed:        &failed,
-		maxFailures:   maxWriteFailures,
-		onThresholdReached: func(failures int, lastErr error) {
-			logger.Noticef("security logger failed after %d consecutive write errors, disabling (last error: %v)", failures, lastErr)
-			closeSinkLocked()
-		},
-	}
-	globalLogger = factory.New(tracked, globalSetup.appID, globalSetup.minLevel)
+func enableLocked(sl SecurityLogger) error {
+	globalLogger = sl
 	writeFailures = 0
 	failed = false
 	globalLogger.LogLoggingEnabled()

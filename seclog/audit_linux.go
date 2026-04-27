@@ -83,20 +83,10 @@ func (realNetlinkOps) Close(fd int) error {
 
 var netlink netlinkOps = realNetlinkOps{}
 
-func init() {
-	registerSink(SinkAudit, auditSinkFactory{})
-}
-
-// auditSinkFactory implements [sinkFactory] for the kernel audit sink.
-type auditSinkFactory struct{}
-
-// Ensure [auditSinkFactory] implements [sinkFactory].
-var _ sinkFactory = auditSinkFactory{}
-
 // Open opens a netlink audit socket and returns an [auditWriter]
 // that sends each written payload as an AUDIT_TRUSTED_APP. The appID is
 // currently unused but accepted for sink factory compatibility.
-func (auditSinkFactory) Open(_ string) (io.Writer, error) {
+func AuditLogSink() (*AuditWriter, error) {
 	// SOCK_CLOEXEC prevents the fd from leaking to child processes.
 	fd, err := netlink.Socket(syscall.AF_NETLINK, syscall.SOCK_RAW|syscall.SOCK_CLOEXEC, netlinkAudit)
 	if err != nil {
@@ -116,7 +106,7 @@ func (auditSinkFactory) Open(_ string) (io.Writer, error) {
 		netlink.Close(fd)
 		return nil, fmt.Errorf("cannot get audit socket port ID: %v", err)
 	}
-	return &auditWriter{fd: fd, portID: portID}, nil
+	return &AuditWriter{fd: fd, portID: portID}, nil
 }
 
 // getPortID returns the kernel-assigned port ID of the netlink socket.
@@ -140,7 +130,7 @@ func getPortID(fd int) (uint32, error) {
 //
 // The writer is safe for sequential use; concurrent use requires external
 // synchronization.
-type auditWriter struct {
+type AuditWriter struct {
 	fd     int
 	portID uint32
 	seq    atomic.Uint32
@@ -148,7 +138,7 @@ type auditWriter struct {
 
 // Write sends p as the payload of an AUDIT_TRUSTED_APP netlink message.
 // The returned byte count reflects only the original payload length.
-func (aw *auditWriter) Write(payload []byte) (int, error) {
+func (aw *AuditWriter) Write(payload []byte) (int, error) {
 	msg := aw.buildMessage(payload)
 	addr := &syscall.SockaddrNetlink{
 		Family: syscall.AF_NETLINK,
@@ -161,7 +151,7 @@ func (aw *auditWriter) Write(payload []byte) (int, error) {
 }
 
 // Close closes the underlying netlink socket.
-func (aw *auditWriter) Close() error {
+func (aw *AuditWriter) Close() error {
 	return netlink.Close(aw.fd)
 }
 
@@ -172,7 +162,7 @@ const nlmsghdrSize = 16
 // buildMessage constructs a raw netlink AUDIT_TRUSTED_APP containing payload.
 // The header layout follows struct nlmsghdr from
 // https://github.com/torvalds/linux/blob/master/include/uapi/linux/netlink.h#L45
-func (aw *auditWriter) buildMessage(payload []byte) []byte {
+func (aw *AuditWriter) buildMessage(payload []byte) []byte {
 	totalLen := nlmsghdrSize + uint32(len(payload))
 	buf := make([]byte, nlmsgAlign(totalLen))
 

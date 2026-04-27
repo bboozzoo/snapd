@@ -50,7 +50,20 @@ const secLogAppID = "canonical.snapd.snapd"
 const secLogMinLevel seclog.Level = seclog.LevelInfo
 
 func setupSecurityLogger() {
-	if err := seclogSetup(seclog.ImplSlog, seclog.SinkAudit, secLogAppID, secLogMinLevel); err != nil {
+
+	w, err := seclog.AuditLogSink()
+	if err != nil {
+		// complain
+		return
+	}
+
+	w, err := seclog.NewSlogWriter(w, secLogAppID, 1)
+	if err != nil {
+		logger.Noticef("no audit log, not supported: %v", err)
+		return
+	}
+
+	if err := seclog.Setup(w); err != nil {
 		logger.Noticef("WARNING: %v", err)
 	}
 }

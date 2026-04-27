@@ -35,24 +35,7 @@ import (
 	"github.com/snapcore/snapd/osutil"
 )
 
-// slogImplementation implements [implFactory].
-type slogImplementation struct{}
-
-// Ensure [slogImplementation] implements [implFactory].
-var _ implFactory = slogImplementation{}
-
-// New constructs an slog based [securityLogger] that emits structured JSON to the
-// provided [io.Writer]. The returned logger enables dynamic level control via
-// an internal [slog.LevelVar].
-func (slogImplementation) New(writer io.Writer, appID string, minLevel Level) securityLogger {
-	return newSlogLogger(writer, appID, minLevel)
-}
-
-func init() {
-	registerImpl(ImplSlog, slogImplementation{})
-}
-
-func newSlogLogger(writer io.Writer, appID string, minLevel Level) securityLogger {
+func NewSlogWriter(writer io.Writer, appID string, minLevel Level) securityLogger {
 	levelVar := new(slog.LevelVar)
 	levelVar.Set(slog.Level(minLevel))
 	var handler slog.Handler = newJsonHandler(writer, levelVar)

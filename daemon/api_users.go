@@ -69,9 +69,6 @@ var (
 	deviceStateCreateUser       = devicestate.CreateUser
 	deviceStateCreateKnownUsers = devicestate.CreateKnownUsers
 	deviceStateRemoveUser       = devicestate.RemoveUser
-
-	seclogLogLoginSuccess = seclog.LogLoginSuccess
-	seclogLogLoginFailure = seclog.LogLoginFailure
 )
 
 // userResponseData contains the data releated to user creation/login/query
@@ -91,7 +88,7 @@ var isEmailish = regexp.MustCompile(`.@.*\..`).MatchString
 // unchanged. It is a convenience wrapper so that each error return path in
 // loginUser can log with a single call.
 func loginError(resp *apiError, snapdUser seclog.SnapdUser, code string) *apiError {
-	seclogLogLoginFailure(snapdUser, seclog.Reason{
+	seclog.LogLoginFailure(snapdUser, seclog.Reason{
 		Code:    code,
 		Message: resp.Message,
 	})
@@ -206,7 +203,7 @@ func loginUser(c *Command, r *http.Request, user *auth.UserState) Response {
 	snapdUser.StoreUserName = user.Username
 	snapdUser.StoreUserEmail = user.Email
 	snapdUser.Expiration = user.Expiration
-	seclogLogLoginSuccess(snapdUser)
+	seclog.LogLoginSuccess(snapdUser)
 
 	result := userResponseData{
 		ID:         user.ID,

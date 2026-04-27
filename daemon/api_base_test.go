@@ -110,6 +110,8 @@ type apiBaseSuite struct {
 
 	unwrapNewChange            func()
 	missingChangeRegistrations sync.Map
+
+	secLog bytes.Buffer
 }
 
 var (
@@ -395,6 +397,8 @@ func (s *apiBaseSuite) SetUpTest(c *check.C) {
 	s.AddCleanup(daemon.MockSnapstateStoreInstallGoal(newStoreInstallGoalRecorder))
 	s.AddCleanup(daemon.MockSnapstatePathUpdateGoal(newPathUpdateGoalRecorder))
 	s.AddCleanup(daemon.MockSnapstateStoreUpdateGoal(newStoreUpdateGoalRecorder))
+
+	c.Assert(seclogtest.TestSetup(&s.secLog), check.IsNil)
 }
 
 type storeInstallGoalRecorder struct {
