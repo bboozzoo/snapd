@@ -1,0 +1,14 @@
+{
+  "name": "snap-confine-ts",
+  "version": "0.0.1",
+  "description": "A completely unnecessary TypeScript rewrite of snap-confine",
+  "module": "src/main.ts",
+  "scripts": {
+    "build": "bun run build.ts",
+    "test": "bun test",
+    "test:verbose": "bun test --verbose"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
