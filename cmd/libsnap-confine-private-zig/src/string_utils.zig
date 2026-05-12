@@ -135,7 +135,7 @@ export fn sc_string_quote(buf: ?[*]u8, buf_size: usize, str: ?[*:0]const u8) voi
 
 /// Split string on first occurrence of delimiter, writing prefix and suffix
 /// into the provided buffers. Either buffer may be NULL to skip that part.
-export fn sc_string_split(
+pub export fn sc_string_split(
     string: ?[*:0]const u8,
     delimiter: u8,
     prefix_buf: ?[*]u8,

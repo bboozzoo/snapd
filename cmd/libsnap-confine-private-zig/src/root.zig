@@ -8,9 +8,23 @@
 
 comptime {
     _ = @import("string_utils.zig");
+    _ = @import("panic.zig");
+    _ = @import("error.zig");
+    _ = @import("utils.zig");
+    _ = @import("feature.zig");
+    _ = @import("infofile.zig");
+    _ = @import("classic.zig");
+    _ = @import("snap.zig");
 }
 
 // Pull in all test blocks from sub-modules when running `zig build test`
 test {
     _ = @import("string_utils.zig");
+    _ = @import("panic.zig");
+    _ = @import("error.zig");
+    _ = @import("utils.zig");
+    _ = @import("feature.zig");
+    _ = @import("infofile.zig");
+    _ = @import("classic.zig");
+    _ = @import("snap.zig");
 }
