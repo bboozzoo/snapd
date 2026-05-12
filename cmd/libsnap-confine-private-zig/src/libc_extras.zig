@@ -53,6 +53,7 @@ pub extern "c" fn vasprintf(strp: *?[*]u8, fmt: [*:0]const u8, ap: *va_list) c_i
 pub extern "c" fn getline(lineptr: *?[*:0]u8, n: *usize, stream: *std.c.FILE) isize;
 pub extern "c" fn strerror(errnum: c_int) [*:0]const u8;
 pub extern "c" fn strtok_r(str: ?[*:0]u8, delim: [*:0]const u8, saveptr: *?[*:0]u8) ?[*:0]u8;
+pub extern "c" fn sscanf(str: [*:0]const u8, fmt: [*:0]const u8, ...) c_int;
 pub extern "c" fn sleep(seconds: c_uint) c_uint;
 pub extern "c" fn getegid() std.c.gid_t;
 pub extern "c" fn geteuid() std.c.uid_t;

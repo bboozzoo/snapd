@@ -15,6 +15,7 @@ comptime {
     _ = @import("infofile.zig");
     _ = @import("classic.zig");
     _ = @import("snap.zig");
+    _ = @import("mountinfo.zig");
 }
 
 // Pull in all test blocks from sub-modules when running `zig build test`
@@ -27,4 +28,5 @@ test {
     _ = @import("infofile.zig");
     _ = @import("classic.zig");
     _ = @import("snap.zig");
+    _ = @import("mountinfo.zig");
 }
