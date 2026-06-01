@@ -1,7 +1,7 @@
 // -*- Mode: Go; indent-tabs-mode: t -*-
 
 /*
- * Copyright (C) 2015-2026 Canonical Ltd
+ * Copyright (C) 2019 Canonical Ltd
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 3 as
@@ -17,26 +17,38 @@
  *
  */
 
-package main
+package cli
 
 import (
-	"os"
-	"path/filepath"
+	"fmt"
 
-	"github.com/snapcore/snapd/cmd/snapd/cli"
+	"github.com/jessevdk/go-flags"
 )
 
-func main() {
-	argv0 := filepath.Base(os.Args[0])
+type cmdGetModel struct {
+	clientMixin
+}
 
-	// dispatch the binary multi entry point
-	// TODO add snap-preseed
-	switch argv0 {
-	case "snapd":
-		snapdMain()
-	default:
-		// "snap" snap needs to be handled last, as it's an special entrypoint
-		// for snap application execution through symlinks at /snap/bin/<name>
-		cli.Main()
+func init() {
+	cmd := addDebugCommand("model",
+		"(internal) obtain the active model assertion",
+		"(internal) obtain the active model assertion",
+		func() flags.Commander {
+			return &cmdGetModel{}
+		}, nil, nil)
+	cmd.hidden = true
+}
+
+func (x *cmdGetModel) Execute(args []string) error {
+	if len(args) > 0 {
+		return ErrExtraArgs
 	}
+	var resp struct {
+		Model string `json:"model"`
+	}
+	if err := x.client.DebugGet("model", &resp, nil); err != nil {
+		return err
+	}
+	fmt.Fprintf(Stdout, "%s\n", resp.Model)
+	return nil
 }
