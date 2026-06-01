@@ -470,7 +470,7 @@ func exitCodeFromError(err error) int {
 	}
 }
 
-func main() {
+func snapMain() {
 	loggerWithJournalMaybe()
 	snapdtool.ExecInSnapdOrCoreSnap()
 
