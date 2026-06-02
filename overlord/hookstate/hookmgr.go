@@ -550,6 +550,12 @@ func snapCmd() string {
 		return snapCmd
 	}
 
+	if d := filepath.Dir(exe); strings.HasSuffix(d, "/usr/bin") {
+		// snapd and snap are one and the same binary, so this could be
+		// <snapd-mount>/usr/bin/snap, or <snapd-mount>/usr/bin/snap-fips
+		return filepath.Join(d, "snap")
+	}
+
 	// snap is running from the core snap, we know the relative
 	// location of "snap" from "snapd"
 	return filepath.Join(filepath.Dir(exe), "../../bin/snap")
