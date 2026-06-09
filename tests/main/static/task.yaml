@@ -1,7 +1,7 @@
-summary: Check that snapd can be built without cgo
+summary: Check that snap can be built without cgo
 
 details: |
-    This test builds snapd with CGO_ENABLED=0 and checks that the resulting
+    This test builds snap with CGO_ENABLED=0 and checks that the resulting
     binary is not a dynamic executable.
 
 # debian-sid uses a different packaging with quilt patches applied on top
@@ -9,5 +9,5 @@ details: |
 systems: [-ubuntu-core-*, -debian-sid-*]
 
 execute: |
-    CGO_ENABLED=0 go build -o snapd.static github.com/snapcore/snapd/cmd/snapd
-    ldd snapd.static 2>&1 | MATCH 'not a dynamic executable'
+    CGO_ENABLED=0 go build -o snap.static github.com/snapcore/snapd/cmd/snap
+    ldd snap.static 2>&1 | MATCH 'not a dynamic executable'
