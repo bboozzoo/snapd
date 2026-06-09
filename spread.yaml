@@ -2114,7 +2114,7 @@ suites:
             systemctl restart snapd.service
 
             # assert state of reexec
-            pmap -p "$(pidof snapd)" | MATCH "$SNAP_MOUNT_DIR/snapd/.*/usr/lib/snapd/snapd"
+            pmap -p "$(pidof snapd)" | MATCH "$SNAP_MOUNT_DIR/snapd/.*/usr/bin/snap\$"
             snap debug execution snap | MATCH 'is-reexecd: true'
             # assert internal apparmor?
             if command -v aa-enabled 2>/dev/null && aa-enabled ; then
