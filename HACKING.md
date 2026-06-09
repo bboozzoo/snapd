@@ -187,22 +187,14 @@ to identify which snap file is which.
 
 ### Building natively
 
-To build the `snap` command line client:
+To build the `snap` command line client, which also includes the functionality
+of the `snapd` daemon:
 
 <!-- test:build-snap -->
 ```
 cd ~/snapd
 mkdir -p /tmp/build
 go build -o /tmp/build/snap ./cmd/snap
-```
-
-To build the `snapd` REST API daemon:
-
-<!-- test:build-snapd -->
-```
-cd ~/snapd
-mkdir -p /tmp/build
-go build -o /tmp/build/snapd ./cmd/snapd
 ```
 
 To build all the `snapd` Go components:
@@ -268,7 +260,7 @@ Run the same build commands from the Building (natively) section above.
 Verify the target architecture by looking at the application ELF header.
 
 ```
-readelf -h /tmp/build/snapd
+readelf -h /tmp/build/snap
 :
 Class:                             ELF32
 OS/ABI:                            UNIX - System V
