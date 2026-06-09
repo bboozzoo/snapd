@@ -54,7 +54,10 @@ restore: |
         umount "$SNAPD_MOUNT_DIR/current/usr/lib/snapd/info"
     fi
     if mount|grep "/snap/$SNAPD_SRC/.*/usr/lib/snapd/snapd"; then
-        umount "SNAPD_MOUNT_DIR/current/usr/lib/snapd/snapd"
+        umount "$SNAPD_MOUNT_DIR/current/usr/lib/snapd/snapd"
+    fi
+    if mount|grep "/snap/$SNAPD_SRC/.*/usr/bin/snap"; then
+        umount "$SNAPD_MOUNT_DIR/current/usr/bin/snap"
     fi
     rm -f /tmp/old-info
 
@@ -75,6 +78,13 @@ debug: |
 execute: |
     SNAP_MOUNT_DIR="$(os.paths snap-mount-dir)"
     SNAPD_MOUNT_DIR="$SNAP_MOUNT_DIR/$SNAPD_SRC"
+
+    # Determine the actual binary snapd.service runs inside the snap so that we
+    # know what the right target for the bind mount is. The path is usr/bin/snap
+    # in the snapd snap (where usr/lib/snapd/snapd is a symlink) but
+    # usr/lib/snapd/snapd in the core snap (where it's a real binary).
+    snapd_bin_in_snap=$(readlink -f "$SNAPD_MOUNT_DIR/current/usr/lib/snapd/snapd" | \
+        sed "s|$SNAP_MOUNT_DIR/$SNAPD_SRC/[^/]*/||")
 
     echo "Ensure we re-exec by default"
     IS_REEXEC=true
@@ -116,7 +126,7 @@ execute: |
     exit 1
     EOF
     chmod +x /tmp/broken-snapd
-    mount --bind /tmp/broken-snapd "$SNAPD_MOUNT_DIR/current/usr/lib/snapd/snapd"
+    mount --bind /tmp/broken-snapd "$SNAPD_MOUNT_DIR/current/$snapd_bin_in_snap"
     systemctl daemon-reload
     systemctl start snapd.service snapd.socket
     echo "Ensure that snap list works normally"
@@ -125,7 +135,7 @@ execute: |
 
     echo "Revert back to normal"
     systemctl stop snapd.service snapd.socket
-    umount "$SNAPD_MOUNT_DIR/current/usr/lib/snapd/snapd"
+    umount "$SNAPD_MOUNT_DIR/current/$snapd_bin_in_snap"
     rm -f /etc/systemd/system/snapd.service.d/reexec.conf
     systemctl daemon-reload
     systemctl start snapd.service snapd.socket
@@ -153,7 +163,7 @@ execute: |
     # This check is valid only if snap command is re-executing to the snap
     if [ "$IS_REEXEC" = true ]; then        
         SNAPD_PATH=$(readlink -f "/proc/$(pidof snapd)/exe")
-        if [ "$SNAPD_PATH" != "/snap/$SNAPD_SRC/${now_src}/usr/lib/snapd/snapd" ]; then
+        if [[ "$SNAPD_PATH" != "/snap/$SNAPD_SRC/${now_src}/"* ]]; then
             echo "unexpected $SNAPD_PATH for $now_src snap (previous $prev_src)"
             exit 1
         fi
