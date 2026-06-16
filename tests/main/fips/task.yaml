@@ -47,8 +47,8 @@ execute: |
                         MATCH ' /snap/snapd/.*/usr/lib/.*/ossl-modules-3/fips.so' < snapd-map.out
                     fi
 
-                    # snapd is executing the snapd-fips build binary
-                    MATCH ' /snap/snapd/.*/usr/lib/snapd/snapd-fips' < snapd-map.out
+                    # snapd is executing the usr/bin/snap-fips build binary
+                    MATCH ' /snap/snapd/.*/usr/bin/snap-fips' < snapd-map.out
                     ;;
                 *)
                     echo "unexpected test variant on FIPS enabled $SPREAD_SYSTEM"
