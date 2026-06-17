@@ -30,4 +30,5 @@ import (
 func snapdMain() {
 	snapd.Main()
 	os.Exit(0)
+	// noreturn
 }
