@@ -109,6 +109,9 @@ filetrans_pattern(init_t, var_run_t, snappy_var_run_t, sock_file, "snapd-snap.so
 
 # Allow init_t to read snappy data
 allow init_t snappy_var_lib_t:dir read;
+# TODO: define a macro for this
+# Allow init_t to follow the /usr/bin/snap symlink
+allow init_t snappy_cli_exec_t:lnk_file read;
 
 # Allow snapd to read procfs
 gen_require(`
@@ -191,6 +194,8 @@ corecmd_exec_bin(snappy_t)
 
 # Allow snappy to exec helpers
 can_exec(snappy_t, snappy_exec_t)
+# allow invoking /usr/bin/snap
+allow snappy_t snappy_cli_exec_t:lnk_file read;
 can_exec(snappy_t, snappy_mount_exec_t)
 can_exec(snappy_t, snappy_cli_exec_t)
 corecmd_search_bin(snappy_t)
