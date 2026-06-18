@@ -62,7 +62,7 @@ snap_mount_dir = /snap
 endif
 
 # The list of go binaries we are expected to build.
-go_binaries = $(addprefix $(builddir)/, snap snapctl snap-seccomp snap-update-ns snap-exec snapd-apparmor)
+go_binaries = $(addprefix $(builddir)/, snapd snapctl snap-seccomp snap-update-ns snap-exec snapd-apparmor)
 
 GO_TAGS = nosecboot
 ifeq ($(with_testkeys),1)
@@ -128,7 +128,7 @@ prepare-debian-build-tree:
 # FIXME: not all Go toolchains we build with support '-B gobuildid', replace a
 # random GNU build ID with something more predictable, use something similar to
 # https://pagure.io/go-rpm-macros/c/1980932bf3a21890a9571effaa23fbe034fd388d
-$(builddir)/snap $(builddir)/snap-seccomp $(builddir)/snapd-apparmor:
+$(builddir)/snapd $(builddir)/snap-seccomp $(builddir)/snapd-apparmor:
 	go build -o $@ $(if $(GO_TAGS),-tags "$(GO_TAGS)") \
 		-buildmode=pie \
 		-ldflags="$(EXTRA_GO_LDFLAGS)" \
@@ -199,25 +199,22 @@ $(addprefix $(DESTDIR),$(libexecdir)/snapd $(bindir) $(mandir)/man8 /$(sharedsta
 
 .PHONY: install
 
-# Install snap into /usr/bin/.
-install:: $(builddir)/snap | $(DESTDIR)$(bindir)
-	install -m 755 $^ $|
-
-# Install snapctl snapd, snap-{exec,update-ns,seccomp} into /usr/lib/snapd/
-install:: $(addprefix $(builddir)/,snapctl snap-exec snap-update-ns snap-seccomp snapd-apparmor) | $(DESTDIR)$(libexecdir)/snapd
+# Install snapd, snapctl, snap-{exec,update-ns,seccomp} into /usr/lib/snapd/
+install:: $(addprefix $(builddir)/,snapd snapctl snap-exec snap-update-ns snap-seccomp snapd-apparmor) | $(DESTDIR)$(libexecdir)/snapd
 	install -m 755 $^ $|
 
 # Ensure /usr/bin/snapctl is a symlink to /usr/lib/snapd/snapctl
 install:: | $(DESTDIR)$(bindir)
 	ln -v -s -r $(DESTDIR)$(libexecdir)/snapd/snapctl $|/snapctl
 
-# Ensure $(libexecdir)/snapd/snapd is a symlink to /usr/bin/snap
-install:: | $(DESTDIR)$(libexecdir)/snapd
-	ln -v -s -r $(DESTDIR)$(bindir)/snap $|/snapd
+# Ensure /usr/bin/snap is a symlink to $(libexecdir)/snapd/snapd
+install:: | $(DESTDIR)$(bindir)
+	ln -v -s -r $(DESTDIR)$(libexecdir)/snapd/snapd $|/snap
 
-# Generate and install man page for snap command
-install:: $(builddir)/snap | $(DESTDIR)$(mandir)/man8
-	$(builddir)/snap help --man > $|/snap.8
+# Generate and install man page for snap command.
+# The binary dispatches on argv[0]; invoke it as "snap" to get the CLI help.
+install:: $(builddir)/snapd | $(DESTDIR)$(mandir)/man8
+	bash -c 'exec -a snap $(builddir)/snapd help --man' > $|/snap.8
 
 # Install the directory structure in /var/lib/snapd
 install::
@@ -311,21 +308,21 @@ clean:
 check-trusted-account-keys:
 	@echo "Checking trusted account keys in snapd and related binaries..."
 	@# Check snap binary (2 keys expected)
-	@if [ ! -f "$(builddir)/snap" ]; then \
-		echo "ERROR: snap binary not found at $(builddir)/snap" >&2; \
+	@if [ ! -f "$(builddir)/snapd" ]; then \
+		echo "ERROR: snapd binary not found at $(builddir)/snapd" >&2; \
 		exit 1; \
 	fi
 	@if true; then \
-		count=$$(strings $(builddir)/snap | grep -c -E "public-key-sha3-384: [a-zA-Z0-9_-]{64}"); \
+		count=$$(strings $(builddir)/snapd | grep -c -E "public-key-sha3-384: [a-zA-Z0-9_-]{64}"); \
 		if [ "$$count" -ne 2 ]; then \
-			echo "ERROR: Expected 2 public keys in snap, found $$count" >&2; \
+			echo "ERROR: Expected 2 public keys in snapd, found $$count" >&2; \
 			exit 1; \
 		fi; \
-		strings $(builddir)/snap | grep -q "^public-key-sha3-384: $(SNAPD_STORE_ROOT_KEY)$$" || \
+		strings $(builddir)/snapd | grep -q "^public-key-sha3-384: $(SNAPD_STORE_ROOT_KEY)$$" || \
 			{ echo "ERROR: snap store root key not found" &>2; exit 1; }; \
-		strings $(builddir)/snap | grep -q "^public-key-sha3-384: $(SNAPD_STORE_GENERIC_MODELS_KEY)$$" || \
+		strings $(builddir)/snapd | grep -q "^public-key-sha3-384: $(SNAPD_STORE_GENERIC_MODELS_KEY)$$" || \
 			{ echo "ERROR: snap store generic models key not found" >&2; exit 1; }; \
-		echo "  snap: OK (2 keys)"; \
+		echo "  snapd: OK (2 keys)"; \
 	fi
 	@# Check snap-bootstrap if it exists (Ubuntu 16.04+)
 	@if [ -f "$(builddir)/snap-bootstrap" ]; then \
