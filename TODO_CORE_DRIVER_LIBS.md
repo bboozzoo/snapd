@@ -1286,7 +1286,7 @@ to pass unchanged (this build links `mount-support-test.c`, which `#include`s
 `mount-support-nvidia.c` directly, so it exercises this exact change). Landed as commit
 `ec13faf1b4`.
 
-#### Step 2 — invert the NVIDIA guard
+#### Step 2 — invert the NVIDIA guard · ✅ DONE
 
 The behaviour change that makes Core work at all. `sc_mount_snap_gpu_driver()` currently
 opens with `access(nvidia_driver_version_file(), F_OK) != 0 → return`, which gates the
@@ -1307,11 +1307,15 @@ if (is_classic && !nvidia_present) {
 ```
 
 Host-driver scanning (`sc_mount_nvidia_driver_multiarch/biarch`, `sc_mount_vulkan`,
-`sc_mount_egl`, and the `globs`/`globs_len` setup they need) moves inside
-`if (is_classic) { ... }`. `sc_mount_vulkan`/`sc_mount_egl` read `/usr/share/{vulkan,glvnd}`
-— host-driver paths that on Core resolve to the base snap and would only mount empty
-tmpfses — so they become classic-only rather than merely skipped when
-`exported_paths > 0`.
+`sc_mount_egl`, and the `globs`/`globs_len` setup they need) is placed behind a second,
+unconditional early return — **`if (!is_classic) { return; }`** — inserted right after
+`sc_mount_exported_paths()` runs. (The doc originally sketched this as wrapping the
+host-scanning code in `if (is_classic) { ... }`; the landed code uses an early-return
+instead, which reads more like the rest of this function and avoids re-indenting the
+whole block — same effect.) `sc_mount_vulkan`/`sc_mount_egl` read
+`/usr/share/{vulkan,glvnd}` — host-driver paths that on Core resolve to the base snap
+and would only mount empty tmpfses — so they become classic-only rather than merely
+skipped when `exported_paths > 0`.
 
 **`#ifdef NVIDIA_MULTIARCH` stays where it is** — decided: `sc_mount_exported_paths()`
 is not hoisted out of it. Costs nothing on Core (the snapd snap is built
@@ -1323,6 +1327,14 @@ Classic behaviour is preserved *by construction*, not just by this guard: the ex
 backend returns early on `release.OnClassic` (Phase 2, 2d), so no `export.sources`
 manifest ever exists on classic, and step 4's manifest-consuming code is an inherent
 no-op there regardless of this guard.
+
+**Verified:** preprocessed the `NVIDIA_MULTIARCH` build (`gcc -E`) and confirmed the
+resulting control flow matches this structure exactly — `sc_mount_exported_paths()`
+runs unconditionally, then core returns before any classic-only code, while classic's
+early-return-on-no-nvidia and subsequent host-scan/copy-glob-files branching are
+byte-for-byte the same logic as before, just reindented around the new early return.
+Builds warning-free under all three configure variants; 47/47 existing unit tests pass
+under each. Landed as commit `5c80603fb5`.
 
 #### Step 3 — AppArmor: read the export tree, allow the new bind mounts
 
@@ -1468,7 +1480,7 @@ from a path nothing creates yet is a no-op).
 | `interfaces/backends/backends.go` | ✅ Registered | 2 |
 | `dirs/dirs.go` | Not needed — decided (2c) the per-interface path accessor lives inside `interfaces/export` (`paths.go`), not `dirs.go` | 2 |
 | `interfaces/builtin/helpers.go` | ✅ Filename encoding extracted (`sourceDirEncodedName`); `exportUnitAndFileName` added | 2 |
-| `cmd/snap-confine/mount-support-nvidia.{c,h}` | ✅ preliminary fix (`sc_copy_file` hardening) done; ✅ Step 1 (rename + `sc_distro`) done. ⏳ Step 2: guard inversion. Step 4: manifest reader + bind-mount pooling | 3 |
+| `cmd/snap-confine/mount-support-nvidia.{c,h}` | ✅ preliminary fix (`sc_copy_file` hardening) done; ✅ Step 1 (rename + `sc_distro`) done; ✅ Step 2 (guard inversion) done. ⏳ Step 4: manifest reader + bind-mount pooling | 3 |
 | `cmd/snap-confine/mount-support.c` | ✅ Step 1 (call site updated) done | 3 |
 | `cmd/snap-confine/mount-support-test.c` | ⏳ Step 5: tests for the pure manifest-line helper only (no mount-dependent coverage — would affect the host running the suite) | 3 |
 | `cmd/snap-confine/snap-confine.apparmor.in` | ⏳ Step 3: deep read on export tree; new bind-mount rule; correct `/tmp/snap-private-tmp/` prefix | 3 |
