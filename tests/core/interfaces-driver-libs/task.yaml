@@ -46,7 +46,8 @@ execute: |
   not test -f /etc/ld.so.conf.d/snap.system.conf
   not ls /etc/glvnd/egl_vendor.d/*snap* 2>/dev/null
 
-  # TODO: verify export/data/ ICD files once the support is added
+  # TODO: verify /var/lib/snapd/export/system/egl-driver-libs/ ICD files once
+  # 4b (test coverage) is done - see TODO_CORE_DRIVER_LIBS.md
 
   # Disconnect both interfaces and verify .library-source files are cleaned up
   snap disconnect system:egl-driver-libs "$PROVIDER_SNAP":egl-driver-libs
