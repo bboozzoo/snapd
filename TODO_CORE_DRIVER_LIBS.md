@@ -1419,7 +1419,7 @@ plain `open(O_CREAT | O_WRONLY | O_NOFOLLOW)`.
 configure variants (plain, `--enable-nvidia-biarch`, `--enable-nvidia-multiarch`);
 `clang-format --dry-run --Werror` clean. Landed as commit `94d8cf9931`.
 
-#### Step 5 — unit tests
+#### Step 5 — unit tests · ✅ DONE
 
 `cmd/snap-confine/mount-support-test.c` already `#include`s `mount-support-nvidia.c`
 directly, so its `static` functions are reachable in-process; currently it has three
@@ -1429,6 +1429,15 @@ suite, so this step only covers the pure, I/O-free helper extracted in step 4 (m
 line validation and unit-prefix stripping) — e.g. a valid line, an absolute path, a
 path containing `..`, a line with no `/`, and an empty line. The mount- and
 copy-dependent code paths remain untested here, consistent with the rest of this file.
+
+Added `test_manifest_line_relpath__valid` (typical unit/subdir/file entry, a
+multi-level relpath, and the minimal `unit/file` shape) and
+`test_manifest_line_relpath__invalid` (empty line, absolute path, no separator, empty
+relpath, and `..` in either the unit or relpath component) to
+`cmd/snap-confine/mount-support-test.c`.
+
+**Verified:** 49/49 tests pass (47 pre-existing + 2 new); clean build; `clang-format
+--dry-run --Werror` clean. Landed as commit `ce98df5cb5`.
 
 #### Step 6 — spread test (4b)
 
@@ -1501,7 +1510,7 @@ from a path nothing creates yet is a no-op).
 | `interfaces/builtin/helpers.go` | ✅ Filename encoding extracted (`sourceDirEncodedName`); `exportUnitAndFileName` added | 2 |
 | `cmd/snap-confine/mount-support-nvidia.{c,h}` | ✅ preliminary fix (`sc_copy_file` hardening) done; ✅ Step 1 (rename + `sc_distro`) done; ✅ Step 2 (guard inversion) done; ✅ Step 4 (manifest reader + bind-mount pooling) done | 3 |
 | `cmd/snap-confine/mount-support.c` | ✅ Step 1 (call site updated) done | 3 |
-| `cmd/snap-confine/mount-support-test.c` | ⏳ Step 5: tests for the pure manifest-line helper only (no mount-dependent coverage — would affect the host running the suite) | 3 |
+| `cmd/snap-confine/mount-support-test.c` | ✅ Step 5 (tests for the pure manifest-line helper only) done | 3 |
 | `cmd/snap-confine/snap-confine.apparmor.in` | ✅ Step 3 (deep read on export tree; new bind-mount rule) done | 3 |
 | `packaging/ubuntu-26.04/snapd.dirs` (+ others) | Optional / probably unnecessary | — |
 | `tests/core/interfaces-driver-libs/task.yaml` | ✅ Phase 1 version; runs on UC26 in CI | 4a |
