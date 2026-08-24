@@ -1267,7 +1267,7 @@ else in this document. Landed as commit `75bd0c9b5e` (message needs amending to 
 the "precondition for Phase 3" framing). Kept as its own commit; no other step depends
 on it.
 
-#### Step 1 — rename `sc_mount_nvidia_driver` → `sc_mount_snap_gpu_driver`, thread `sc_distro`
+#### Step 1 — rename `sc_mount_nvidia_driver` → `sc_mount_snap_gpu_driver`, thread `sc_distro` · ✅ DONE
 
 Pure rename + parameter addition, verifiable as a no-op on classic. `mount-support-nvidia.h`
 gains `#include "../libsnap-confine-private/classic.h"`; the function becomes
@@ -1278,6 +1278,13 @@ site is updated to pass `config->distro`.
 (`25715557c3`, message "TODO") comments out the `SC_DISTRO_CLASSIC` guard rather than
 threading it through properly. This step replaces that WIP marker with the real
 `sc_distro` parameter; it is not layered on top of it.
+
+**Verified:** builds warning-free (`-Wall -Wextra -Werror`) under all three configure
+variants — plain, `--enable-nvidia-biarch`, and `--enable-nvidia-multiarch` (the latter
+is what the shipped snapd snap uses). The existing 47 `snap-confine` unit tests continue
+to pass unchanged (this build links `mount-support-test.c`, which `#include`s
+`mount-support-nvidia.c` directly, so it exercises this exact change). Landed as commit
+`ec13faf1b4`.
 
 #### Step 2 — invert the NVIDIA guard
 
@@ -1461,8 +1468,8 @@ from a path nothing creates yet is a no-op).
 | `interfaces/backends/backends.go` | ✅ Registered | 2 |
 | `dirs/dirs.go` | Not needed — decided (2c) the per-interface path accessor lives inside `interfaces/export` (`paths.go`), not `dirs.go` | 2 |
 | `interfaces/builtin/helpers.go` | ✅ Filename encoding extracted (`sourceDirEncodedName`); `exportUnitAndFileName` added | 2 |
-| `cmd/snap-confine/mount-support-nvidia.{c,h}` | ✅ preliminary fix (`sc_copy_file` hardening) done. ⏳ Step 1: rename + `sc_distro`. Step 2: guard inversion. Step 4: manifest reader + bind-mount pooling | 3 |
-| `cmd/snap-confine/mount-support.c` | ⏳ Step 1: update call site | 3 |
+| `cmd/snap-confine/mount-support-nvidia.{c,h}` | ✅ preliminary fix (`sc_copy_file` hardening) done; ✅ Step 1 (rename + `sc_distro`) done. ⏳ Step 2: guard inversion. Step 4: manifest reader + bind-mount pooling | 3 |
+| `cmd/snap-confine/mount-support.c` | ✅ Step 1 (call site updated) done | 3 |
 | `cmd/snap-confine/mount-support-test.c` | ⏳ Step 5: tests for the pure manifest-line helper only (no mount-dependent coverage — would affect the host running the suite) | 3 |
 | `cmd/snap-confine/snap-confine.apparmor.in` | ⏳ Step 3: deep read on export tree; new bind-mount rule; correct `/tmp/snap-private-tmp/` prefix | 3 |
 | `packaging/ubuntu-26.04/snapd.dirs` (+ others) | Optional / probably unnecessary | — |
