@@ -35,7 +35,7 @@ import (
 	"github.com/snapcore/snapd/timings"
 )
 
-// Backend is responsible for maintaining the snap export cache.
+// Backend is responsible for maintaining the snap export directory.
 type Backend struct{}
 
 var _ = interfaces.SecurityBackend(&Backend{})
