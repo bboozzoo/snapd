@@ -87,8 +87,36 @@ static void test_is_subdir(void) {
     g_assert_false(is_subdir("/", ""));
 }
 
+static void test_manifest_line_relpath__valid(void) {
+    // The common case: one unit, one subdir, one file.
+    g_assert_cmpstr(sc_manifest_line_relpath("15_snap_provider_egl-driver-libs/egl_vendor.d/foo.json"), ==,
+                    "egl_vendor.d/foo.json");
+    // Only the leading "<unit>/" component is stripped, however many further
+    // path components relpath itself has.
+    g_assert_cmpstr(sc_manifest_line_relpath("unit/a/b/c"), ==, "a/b/c");
+    // The minimal valid shape: "<unit>/<file>".
+    g_assert_cmpstr(sc_manifest_line_relpath("unit/file"), ==, "file");
+}
+
+static void test_manifest_line_relpath__invalid(void) {
+    // Empty line.
+    g_assert_null(sc_manifest_line_relpath(""));
+    // Absolute path.
+    g_assert_null(sc_manifest_line_relpath("/unit/subdir/file"));
+    // No "/" separator at all, so there is no unit component to strip.
+    g_assert_null(sc_manifest_line_relpath("nounit"));
+    // Separator is the very last character, leaving an empty relpath.
+    g_assert_null(sc_manifest_line_relpath("unit/"));
+    // ".." anywhere in the line is rejected, whether in the unit or the
+    // relpath component.
+    g_assert_null(sc_manifest_line_relpath("unit/../etc/passwd"));
+    g_assert_null(sc_manifest_line_relpath("../unit/subdir/file"));
+}
+
 static void __attribute__((constructor)) init(void) {
     g_test_add_func("/mount/get_nextpath/typical", test_get_nextpath__typical);
     g_test_add_func("/mount/get_nextpath/weird", test_get_nextpath__weird);
     g_test_add_func("/mount/is_subdir", test_is_subdir);
+    g_test_add_func("/mount/manifest_line_relpath/valid", test_manifest_line_relpath__valid);
+    g_test_add_func("/mount/manifest_line_relpath/invalid", test_manifest_line_relpath__invalid);
 }
