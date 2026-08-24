@@ -55,6 +55,19 @@
 #define SC_SNAP_DIR "/snap"
 #define SC_LIBGPU_DIR SC_EXTRA_LIB_DIR "/system/gpu"
 
+// Layout of the export backend's tree (see interfaces/export in the snapd
+// tree): one directory per interface under SC_SNAPD_EXPORT_SYSTEM, each
+// containing per-connection "unit" directories plus a flat manifest file,
+// SC_EXPORT_MANIFEST_NAME, listing every exported file as a path relative to
+// the interface's own directory, one per line, of the form
+// "<unit>/<subdir>/<file>". Exported files are pooled into the read-only gpu
+// tmpfs under SC_LIBGPU_SYSTEM_DIR, mirroring that same per-interface,
+// per-subdir layout but without the unit path component (see
+// sc_mount_exported_config_files() below).
+#define SC_SNAPD_EXPORT_SYSTEM SC_SNAPD_EXPORT "/system"
+#define SC_EXPORT_MANIFEST_NAME "export.sources"
+#define SC_LIBGPU_SYSTEM_DIR SC_LIBGPU_DIR "/system"
+
 // Globs for files to copy when exporting configuration from snaps
 #define SC_ETC_GLVND_EGL_SOURCE_DIR "/etc/glvnd/egl_vendor.d"
 #define SC_SNAP_EGL_VENDOR_GLOB SC_ETC_GLVND_EGL_SOURCE_DIR "/*_snap_*_*_*.json"
@@ -503,6 +516,118 @@ static void sc_mount_nvidia_driver_multiarch(const char *rootfs_dir, const char 
     }
 }
 
+// sc_manifest_line_relpath validates one line from an export.sources
+// manifest, of the form "<unit>/<relPath>" (see AddExportedFile in
+// interfaces/export/spec.go), and returns a pointer within line to the
+// start of relPath - i.e. line with the leading "<unit>/" path component
+// stripped off - or NULL if line does not look like a valid manifest entry.
+//
+// The manifest is written entirely by snapd, and its lines never contain
+// ".." components or otherwise escape the interface's own directory, so
+// this check is defense in depth against unexpected content, not an
+// expected failure mode.
+static const char *sc_manifest_line_relpath(const char *line) {
+    if (line[0] == '\0' || line[0] == '/') {
+        return NULL;
+    }
+    const char *sep = strchr(line, '/');
+    if (sep == NULL || sep[1] == '\0') {
+        return NULL;
+    }
+    if (strstr(line, "..") != NULL) {
+        return NULL;
+    }
+    return sep + 1;
+}
+
+// sc_mount_exported_config_files reads the export.sources manifest (see
+// SC_EXPORT_MANIFEST_NAME) for each interface in gpu_export_ifaces and
+// bind-mounts every file it lists into the pooled tree under
+// SC_LIBGPU_SYSTEM_DIR/<iface>/, so that a snap using the corresponding
+// interface can see vendor ICD/layer configuration alongside the libraries
+// mounted by the rest of sc_mount_exported_paths(). It must run before that
+// function's closing sc_remount_ro() call, since it needs to create
+// directories and placeholder files in the not-yet-read-only tmpfs.
+//
+// A missing manifest (ENOENT) means the interface currently has no
+// connections that export configuration files, and is silently skipped -
+// the expected, common case both for interfaces that never populate a
+// manifest (e.g. gbm-driver-libs, at the time of writing) and for
+// driver-libs interfaces with no current connections.
+//
+// A listed file that has disappeared since the manifest was read (e.g. the
+// exporting snap was refreshed or disconnected concurrently with this
+// snap's launch) is tolerated the same way, via sc_do_optional_mount(): a
+// launch must not fail because of a benign race with an unrelated snap.
+static void sc_mount_exported_config_files(const char *rootfs_dir) {
+    static const char *const gpu_export_ifaces[] = {
+        "cuda-driver-libs",   "egl-driver-libs",      "gbm-driver-libs",    "nvidia-video-driver-libs",
+        "opengl-driver-libs", "opengles-driver-libs", "vulkan-driver-libs",
+    };
+
+    char manifest_path[PATH_MAX] = {0};
+    char line[PATH_MAX] = {0};
+    char src[PATH_MAX] = {0};
+    char dst[PATH_MAX] = {0};
+
+    for (size_t i = 0; i < SC_ARRAY_SIZE(gpu_export_ifaces); ++i) {
+        const char *iface = gpu_export_ifaces[i];
+
+        sc_must_snprintf(manifest_path, sizeof manifest_path, "%s/%s/%s", SC_SNAPD_EXPORT_SYSTEM, iface,
+                         SC_EXPORT_MANIFEST_NAME);
+
+        FILE *file SC_CLEANUP(sc_cleanup_file) = NULL;
+        file = fopen(manifest_path, "r");
+        if (file == NULL) {
+            if (errno != ENOENT) {
+                die("cannot open %s", manifest_path);
+            }
+            continue;
+        }
+
+        debug("reading export manifest %s", manifest_path);
+        while (fgets(line, sizeof line, file) != NULL) {
+            sc_str_chomp(line);
+            const char *relpath = sc_manifest_line_relpath(line);
+            if (relpath == NULL) {
+                debug("WARNING: ignoring malformed manifest entry %s in %s", line, manifest_path);
+                continue;
+            }
+
+            sc_must_snprintf(src, sizeof src, "%s/%s/%s", SC_SNAPD_EXPORT_SYSTEM, iface, line);
+            sc_must_snprintf(dst, sizeof dst, "%s" SC_LIBGPU_SYSTEM_DIR "/%s/%s", rootfs_dir, iface, relpath);
+
+            // If the destination already exists, this entry has already
+            // been mounted - encoded filenames should not collide across
+            // units, so in practice this is a safety net, not the primary
+            // defence against repeated entries.
+            struct stat stat_buf;
+            if (stat(dst, &stat_buf) == 0) {
+                debug("%s is already mounted, skipping", dst);
+                continue;
+            }
+
+            // POSIX dirname() may modify its argument, so operate on a copy.
+            char *dst_copy SC_CLEANUP(sc_cleanup_string) = sc_strdup(dst);
+            char *dst_dir = dirname(dst_copy);
+            if (sc_nonfatal_mkpath(dst_dir, 0755, 0, 0) != 0) {
+                die("cannot create %s", dst_dir);
+            }
+
+            // A regular file, not a directory, must already exist at dst
+            // before we can bind-mount a file onto it.
+            int fd = open(dst, O_CREAT | O_WRONLY | O_NOFOLLOW, 0644);
+            if (fd < 0) {
+                die("cannot create placeholder file %s", dst);
+            }
+            close(fd);
+
+            debug("mounting %s at %s", src, dst);
+            sc_do_optional_mount(src, dst, NULL, MS_BIND | MS_RDONLY, NULL);
+        }
+    }
+}
+
 static int sc_mount_exported_paths(const char *rootfs_dir) {
     // We are interested only in exports from GPU related interfaces to the
     // system, so we check the interface name in the files.
@@ -594,6 +719,11 @@ static int sc_mount_exported_paths(const char *rootfs_dir) {
             sc_do_mount(path, dest_path, NULL, MS_BIND | MS_RDONLY, NULL);
         }
     }
+
+    // Config files (ICD/layer manifests etc.) exported by snaps via the
+    // export backend - see interfaces/export - must land in the same tmpfs
+    // before it is made read-only below.
+    sc_mount_exported_config_files(rootfs_dir);
 
     // Make the tmpfs read-only
     sc_remount_ro(tmpfs_path);
