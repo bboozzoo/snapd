@@ -160,6 +160,28 @@ func ensureExportsForInterface(ifaceName string, desired map[string]map[string]o
 
 // materialiseUnit writes files into a temporary directory for unit, then
 // atomically renames it into place at UnitDir(ifaceName, unit).
+//
+// TODO: UnitTmpDir is a deterministic path derived from the unit name, so
+// two Setup() calls racing on the same unit share it. Concurrent Setup() of
+// the system snap is possible: setupSecurityByBackend drops the state lock
+// for the whole backend loop (see overlord/ifacestate/helpers.go), and
+// while connect/disconnect are serialised by CheckChangeConflictMany over
+// {plugSnap, slotSnap}, two independent snap refreshes both reach
+// setupAffectedSnaps for the system snap. The two racing calls can then
+// interleave as: one RemoveAll's the other's in-progress temporary
+// directory, or both reach AtomicRename and the loser fails with ENOTEMPTY
+// (it is rename(2), which will not replace a non-empty directory).
+//
+// The result is a spurious, transient Setup() failure that heals on retry,
+// not corrupt state: a unit name is derived from immutable revisions (see
+// UnitName), so racing writers of the same unit are writing identical
+// content. A related interleaving in ensureExportsForInterface can leave
+// the manifest referencing a unit a concurrent stale-spec writer collected,
+// which likewise resolves on the next Setup().
+//
+// Fix by giving each call a unique temporary directory (os.MkdirTemp-style)
+// or by tolerating ENOTEMPTY/EEXIST from the rename after re-verifying that
+// the target holds the expected content.
 func materialiseUnit(ifaceName, unit string, files map[string]osutil.FileState) error {
 	tmpDir := UnitTmpDir(ifaceName, unit)
 	// Remove any stale, incomplete attempt left behind by a previous,
