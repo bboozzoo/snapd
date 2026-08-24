@@ -18,6 +18,8 @@
 #ifndef SNAP_CONFINE_MOUNT_SUPPORT_NVIDIA_H
 #define SNAP_CONFINE_MOUNT_SUPPORT_NVIDIA_H
 
+#include "../libsnap-confine-private/classic.h"
+
 /**
  * Make the Nvidia driver from the classic distribution available in the snap
  * execution environment.
@@ -42,7 +44,13 @@
  * subsequently populated with symlinks that point to a number of files in the
  * /usr/lib directory on the classic filesystem. After the pivot_root() call
  * those symlinks rely on the /var/lib/snapd/hostfs directory as a "gateway".
+ *
+ * distro is the caller's classification of the current distribution (see
+ * sc_classify_distro()). It is currently unused by this function; a
+ * subsequent change will use it to also run on Ubuntu Core, where none of
+ * the above (which assumes a mutable classic host filesystem) applies. See
+ * TODO_CORE_DRIVER_LIBS.md.
  **/
-void sc_mount_nvidia_driver(const char *rootfs_dir, const char *base_snap_name);
+void sc_mount_snap_gpu_driver(const char *rootfs_dir, const char *base_snap_name, sc_distro distro);
 
 #endif
