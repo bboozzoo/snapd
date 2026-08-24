@@ -1208,16 +1208,13 @@ Not addressed, recorded for later: a revert-reuse test and a reconcile error-pat
 asserts it), and `logger.Noticef` firing on every `Setup()` for a permanently missing
 library, which is noisy for what is usually a static packaging bug.
 
-### Phase 3 — `snap-confine` · ⏳ TODO
+### Phase 3 — `snap-confine` · ⏳ IN PROGRESS
 
-**Design-independent — can start immediately, needed for Core to work at all:**
+Ordered step list. Each step lands as its own commit; commits are sequenced so every
+intermediate state builds and, where the step is a pure refactor, is behaviourally a
+no-op on classic. Steps 4–5 are the only ones that change what runs on Core.
 
-- Rename `sc_mount_nvidia_driver` → `sc_mount_snap_gpu_driver`, add `sc_distro distro`
-  (pure rename + parameter; verifiable as a no-op on classic)
-- Invert the NVIDIA guard — **separate commit** from the rename
-- Harden `sc_copy_file()` against `ENOENT` (latent bug, reachable on classic today)
-
-**Reader resilience — a precondition, not a nicety.**
+**Reader resilience — the precondition every later step relies on.**
 
 Because export-tree collection is immediate (see *GC* above), the reader is the side
 that has to absorb the race. Every consumer of `export.sources` must:
@@ -1230,26 +1227,155 @@ that has to absorb the race. Every consumer of `export.sources` must:
   the launch does not;
 - tolerate the manifest itself being absent (no connections) or replaced mid-read.
 
-This subsumes the `sc_copy_file()` hardening listed above and raises it from "fix a
-latent bug" to "the design depends on it". Worth a dedicated unit test that points the
-reader at a manifest listing a file that does not exist.
+This is why it is **step 1**, not a footnote: steps 4–5 build on it directly, and it is
+a real, reachable bug on classic *today*, independent of anything else in this phase.
 
-**Design-dependent:**
+#### Step 1 — `sc_copy_file()`: tolerate a vanishing or unreadable source
 
-- Read `export.sources`; for each entry create a placeholder file and **bind-mount**
-  the source read-only into `/var/lib/snapd/lib/system/gpu/system/<iface>/<subdir>/`
-  (per Q7 — see *Delivery is per-file bind mounts*)
-- Remount the `gpu/` tmpfs read-only once, after all placeholders and binds are done
+`sc_copy_file()` currently `die()`s if `open()` or `fstat()` on the **source** fails.
+Change it to return a `bool` (copied / skipped) instead of always succeeding-or-dying:
+a failure to `open()` or `fstat()` the source is logged via `debug()` and treated as
+"skip this file", not fatal. Once `open()` succeeds, the fd pins the inode — POSIX
+unlink semantics mean the source cannot vanish out from under an already-open fd — so
+`sendfile()` cannot fail due to a concurrent GC once we have got this far. Destination
+side failures (`creat()`, `sendfile()` on our own scratch tmpfs) stay fatal: those
+indicate a problem with our own operation, not a race on the (from our perspective)
+read-only source tree, so masking them would hide a real bug.
 
-Existing local infrastructure that helps: `sc_copy_glob_files` already prefixes
-`rootfs_dir` to its glob, and `/var/lib/snapd` is in the scratch-rootfs bind-mount list
-(`mount-support.c:913`), so reading `/var/lib/snapd/export/...` from inside the scratch
-rootfs works on Core unchanged.
+`sc_copy_glob_files()` (the only caller) needs no change beyond ignoring/logging the
+return value — it already iterates independently over each glob match.
 
-**Unit tests:** `cmd/snap-confine/mount-support-test.c` already `#include`s
-`mount-support-nvidia.c`, so its `static` functions are testable in-process. There is
-currently **zero** coverage of this logic despite the infrastructure existing — worth
-adding *before* the restructure, to derisk it.
+This alone fixes a bug reachable on classic today (an `/etc/glvnd`/`/etc/vulkan` symlink
+target removed between `glob()` and `sc_copy_file()` currently kills the snap launch),
+and is a precondition for step 5 trusting a manifest that can be concurrently rewritten.
+
+#### Step 2 — rename `sc_mount_nvidia_driver` → `sc_mount_snap_gpu_driver`, thread `sc_distro`
+
+Pure rename + parameter addition, verifiable as a no-op on classic. `mount-support-nvidia.h`
+gains `#include "../libsnap-confine-private/classic.h"`; the function becomes
+`sc_mount_snap_gpu_driver(rootfs_dir, base_snap_name, distro)`. `mount-support.c`'s call
+site is updated to pass `config->distro`.
+
+**Supersedes, does not build on, the current branch tip.** The current tip commit
+(`25715557c3`, message "TODO") comments out the `SC_DISTRO_CLASSIC` guard rather than
+threading it through properly. This step replaces that WIP marker with the real
+`sc_distro` parameter; it is not layered on top of it.
+
+#### Step 3 — invert the NVIDIA guard
+
+The behaviour change that makes Core work at all. `sc_mount_snap_gpu_driver()` currently
+opens with `access(nvidia_driver_version_file(), F_OK) != 0 → return`, which gates the
+**entire function** — including `sc_mount_exported_paths()`, which is vendor-neutral.
+`NVIDIA_MULTIARCH` *is* enabled in the shipped snapd snap
+(`--enable-nvidia-multiarch`, `build-aux/snap/snapcraft.yaml:320`), so today the whole
+snap-exported-paths pipeline never runs on a Core device without an NVIDIA kernel
+module — i.e. nearly all of them.
+
+New structure — trigger condition is **"skip only when `classic && !nvidia_present`"**:
+
+```c
+const bool is_classic     = (distro == SC_DISTRO_CLASSIC);
+const bool nvidia_present = access(nvidia_driver_version_file(), F_OK) == 0;
+if (is_classic && !nvidia_present) {
+    return;
+}
+```
+
+Host-driver scanning (`sc_mount_nvidia_driver_multiarch/biarch`, `sc_mount_vulkan`,
+`sc_mount_egl`, and the `globs`/`globs_len` setup they need) moves inside
+`if (is_classic) { ... }`. `sc_mount_vulkan`/`sc_mount_egl` read `/usr/share/{vulkan,glvnd}`
+— host-driver paths that on Core resolve to the base snap and would only mount empty
+tmpfses — so they become classic-only rather than merely skipped when
+`exported_paths > 0`.
+
+**`#ifdef NVIDIA_MULTIARCH` stays where it is** — decided: `sc_mount_exported_paths()`
+is not hoisted out of it. Costs nothing on Core (the snapd snap is built
+`--enable-nvidia-multiarch`); the pre-existing BIARCH-classic gap (Arch/Fedora/openSUSE
+get no driver-libs exports at all) is unchanged and recorded as a follow-up, not fixed
+here.
+
+Classic behaviour is preserved *by construction*, not just by this guard: the export
+backend returns early on `release.OnClassic` (Phase 2, 2d), so no `export.sources`
+manifest ever exists on classic, and step 5's manifest-consuming code is an inherent
+no-op there regardless of this guard.
+
+#### Step 4 — AppArmor: read the export tree, allow the new bind mounts
+
+Lands **before** step 5's code needs it — permitting reads/mounts nothing yet performs
+is a safe no-op. Two corrections to note before editing:
+
+- the existing `/var/lib/snapd/export/{,*} r,` matches only **one level deep** (AppArmor
+  `*` does not cross `/`), so the manifest and unit files are unreadable as-is; needs
+  `/var/lib/snapd/export/system/{,**} r,`;
+- the scratch rootfs prefix is `/tmp/snap-private-tmp/snap.rootfs_*`, **not**
+  `/tmp/snap.rootfs_*` (changed by commit `02cf64b882`).
+
+```
+# read the manifest and the exported files
+/var/lib/snapd/export/system/{,**} r,
+# bind-mount exported files into the pooled tree
+mount options=(ro bind) /var/lib/snapd/export/system/** -> /tmp/snap-private-tmp/snap.rootfs_*/var/lib/snapd/lib/system/gpu/system/**,
+```
+
+The existing `/tmp/snap-private-tmp/snap.rootfs_*/var/lib/snapd/lib/system/gpu/{,**} w,`
+already covers creating the placeholder files and their parent directories inside the
+tmpfs — no change needed there. No snap-side AppArmor change is needed either —
+`interfaces/builtin/opengl.go` already grants `/var/lib/snapd/lib/system/gpu/{,**} rm`.
+
+#### Step 5 — consume `export.sources`; pool into the snap's mount namespace
+
+Read the manifest for each hardcoded GPU interface (mirroring the existing
+`.library-source` glob list — all seven interface names, even though only
+`egl-driver-libs` and `vulkan-driver-libs` currently produce a manifest; the rest are
+`ENOENT` no-ops, future-proofing `gbm-driver-libs`). For each line:
+
+- `<unit>/<subdir>/<file>` relative to `/var/lib/snapd/export/system/<iface>/`;
+- strip the leading `<unit>/` component (a pure string operation — factor into a small,
+  independently testable helper, since this is the one piece of step 5 with no I/O or
+  mount dependency);
+- source = interface root + line; destination =
+  `<rootfs>/var/lib/snapd/lib/system/gpu/system/<iface>/<subdir>/<file>`;
+- skip if the destination already exists (mirrors the existing dedup in
+  `sc_mount_exported_paths()`; with encoded filenames a genuine collision shouldn't
+  occur in practice, so this is a safety net, not the primary defence);
+- `mkpath(dirname(dst))`, create an **empty placeholder file** (you cannot bind-mount a
+  file onto a directory — `sc_mount_exported_paths()` only ever creates directories
+  today, this is new), then `sc_do_mount(src, dst, NULL, MS_BIND | MS_RDONLY, NULL)`,
+  skipping on `ENOENT` per the reader-resilience contract from step 1.
+
+**Ordering constraint, forced by existing code:** `sc_mount_exported_paths()` currently
+ends with `sc_remount_ro(tmpfs_path)` before returning — the `gpu/` tmpfs is read-only
+once that call returns. Config pooling must happen **before** that remount, so the
+function is restructured to: create tmpfs → bind-mount library dirs from
+`.library-source` (existing) → bind-mount config files from `export.sources` (new) →
+single `sc_remount_ro()` at the end.
+
+Delivery is **bind-mount, not copy** — see *Delivery is per-file bind mounts (Q7)* above
+for the full rationale (superseded an earlier copy-into-tmpfs sketch). The short version:
+pinning the source inode makes GC safe by construction (a collected unit cannot pull
+content out from under an already-mounted snap), and it keeps one delivery mechanism
+for both libraries and metadata rather than two.
+
+Existing local infrastructure that helps: `/var/lib/snapd` is already in the
+scratch-rootfs bind-mount list, so reading `/var/lib/snapd/export/...` from inside the
+scratch rootfs works on Core unchanged, with no new mount rule needed for the *read*
+side (only for the new *bind-mount* destinations, added in step 4).
+
+#### Step 6 — unit tests
+
+`cmd/snap-confine/mount-support-test.c` already `#include`s `mount-support-nvidia.c`
+directly, so its `static` functions are reachable in-process; currently it has three
+tests and none touch this code. **Scope deliberately limited**, per direction: tests
+that perform real mount operations would affect the host machine running the test
+suite, so this step only covers the pure, I/O-free helper extracted in step 5 (manifest
+line validation and unit-prefix stripping) — e.g. a valid line, an absolute path, a
+path containing `..`, a line with no `/`, and an empty line. The mount- and
+copy-dependent code paths remain untested here, consistent with the rest of this file.
+
+#### Step 7 — spread test (4b)
+
+See *Phase 4* below. Tracked separately since it is being run and verified directly
+rather than as part of this commit sequence.
 
 ### Phase 4 — Spread tests
 
@@ -1315,10 +1441,10 @@ from a path nothing creates yet is a no-op).
 | `interfaces/backends/backends.go` | ✅ Registered | 2 |
 | `dirs/dirs.go` | Not needed — decided (2c) the per-interface path accessor lives inside `interfaces/export` (`paths.go`), not `dirs.go` | 2 |
 | `interfaces/builtin/helpers.go` | ✅ Filename encoding extracted (`sourceDirEncodedName`); `exportUnitAndFileName` added | 2 |
-| `cmd/snap-confine/mount-support-nvidia.{c,h}` | ⏳ Rename + `sc_distro`; guard inversion; `ENOENT` hardening; manifest reader | 3 |
-| `cmd/snap-confine/mount-support.c` | ⏳ Update call site | 3 |
-| `cmd/snap-confine/mount-support-test.c` | ⏳ First-ever tests for this logic | 3 |
-| `cmd/snap-confine/snap-confine.apparmor.in` | ⏳ Deep read on export tree; correct `/tmp/snap-private-tmp/` prefix | 3 |
+| `cmd/snap-confine/mount-support-nvidia.{c,h}` | ⏳ Step 1: `sc_copy_file` hardening. Step 2: rename + `sc_distro`. Step 3: guard inversion. Step 5: manifest reader + bind-mount pooling | 3 |
+| `cmd/snap-confine/mount-support.c` | ⏳ Step 2: update call site | 3 |
+| `cmd/snap-confine/mount-support-test.c` | ⏳ Step 6: tests for the pure manifest-line helper only (no mount-dependent coverage — would affect the host running the suite) | 3 |
+| `cmd/snap-confine/snap-confine.apparmor.in` | ⏳ Step 4: deep read on export tree; new bind-mount rule; correct `/tmp/snap-private-tmp/` prefix | 3 |
 | `packaging/ubuntu-26.04/snapd.dirs` (+ others) | Optional / probably unnecessary | — |
 | `tests/core/interfaces-driver-libs/task.yaml` | ✅ Phase 1 version; runs on UC26 in CI | 4a |
 | `tests/core/interfaces-driver-libs/libs-provider-core26/meta/snap.yaml` | ✅ Done | 4a |
@@ -1332,7 +1458,33 @@ from a path nothing creates yet is a no-op).
 
 Recorded so the reasoning isn't lost and the same ground isn't re-covered.
 
-### Pass 9 — Phase 2 review; GC timing decided (current)
+### Pass 10 — Phase 3 broken into an ordered, commit-per-step plan (current)
+
+- Confirmed Phase 2 complete and reflected as such throughout (it already was, this
+  pass only re-verified against the tree — `interfaces/export/` fully implemented,
+  registered, wired into egl/vulkan, 2f review follow-ups applied).
+- Rewrote the Phase 3 section from a two-bucket ("design-independent" /
+  "design-dependent") sketch into seven ordered steps, each an independent commit:
+  1. `sc_copy_file()` reader-resilience hardening
+  2. rename + thread `sc_distro` (pure refactor)
+  3. NVIDIA guard inversion (the behaviour change)
+  4. AppArmor (lands before the code that needs it)
+  5. consume `export.sources`, bind-mount into the pooled tree
+  6. unit tests (scoped to the pure helper only — see below)
+  7. spread test (tracked separately; being run and verified directly rather than as
+     part of this commit sequence)
+- **Scoped step 6 down** in response to direction: tests that perform real mount
+  operations would affect the host machine running the test suite, so C unit test
+  coverage is limited to the pure, I/O-free manifest-line-parsing helper factored out
+  of step 5. The mount- and copy-dependent code stays untested here, matching the
+  existing state of `mount-support-test.c`.
+- Re-derived the *why* behind reader resilience being step 1 rather than a footnote:
+  it fixes a bug reachable on classic *today*, and step 5 cannot be trusted to read a
+  concurrently-rewritable manifest without it.
+- No design changes from Pass 9 — this pass is purely about sequencing the already-
+  settled design into an actionable, reviewable commit series.
+
+### Pass 9 — Phase 2 review; GC timing decided
 
 - Reviewed the Phase 2 commits (`056eecd8a1..HEAD`). Implementation found faithful to the
   design: set atomicity via tmp-dir + `AtomicRename` before the manifest flip, GC scoped
