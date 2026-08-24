@@ -81,6 +81,17 @@ func (b *Backend) ensureExports(spec *Specification, exportIfaces map[string]boo
 //     component refresh, and leftover "<unit>.tmp" directories from a
 //     previous, interrupted run, all with the same rule, without needing to
 //     know why something became unreferenced.
+//
+// Collection in step 3 is deliberately immediate, in the same pass that
+// flipped the manifest, rather than being deferred to a later Setup() or
+// held back by a grace period. The consequence is that a reader which has
+// already read the manifest may find a file it lists gone, or a unit being
+// removed while it walks it. Readers are therefore *required* to be
+// resilient: skip files that cannot be found or cannot be read, rather than
+// treating either as fatal. This is a contract, not an implementation
+// detail - see the "GC" section of TODO_CORE_DRIVER_LIBS.md, and note that
+// snap-confine's sc_copy_file() currently die()s on a missing source, which
+// must be fixed before it starts consuming this tree.
 func ensureExportsForInterface(ifaceName string, desired map[string]map[string]osutil.FileState) error {
 	root := InterfaceRoot(ifaceName)
 
