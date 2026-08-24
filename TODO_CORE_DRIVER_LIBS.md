@@ -1336,14 +1336,16 @@ byte-for-byte the same logic as before, just reindented around the new early ret
 Builds warning-free under all three configure variants; 47/47 existing unit tests pass
 under each. Landed as commit `5c80603fb5`.
 
-#### Step 3 — AppArmor: read the export tree, allow the new bind mounts
+#### Step 3 — AppArmor: read the export tree, allow the new bind mounts · ✅ DONE
 
 Lands **before** step 4's code needs it — permitting reads/mounts nothing yet performs
 is a safe no-op. Two corrections to note before editing:
 
 - the existing `/var/lib/snapd/export/{,*} r,` matches only **one level deep** (AppArmor
   `*` does not cross `/`), so the manifest and unit files are unreadable as-is; needs
-  `/var/lib/snapd/export/system/{,**} r,`;
+  `/var/lib/snapd/export/system/{,**} r,` **added alongside it** (the shallow rule stays,
+  since it is still what covers the flat `*.library-source` files sitting directly under
+  `export/`);
 - the scratch rootfs prefix is `/tmp/snap-private-tmp/snap.rootfs_*`, **not**
   `/tmp/snap.rootfs_*` (changed by commit `02cf64b882`).
 
@@ -1358,6 +1360,11 @@ The existing `/tmp/snap-private-tmp/snap.rootfs_*/var/lib/snapd/lib/system/gpu/{
 already covers creating the placeholder files and their parent directories inside the
 tmpfs — no change needed there. No snap-side AppArmor change is needed either —
 `interfaces/builtin/opengl.go` already grants `/var/lib/snapd/lib/system/gpu/{,**} rm`.
+
+**Verified:** generated the substituted profile via the same `sed` rule
+`Makefile.am` uses, and syntax-checked it with
+`apparmor_parser --skip-kernel-load -Q -T` — parses cleanly with no errors or warnings,
+matching a baseline check of the unmodified profile. Landed as commit `44aa8931c0`.
 
 #### Step 4 — consume `export.sources`; pool into the snap's mount namespace
 
@@ -1483,7 +1490,7 @@ from a path nothing creates yet is a no-op).
 | `cmd/snap-confine/mount-support-nvidia.{c,h}` | ✅ preliminary fix (`sc_copy_file` hardening) done; ✅ Step 1 (rename + `sc_distro`) done; ✅ Step 2 (guard inversion) done. ⏳ Step 4: manifest reader + bind-mount pooling | 3 |
 | `cmd/snap-confine/mount-support.c` | ✅ Step 1 (call site updated) done | 3 |
 | `cmd/snap-confine/mount-support-test.c` | ⏳ Step 5: tests for the pure manifest-line helper only (no mount-dependent coverage — would affect the host running the suite) | 3 |
-| `cmd/snap-confine/snap-confine.apparmor.in` | ⏳ Step 3: deep read on export tree; new bind-mount rule; correct `/tmp/snap-private-tmp/` prefix | 3 |
+| `cmd/snap-confine/snap-confine.apparmor.in` | ✅ Step 3 (deep read on export tree; new bind-mount rule) done | 3 |
 | `packaging/ubuntu-26.04/snapd.dirs` (+ others) | Optional / probably unnecessary | — |
 | `tests/core/interfaces-driver-libs/task.yaml` | ✅ Phase 1 version; runs on UC26 in CI | 4a |
 | `tests/core/interfaces-driver-libs/libs-provider-core26/meta/snap.yaml` | ✅ Done | 4a |
