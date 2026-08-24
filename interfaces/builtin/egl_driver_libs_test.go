@@ -431,12 +431,17 @@ func (s *EglDriverLibsInterfaceSuite) TestSymlinksSpecOnCore(c *C) {
 	c.Check(spec.Symlinks(), HasLen, 0)
 }
 
-func (s *EglDriverLibsInterfaceSuite) TestExportSpec(c *C) {
-	// export is only active on core
-	restore := release.MockOnClassic(false)
-	defer restore()
-
-	// Write ICD files
+// writeSnapIcdFixtures writes the snap-level ICD files, the libraries they
+// reference, and a couple of entries that must be ignored. It returns the
+// exported files a core export is expected to produce for them, keyed by
+// path relative to the unit.
+//
+// Both the ICD files and the libraries they name have to be written: a
+// library that cannot be found in library-source makes the export skip that
+// ICD file (see TestExportSpecMissingLibraryIsNotFatal), so writing only the
+// ICD files would yield an empty spec no matter what the interface does -
+// which would silently defeat the point of TestExportSpecOnClassic.
+func (s *EglDriverLibsInterfaceSuite) writeSnapIcdFixtures(c *C) map[string]osutil.FileState {
 	expected := map[string]osutil.FileState{}
 	for _, icdData := range []struct {
 		gpu    string
@@ -469,6 +474,15 @@ func (s *EglDriverLibsInterfaceSuite) TestExportSpec(c *C) {
 			icdData.dirIdx, icdData.subDir, icdData.gpu)
 		expected[filepath.Join("egl_vendor.d", fileName)] = osutil.FileReference{Path: icdPath}
 	}
+	return expected
+}
+
+func (s *EglDriverLibsInterfaceSuite) TestExportSpec(c *C) {
+	// export is only active on core
+	restore := release.MockOnClassic(false)
+	defer restore()
+
+	expected := s.writeSnapIcdFixtures(c)
 
 	spec := &export.Specification{}
 	c.Assert(spec.AddConnectedPlug(s.iface, s.plug, s.slot), IsNil)
@@ -531,6 +545,10 @@ func (s *EglDriverLibsInterfaceSuite) TestExportSpecOnClassic(c *C) {
 	// discoverable there via the symlinks backend.
 	restore := release.MockOnClassic(true)
 	defer restore()
+
+	// Write the same fixtures the core test uses, so that an empty spec
+	// can only be the OnClassic check and not simply an absence of input.
+	s.writeSnapIcdFixtures(c)
 
 	spec := &export.Specification{}
 	c.Assert(spec.AddConnectedPlug(s.iface, s.plug, s.slot), IsNil)

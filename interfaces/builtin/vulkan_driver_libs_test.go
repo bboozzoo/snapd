@@ -732,12 +732,16 @@ func (s *VulkanDriverLibsInterfaceSuite) TestSymlinksSpecOnCore(c *C) {
 	c.Check(spec.Symlinks(), HasLen, 0)
 }
 
-func (s *VulkanDriverLibsInterfaceSuite) TestExportSpec(c *C) {
-	// export is only active on core
-	restore := release.MockOnClassic(false)
-	defer restore()
-
-	// Write ICD files
+// writeSnapIcdAndLayerFixtures writes the snap-level ICD and layer files
+// plus the libraries they reference, returning the exported files a core
+// export is expected to produce for them, keyed by path relative to the
+// unit.
+//
+// The libraries matter as much as the ICD/layer files: one that cannot be
+// found in library-source makes the export skip the file naming it, so
+// writing only the JSON would yield an empty spec regardless of what the
+// interface does - which would silently defeat TestExportSpecOnClassic.
+func (s *VulkanDriverLibsInterfaceSuite) writeSnapIcdAndLayerFixtures(c *C) map[string]osutil.FileState {
 	expected := map[string]osutil.FileState{}
 	for _, icdData := range []struct {
 		gpu    string
@@ -800,6 +804,16 @@ func (s *VulkanDriverLibsInterfaceSuite) TestExportSpec(c *C) {
 `), 0644)
 	expected[filepath.Join("explicit_layer.d", "snap_vulkan-provider_vulkan-slot_vulkan-explicit_layer.d-gpu_layer.json")] =
 		osutil.FileReference{Path: explicitPath}
+
+	return expected
+}
+
+func (s *VulkanDriverLibsInterfaceSuite) TestExportSpec(c *C) {
+	// export is only active on core
+	restore := release.MockOnClassic(false)
+	defer restore()
+
+	expected := s.writeSnapIcdAndLayerFixtures(c)
 
 	spec := &export.Specification{}
 	c.Assert(spec.AddConnectedPlug(s.iface, s.plug, s.slot), IsNil)
@@ -892,6 +906,13 @@ func (s *VulkanDriverLibsInterfaceSuite) TestExportToComps(c *C) {
 func (s *VulkanDriverLibsInterfaceSuite) TestExportSpecOnClassic(c *C) {
 	// export is skipped on classic; the equivalent content is already
 	// discoverable there via the symlinks backend.
+	restore := release.MockOnClassic(true)
+	defer restore()
+
+	// Write the same fixtures the core test uses, so that an empty spec
+	// can only be the OnClassic check and not simply an absence of input.
+	s.writeSnapIcdAndLayerFixtures(c)
+
 	spec := &export.Specification{}
 	c.Assert(spec.AddConnectedPlug(s.iface, s.plug, s.slot), IsNil)
 	c.Check(spec.Files(), HasLen, 0)
