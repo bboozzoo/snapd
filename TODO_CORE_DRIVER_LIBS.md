@@ -1366,7 +1366,7 @@ tmpfs — no change needed there. No snap-side AppArmor change is needed either 
 `apparmor_parser --skip-kernel-load -Q -T` — parses cleanly with no errors or warnings,
 matching a baseline check of the unmodified profile. Landed as commit `44aa8931c0`.
 
-#### Step 4 — consume `export.sources`; pool into the snap's mount namespace
+#### Step 4 — consume `export.sources`; pool into the snap's mount namespace · ✅ DONE
 
 Read the manifest for each hardcoded GPU interface (mirroring the existing
 `.library-source` glob list — all seven interface names, even though only
@@ -1406,6 +1406,18 @@ Existing local infrastructure that helps: `/var/lib/snapd` is already in the
 scratch-rootfs bind-mount list, so reading `/var/lib/snapd/export/...` from inside the
 scratch rootfs works on Core unchanged, with no new mount rule needed for the *read*
 side (only for the new *bind-mount* destinations, added in step 3).
+
+Implemented as `sc_manifest_line_relpath()` (the pure, testable helper — validates a
+manifest line and strips the `<unit>/` prefix) plus `sc_mount_exported_config_files()`
+(the I/O-performing loop, called from `sc_mount_exported_paths()` right before its
+`sc_remount_ro()`, as planned above). The destination's parent directory is created via
+`dirname()` on a `strdup()`'d copy of `dst` (POSIX `dirname()` mutates its argument —
+same pattern already used elsewhere in this file), then a placeholder is created with
+plain `open(O_CREAT | O_WRONLY | O_NOFOLLOW)`.
+
+**Verified:** builds warning-free and passes all 47 existing unit tests under all three
+configure variants (plain, `--enable-nvidia-biarch`, `--enable-nvidia-multiarch`);
+`clang-format --dry-run --Werror` clean. Landed as commit `94d8cf9931`.
 
 #### Step 5 — unit tests
 
@@ -1487,7 +1499,7 @@ from a path nothing creates yet is a no-op).
 | `interfaces/backends/backends.go` | ✅ Registered | 2 |
 | `dirs/dirs.go` | Not needed — decided (2c) the per-interface path accessor lives inside `interfaces/export` (`paths.go`), not `dirs.go` | 2 |
 | `interfaces/builtin/helpers.go` | ✅ Filename encoding extracted (`sourceDirEncodedName`); `exportUnitAndFileName` added | 2 |
-| `cmd/snap-confine/mount-support-nvidia.{c,h}` | ✅ preliminary fix (`sc_copy_file` hardening) done; ✅ Step 1 (rename + `sc_distro`) done; ✅ Step 2 (guard inversion) done. ⏳ Step 4: manifest reader + bind-mount pooling | 3 |
+| `cmd/snap-confine/mount-support-nvidia.{c,h}` | ✅ preliminary fix (`sc_copy_file` hardening) done; ✅ Step 1 (rename + `sc_distro`) done; ✅ Step 2 (guard inversion) done; ✅ Step 4 (manifest reader + bind-mount pooling) done | 3 |
 | `cmd/snap-confine/mount-support.c` | ✅ Step 1 (call site updated) done | 3 |
 | `cmd/snap-confine/mount-support-test.c` | ⏳ Step 5: tests for the pure manifest-line helper only (no mount-dependent coverage — would affect the host running the suite) | 3 |
 | `cmd/snap-confine/snap-confine.apparmor.in` | ✅ Step 3 (deep read on export tree; new bind-mount rule) done | 3 |
