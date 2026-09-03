@@ -3,7 +3,9 @@ summary: Test driver-libs interfaces on Ubuntu Core
 details: |
     Verify that egl-driver-libs and cuda-driver-libs connections can be
     established on Ubuntu Core 26, that the correct .library-source export
-    files are written to /var/lib/snapd/export/, that classic-specific
+    files are written to /var/lib/snapd/export/, that the export backend
+    materialises the egl-driver-libs ICD manifest and files under
+    /var/lib/snapd/export/system/egl-driver-libs/, that classic-specific
     backends (ldconfig, EGL symlinks) are not activated, and that cleanup
     works on disconnect and snap remove.
 
@@ -35,6 +37,31 @@ execute: |
   export_egl=/var/lib/snapd/export/system_"$PROVIDER_SNAP"_egl-driver-libs_egl-driver-libs.library-source
   export_cuda=/var/lib/snapd/export/system_"$PROVIDER_SNAP"_cuda-driver-libs_cuda-driver-libs.library-source
 
+  # egl-driver-libs is the only one of the two interfaces connected below
+  # that implements ExportConnectedPlug (cuda-driver-libs has no
+  # icd-source, so there is nothing for the export backend to write for
+  # it). Expected layout, from interfaces/export/{paths,naming}.go and
+  # interfaces/builtin/helpers.go (sourceDirEncodedName,
+  # exportUnitAndFileName): one unit per (snap revision, component)
+  # pair, named "<instance>_<slot>_<snap-rev>[+<component>_<comp-rev>]",
+  # holding "<priority>_snap_<instance>[+<component>]_<slot>_<source-subdir>-<file>"
+  # under an "egl_vendor.d/" subdirectory (eglVendorSubDir) - the
+  # "<source-subdir>-" part is the last path component of the
+  # icd-source entry the file came from (here "egl.d" for both
+  # components), joined in by systemd.EscapeUnitNamePath, not just the
+  # bare file name. Priority is the slot's "priority" attribute (15)
+  # plus the index of the contributing directory in "icd-source" (comp1
+  # is index 1, comp2 is index 2 - index 0 is $SNAP/egl.d, which this
+  # fixture snap does not have). All of the above was cross-checked
+  # against interfaces/builtin's export backend directly (spec.Files())
+  # for this exact snap.yaml before being hardcoded here.
+  export_root=/var/lib/snapd/export/system/egl-driver-libs
+  manifest="$export_root"/export.sources
+  comp1_unit="$PROVIDER_SNAP"_egl-driver-libs_x1+"$COMP1"_x1
+  comp2_unit="$PROVIDER_SNAP"_egl-driver-libs_x1+"$COMP2"_x1
+  comp1_file="$comp1_unit"/egl_vendor.d/16_snap_"$PROVIDER_SNAP"+"$COMP1"_egl-driver-libs_egl.d-vendor.json
+  comp2_file="$comp2_unit"/egl_vendor.d/17_snap_"$PROVIDER_SNAP"+"$COMP2"_egl-driver-libs_egl.d-vendor.json
+
   snap install --dangerous "$PROVIDER_SNAP"_*.snap
   snap install --dangerous \
       "$PROVIDER_SNAP"+"$COMP1"_*.comp \
@@ -49,20 +76,29 @@ execute: |
   MATCH "$COMPS_MNT"/"$COMP1"/x1/libs < "$export_egl"
   MATCH "$COMPS_MNT"/"$COMP2"/x1/libs < "$export_egl"
 
+  # The export backend must additionally have materialised the
+  # egl-driver-libs manifest, listing both ICD files (one path per line,
+  # relative to $export_root), and the files themselves, with their
+  # original content copied in verbatim.
+  grep -qxF "$comp1_file" "$manifest"
+  grep -qxF "$comp2_file" "$manifest"
+  diff -u "$COMP1"/egl.d/vendor.json "$export_root"/"$comp1_file"
+  diff -u "$COMP2"/egl.d/vendor.json "$export_root"/"$comp2_file"
+
   # Classic-specific backends must NOT be active on Core
   not test -f /etc/ld.so.conf.d/snap.system.conf
   not ls /etc/glvnd/egl_vendor.d/*snap* 2>/dev/null
 
-  # TODO: assert on the exported ICD content under
-  # /var/lib/snapd/export/system/egl-driver-libs/ (the manifest and the
-  # files it lists) once this test also covers what the export backend
-  # writes, not just .library-source.
-
-  # Disconnect both interfaces and verify .library-source files are cleaned up
+  # Disconnect both interfaces and verify .library-source files, and the
+  # egl-driver-libs export tree, are cleaned up (garbage collection is
+  # synchronous within the disconnect's Setup() call - see
+  # ensureExportsForInterface in interfaces/export/reconcile.go - so
+  # there is no need to wait or retry here)
   snap disconnect system:egl-driver-libs "$PROVIDER_SNAP":egl-driver-libs
   snap disconnect system:cuda-driver-libs "$PROVIDER_SNAP":cuda-driver-libs
   not test -f "$export_egl"
   not test -f "$export_cuda"
+  not test -d "$export_root"
 
   # Reconnect, then remove the snap and verify cleanup
   snap connect system:cuda-driver-libs "$PROVIDER_SNAP":cuda-driver-libs
@@ -70,3 +106,4 @@ execute: |
   snap remove "$PROVIDER_SNAP"
   not test -f "$export_egl"
   not test -f "$export_cuda"
+  not test -d "$export_root"
