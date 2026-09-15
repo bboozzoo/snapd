@@ -22,6 +22,7 @@ package interfaces
 import (
 	"fmt"
 
+	"github.com/snapcore/snapd/naming"
 	"github.com/snapcore/snapd/snap"
 	"github.com/snapcore/snapd/timings"
 )
@@ -156,12 +157,10 @@ type SetupContext struct {
 	// The callback is only provided if the backend implements
 	// DelayedSideEffectsBackend.
 	DelayEffect func(backend SecurityBackend, item DelayedSideEffect)
-	// ForceMountNsApply is set to true when the mount namespace of the snap
-	// must be (re)applied even if the desired mount profile did not change. The
-	// mount backend uses it to skip its "no changes" early return, e.g. when a
-	// previous apply attempt was skipped because the snap lock was busy and the
-	// operation is being retried.
-	ForceMountNsApply bool
+	// PreviouslyBusy is set to true when a previous call found some aspect of
+	// the snap installation to be in active use and the profile setup needed to
+	// be retried.
+	PreviouslyBusy bool
 }
 
 // SecurityBackend abstracts interactions between the interface system and the
@@ -239,4 +238,15 @@ type DelayedSideEffectsBackend interface {
 func SupportsDelayingEffects(backend SecurityBackend) bool {
 	_, ok := backend.(DelayedSideEffectsBackend)
 	return ok
+}
+
+// SnapBusyError is an error the security backend can return indicating that the
+// profiles could not have been applied and the attempt should be retried.
+type SnapBusyError struct {
+	Snap naming.InstanceName
+}
+
+func (e *SnapBusyError) Error() string {
+	// TODO make this more meaningful
+	return fmt.Sprintf("%q is busy")
 }

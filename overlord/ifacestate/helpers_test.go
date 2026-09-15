@@ -688,7 +688,7 @@ func (s *helpersSuite) TestSetupSecurityByBackendForceMountNsApplyOnRetry(c *C) 
 		BackendName: "fake",
 		SetupCallback: func(appSet *interfaces.SnapAppSet, opts interfaces.ConfinementOptions, sctx interfaces.SetupContext, repo *interfaces.Repository) error {
 			applied = append(applied, appSet.InstanceName().String())
-			if sctx.ForceMountNsApply {
+			if sctx.PreviouslyBusy {
 				forceApplied = append(forceApplied, appSet.InstanceName().String())
 			}
 			return nil
