@@ -37,6 +37,7 @@ import (
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/sandbox/cgroup"
 	"github.com/snapcore/snapd/snap"
+	"github.com/snapcore/snapd/snap/naming"
 	"github.com/snapcore/snapd/testutil"
 	"github.com/snapcore/snapd/timings"
 )
@@ -389,15 +390,15 @@ func (s *backendSuite) TestSetupLockBusy(c *C) {
 
 	// While the snap lock is held (e.g. by a concurrently running snap-confine)
 	// the immediate apply inside Setup() declines with a retryable
-	// SnapNamespaceBusyError. The desired mount profile is still committed, so
+	// interfaces.SnapBusyError. The desired mount profile is still committed, so
 	// the caller can retry the apply later once the lock is free.
 	update = true
 	err = snaplock.WithLock("snap-name", func() error {
 		err := s.Backend.Setup(appSet, interfaces.ConfinementOptions{}, sctx, s.Repo, timings.New(nil).StartSpan("", ""))
-		var snapBusyErr *mount.SnapNamespaceBusyError
+		var snapBusyErr *interfaces.SnapBusyError
 		c.Assert(errors.As(err, &snapBusyErr), Equals, true,
-			Commentf("expected a SnapNamespaceBusyError, got: %v", err))
-		c.Check(snapBusyErr.SnapName, Equals, "snap-name")
+			Commentf("expected a SnapBusyError, got: %v", err))
+		c.Check(snapBusyErr.Snap, Equals, naming.InstanceName("snap-name"))
 		c.Check(cmd.Calls(), HasLen, 0)
 		return err
 	})

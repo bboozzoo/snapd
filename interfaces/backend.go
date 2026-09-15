@@ -22,8 +22,8 @@ package interfaces
 import (
 	"fmt"
 
-	"github.com/snapcore/snapd/naming"
 	"github.com/snapcore/snapd/snap"
+	"github.com/snapcore/snapd/snap/naming"
 	"github.com/snapcore/snapd/timings"
 )
 
@@ -247,6 +247,5 @@ type SnapBusyError struct {
 }
 
 func (e *SnapBusyError) Error() string {
-	// TODO make this more meaningful
-	return fmt.Sprintf("%q is busy")
+	return fmt.Sprintf("snap %q is busy, security profiles could not be applied", e.Snap)
 }
