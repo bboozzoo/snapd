@@ -413,13 +413,13 @@ func (s *backendSuite) TestSetupLockBusy(c *C) {
 	// Once the lock is available, a retry with ForceMountNsApply set re-applies
 	// the namespace even though the desired profile did not change (it was
 	// already committed on the failed attempt).
-	sctx.ForceMountNsApply = true
+	sctx.PreviouslyBusy = true
 	err = s.Backend.Setup(appSet, interfaces.ConfinementOptions{}, sctx, s.Repo, timings.New(nil).StartSpan("", ""))
 	c.Assert(err, IsNil)
 	c.Check(cmd.Calls(), DeepEquals, [][]string{{"snap-update-ns", "--snap-already-locked", "snap-name"}})
 
 	// A plain retry without ForceMountNsApply is a no-op (mutated == false).
-	sctx.ForceMountNsApply = false
+	sctx.PreviouslyBusy = false
 	cmd.ForgetCalls()
 	err = s.Backend.Setup(appSet, interfaces.ConfinementOptions{}, sctx, s.Repo, timings.New(nil).StartSpan("", ""))
 	c.Assert(err, IsNil)
@@ -457,7 +457,7 @@ func (s *backendSuite) TestSetupForceMountNsApply(c *C) {
 	// With ForceMountNsApply the namespace is (re)applied even though the
 	// desired mount profile did not change. This is used when a previous apply
 	// attempt was skipped because the snap lock was busy.
-	sctx.ForceMountNsApply = true
+	sctx.PreviouslyBusy = true
 	err = s.Backend.Setup(appSet, interfaces.ConfinementOptions{}, sctx, s.Repo, timings.New(nil).StartSpan("", ""))
 	c.Assert(err, IsNil)
 	c.Check(cmd.Calls(), DeepEquals, [][]string{{"snap-update-ns", "--snap-already-locked", "snap-name"}})

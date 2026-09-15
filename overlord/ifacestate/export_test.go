@@ -234,7 +234,7 @@ func (m *InterfaceManager) SetupSecurityByBackend(task *state.Task, appSets []*i
 }
 
 func RetryOnMountNsBusy(task *state.Task, busySnaps []string) error {
-	return retryOnMountNsBusy(task, busySnaps)
+	return maybeRetryForBusySnaps(task, busySnaps)
 }
 
 func MockIsSnapVerified(new func(st *state.State, snapID string) bool) (restore func()) {

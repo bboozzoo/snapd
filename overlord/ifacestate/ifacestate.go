@@ -42,12 +42,9 @@ import (
 
 var connectRetryTimeout = time.Second * 5
 
-// mountNsLockRetryTimeout is the delay before retrying a task that could not
-// take the snap lock because a concurrent snap-confine or snap-discard-ns is
-// operating on the snap's mount namespace (see LP#2164926). The mount backend
-// returns a SnapNamespaceBusyError and the task handler bounces it to the task
-// runner as a Retry via retryOnMountNsBusy.
-var mountNsLockRetryTimeout = 500 * time.Millisecond
+// securityProfilesSetupRetryTimeout is the delay before retrying security
+// profiles setup
+var securityProfilesSetupRetryTimeout = 500 * time.Millisecond
 
 var regenerateSecurityProfilesChangeKind = swfeats.RegisterChangeKind("regenerate-security-profiles")
 
