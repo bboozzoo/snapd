@@ -141,7 +141,7 @@ func (b *Backend) Setup(appSet *interfaces.SnapAppSet, opts interfaces.Confineme
 // updateOrDiscardLocked attempts to update the mount namespace for a snap while holding
 // the snap lock, which serializes the apply against a concurrently running
 // snap-confine or snap-discard-ns. If the lock cannot be taken, a
-// SnapNamespaceBusyError naming the affected snap is returned, so the caller
+// interfaces.SnapBusyError naming the affected snap is returned, so the caller
 // can retry the apply later rather than race the concurrent namespace build.
 // The desired mount profile is committed by Setup() before this is called, so
 // this only (re)applies the namespace. See LP#2164926.
@@ -277,23 +277,6 @@ func (b *Backend) SandboxFeatures() []string {
 var _ interfaces.DelayedSideEffectsBackend = (*Backend)(nil)
 
 var runningApplicationsError = errors.New("snap has running applications")
-
-// SnapNamespaceBusyError is returned when the snap lock of a snap could not be
-// taken because another process (e.g. snap-confine or snap-discard-ns) is
-// currently operating on the snap's mount namespace. The SnapName field
-// identifies the affected snap so the caller can retry just that snap. See
-// LP#2164926.
-//
-// There is no sentinel error and no Is() method: the affected snap name is
-// carried by the error itself, so detection is done via errors.As() and the
-// name is read from the SnapName field.
-type SnapNamespaceBusyError struct {
-	SnapName string
-}
-
-func (e *SnapNamespaceBusyError) Error() string {
-	return fmt.Sprintf("snap lock of snap %q is busy, its mount namespace is possibly being updated", e.SnapName)
-}
 
 func (b *Backend) ApplyDelayedEffects(appSet *interfaces.SnapAppSet, work []interfaces.DelayedSideEffect, tm timings.Measurer) error {
 	seen := map[interfaces.DelayedEffect]bool{}
