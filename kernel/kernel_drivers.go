@@ -83,37 +83,38 @@ func writeDriversTreeMeta(destDir string) error {
 	return osutil.AtomicWriteFile(driversTreeMetaPath(destDir), data, 0644, 0)
 }
 
-// readDriversTreeGeneratorVersion returns the generator version recorded
-// for destDir, or 0 if no marker is present (e.g. a tree built before this
-// mechanism existed) — 0 always compares as needing a check.
-func readDriversTreeGeneratorVersion(destDir string) (int, error) {
+// readDriversTreeGeneratorMeta returns the generator metadata recorded for
+// destDir. If no marker value is present a default zero value is returned.
+func readDriversTreeGeneratorMeta(destDir string) (driversTreeMeta, error) {
 	data, err := os.ReadFile(driversTreeMetaPath(destDir))
 	if errors.Is(err, fs.ErrNotExist) {
-		return 0, nil
+		return driversTreeMeta{}, nil
 	}
 	if err != nil {
-		return 0, err
+		return driversTreeMeta{}, err
 	}
 	var meta driversTreeMeta
 	if err := json.Unmarshal(data, &meta); err != nil {
-		// Treat unparseable metadata the same as missing: needs a check.
-		return 0, nil
+		// Treat unparseable metadata the same as missing: needs a check, or
+		// could be corrupted?
+		return driversTreeMeta{}, nil
 	}
-	return meta.GeneratorVersion, nil
+	return driversTreeMeta{}, nil
 }
 
 // DriversTreeNeedsCheck reports whether destDir's recorded generator
 // version is strictly older than the version of the code currently
-// running. Forward-only by design: if destDir was built by a *newer*
-// generator (e.g. snapd was reverted to an older build after a fix
-// shipped), this returns false — an older snapd must never regenerate
-// (and potentially regress) a tree a newer snapd already fixed.
+// running.
 func DriversTreeNeedsCheck(destDir string) (bool, error) {
-	v, err := readDriversTreeGeneratorVersion(destDir)
+	v, err := readDriversTreeGeneratorMeta(destDir)
 	if err != nil {
 		return false, err
 	}
-	return kernelDriversTreeGeneratorVersion > v, nil
+	logger.Debugf("checking kernel tree generator version %v, current %v",
+		v.GeneratorVersion, kernelDriversTreeGeneratorVersion)
+	// Only care about older (lower) versions. The tree may have been build by a
+	// newer snapd.
+	return kernelDriversTreeGeneratorVersion > v.GeneratorVersion, nil
 }
 
 // We expect as a minimum something that starts with three numbers
