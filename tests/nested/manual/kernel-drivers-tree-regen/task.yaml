@@ -10,10 +10,11 @@ details: |
   kernel snap happens to get refreshed too.
 
   This test simulates a drivers tree that was built by "older" logic
-  (by deleting its generator-version marker and one entry from each of
-  the modules and firmware trees) and verifies that simply restarting
-  snapd is enough to detect and correct it live, without a reboot, via
-  the automatic "check-kernel-drivers-tree" change.
+  (by deleting its generator-version marker, one symlink and one
+  modprobe data file from the modules tree, and one entry from the
+  firmware tree) and verifies that simply restarting snapd is enough to
+  detect and correct it live, without a reboot, via the automatic
+  "check-kernel-drivers-tree" change.
 
 systems:
   - -ubuntu-1*
@@ -87,21 +88,34 @@ execute: |
       exit 1
   fi
 
+  # Pick one modprobe data file (a regular file copied from the kernel
+  # snap, named modules.*) to delete as well - with no kernel-modules
+  # components installed depmod is not involved, so the restore must be
+  # an exact copy of what the kernel snap ships.
+  modinfo_file="$(remote.exec "ls /snap/pc-kernel/current/modules/${kver} | grep '^modules\.' | head -1")"
+  if [ -z "$modinfo_file" ]; then
+      echo "no modules.* files in the kernel snap?"
+      exit 1
+  fi
+
   # Simulate a tree built by older/buggy generation logic:
   # - delete the generator-version marker, so it is treated as
   #   version 0 (always stale, regardless of what this snapd build's
   #   own generator version actually is);
   # - delete the "kernel" symlink from the live modules tree (always
   #   present in a correctly-built tree, see createModulesSubtree);
-  # - delete one top-level firmware vendor symlink, if any exists.
+  # - delete one modprobe data file from the live modules tree;
+  # - delete one top-level firmware vendor symlink.
   remote.exec "sudo rm -f ${drivers_tree}/snapd.meta"
   remote.exec "sudo rm -f ${modules_dir}/kernel"
+  remote.exec "sudo rm -f ${modules_dir}/${modinfo_file}"
   remote.exec "sudo rm -rfv ${firmware_dir}/${fw_entry}"
 
   # Confirm the corruption is visible live, through the bind-mounted
   # paths, *before* triggering the fix - this is the exact runtime
   # symptom the feature exists to correct.
   not remote.exec "test -e /usr/lib/modules/${kver}/kernel"
+  not remote.exec "test -e /usr/lib/modules/${kver}/${modinfo_file}"
   not remote.exec "test -e /usr/lib/firmware/${fw_entry}"
 
   # Restarting snapd is the trigger: on its next Ensure() tick it
@@ -115,11 +129,16 @@ execute: |
 
   # The underlying tree is corrected...
   remote.exec "test -L ${modules_dir}/kernel"
+  remote.exec "test -f ${modules_dir}/${modinfo_file}"
+  # ...the restored modinfo file is an exact copy of what the kernel
+  # snap ships...
+  remote.exec "cmp ${modules_dir}/${modinfo_file} /snap/pc-kernel/current/modules/${kver}/${modinfo_file}"
   remote.exec "test -L ${firmware_dir}/${fw_entry}"
 
   # ...and, critically, so is the *live*, already-mounted view, without
   # any reboot: this is the assertion this whole feature exists for.
   remote.exec "test -L /usr/lib/modules/${kver}/kernel"
+  remote.exec "test -f /usr/lib/modules/${kver}/${modinfo_file}"
   remote.exec "test -L /usr/lib/firmware/${fw_entry}"
 
   # The marker is back, and non-zero, i.e. it was actually rewritten by
