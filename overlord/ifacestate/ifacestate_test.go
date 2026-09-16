@@ -5823,6 +5823,87 @@ slots:
 	c.Check(snapst.PendingSecurity, DeepEquals, &snapstate.PendingSecurityState{})
 }
 
+// TestDoRemoveAlreadyDisconnectedInRepo simulates a busy-retry: an earlier,
+// retried attempt of the same remove-profiles task already disconnected the
+// snap being removed in the (ephemeral) repository, so repo.DisconnectSnap()
+// returns an empty affected-snaps list on this attempt, while conns (durable
+// state) still records the connection. removeProfilesForSnap must still
+// derive the affected-snaps set from conns and (re-)apply security to the
+// other, still-installed end of the connection, rather than silently
+// skipping it.
+func (s *interfaceManagerSuite) TestDoRemoveAlreadyDisconnectedInRepo(c *C) {
+	s.mockIfaces(&ifacetest.TestInterface{InterfaceName: "test"}, &ifacetest.TestInterface{InterfaceName: "test2"})
+	var consumerYaml = `
+name: consumer
+version: 1
+plugs:
+ plug:
+  interface: test
+`
+	var producerYaml = `
+name: producer
+version: 1
+slots:
+ slot:
+  interface: test
+`
+	s.mockSnap(c, consumerYaml)
+	s.mockSnap(c, producerYaml)
+
+	s.state.Lock()
+	s.state.Set("conns", map[string]any{
+		"consumer:plug producer:slot": map[string]any{"interface": "test"},
+	})
+	s.state.Unlock()
+
+	mgr := s.manager(c)
+
+	func() {
+		s.state.Lock()
+		defer s.state.Unlock()
+		// mock relevant unlink-snap behavior
+		var snapst snapstate.SnapState
+		c.Assert(snapstate.Get(s.state, "consumer", &snapst), IsNil)
+		snapst.Active = false
+		snapstate.Set(s.state, "consumer", &snapst)
+		c.Check(ifacestate.OnSnapLinkageChanged(s.state, &snapstate.SnapSetup{SideInfo: &snap.SideInfo{RealName: "consumer"}}), IsNil)
+	}()
+
+	// Simulate the earlier, busy-retried attempt: disconnect the snap in
+	// the (ephemeral) repository directly, without touching conns (durable
+	// state), just as a prior invocation of removeProfilesForSnap would
+	// have left things after m.repo.DisconnectSnap() succeeded but before
+	// the task finished.
+	repo := mgr.Repository()
+	affected, err := repo.DisconnectSnap("consumer")
+	c.Assert(err, IsNil)
+	c.Assert(affected, testutil.DeepUnsortedMatches, []string{"consumer", "producer"})
+
+	// Run the remove-security task. repo.DisconnectSnap("consumer") will
+	// now return an empty list (already disconnected above), but conns
+	// still has the connection recorded.
+	change := s.addRemoveSnapSecurityChange("consumer")
+	s.se.Ensure()
+	s.se.Wait()
+	s.se.Stop()
+
+	// Change succeeds
+	s.state.Lock()
+	defer s.state.Unlock()
+	c.Check(change.Status(), Equals, state.DoneStatus)
+
+	// Snap is removed from repository
+	c.Check(repo.Plug("consumer", "slot"), IsNil)
+
+	// Security of the snap was removed
+	c.Check(s.secBackend.RemoveCalls, DeepEquals, []string{"consumer"})
+
+	// Security of the related snap was still configured, derived from
+	// conns rather than repo.DisconnectSnap()'s (now-empty) return value.
+	c.Check(s.secBackend.SetupCalls, HasLen, 1)
+	c.Check(s.secBackend.SetupCalls[0].AppSet.InstanceName(), Equals, naming.InstanceName("producer"))
+}
+
 func (s *interfaceManagerSuite) TestConnectTracksConnectionsInState(c *C) {
 	s.MockModel(c, nil)
 

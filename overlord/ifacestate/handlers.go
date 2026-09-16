@@ -651,12 +651,43 @@ func (m *InterfaceManager) doRemoveProfiles(task *state.Task, tomb *tomb.Tomb) e
 }
 
 func (m *InterfaceManager) removeProfilesForSnap(task *state.Task, _ *tomb.Tomb, snapName string, tm timings.Measurer) error {
-	// Disconnect the snap entirely.
-	// This is required to remove the snap from the interface repository.
-	// The returned list of affected snaps will need to have its security setup
-	// to reflect the change.
-	affectedSnaps, err := m.repo.DisconnectSnap(snapName)
+	st := task.State()
+
+	// Compute the affected-snaps set from conns (durable state), not from
+	// repo.DisconnectSnap()'s return value. conns is never pruned for a
+	// removed snap during this flow (discard-conns is dead code, kept only
+	// for state-patch backward compat), so this set is stable across
+	// busy-retries of this same task -- unlike repo.DisconnectSnap(), which
+	// only reports what it *actually disconnects in that call* and would
+	// silently shrink to empty on a retry after an earlier attempt already
+	// disconnected everything in the ephemeral repository.
+	conns, err := getConns(st)
 	if err != nil {
+		return err
+	}
+	affectedSet := make(map[string]bool)
+	for id := range conns {
+		connRef, err := interfaces.ParseConnRef(id)
+		if err != nil {
+			return err
+		}
+		if connRef.PlugRef.Snap == snapName || connRef.SlotRef.Snap == snapName {
+			// mirror repo.DisconnectSnap()'s own "seen" semantics: both
+			// endpoints of every matching connection are affected,
+			// including snapName itself.
+			affectedSet[connRef.PlugRef.Snap] = true
+			affectedSet[connRef.SlotRef.Snap] = true
+		}
+	}
+	affectedSnaps := make([]string, 0, len(affectedSet))
+	for name := range affectedSet {
+		affectedSnaps = append(affectedSnaps, name)
+	}
+	sort.Strings(affectedSnaps)
+
+	// Disconnect the snap in the (ephemeral) repository -- return value
+	// intentionally unused for affectedSnaps (see above).
+	if _, err := m.repo.DisconnectSnap(snapName); err != nil {
 		return err
 	}
 	if err := m.setupAffectedSnaps(task, snapName, affectedSnaps, tm); err != nil {
