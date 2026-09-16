@@ -1088,6 +1088,75 @@ func (s *kernelDriversTestSuite) TestRegenerateMissingModulesVendorDirSymlink(c 
 	c.Check(inodeOf(c, modsParent), Equals, modsParentInode)
 }
 
+func (s *kernelDriversTestSuite) TestRegenerateRestoresModinfoFile(c *C) {
+	kversion := "5.15.0-78-generic"
+	mountDir := filepath.Join(dirs.SnapMountDir, "pc-kernel/1")
+	createKernelSnapFiles(c, kversion, mountDir, createKernelSnapFilesOpts{})
+
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, "pc-kernel", snap.R(1))
+	kMntPts := kernel.MountPoints{Current: mountDir, Target: mountDir}
+
+	_, err := kernel.EnsureKernelDriversTree(kMntPts, nil, destDir,
+		&kernel.KernelDriversTreeOptions{KernelInstall: true})
+	c.Assert(err, IsNil)
+
+	modsParent := filepath.Join(destDir, "lib", "modules")
+	modsParentInode := inodeOf(c, modsParent)
+
+	// Delete a modprobe data file (a regular file copied from the kernel
+	// snap by createModulesSubtree) from the live tree; it must be
+	// restored from the kernel snap content on regenerate. With no
+	// components installed depmod does not run, so the restored content
+	// must match the kernel snap's copy exactly.
+	modinfoPath := filepath.Join(modsParent, kversion, "modules.symbols")
+	c.Assert(os.Remove(modinfoPath), IsNil)
+
+	changed, err := kernel.EnsureKernelDriversTree(kMntPts, nil, destDir,
+		&kernel.KernelDriversTreeOptions{Regenerate: true})
+	c.Assert(err, IsNil)
+	c.Check(changed, Equals, true)
+
+	restored, err := os.ReadFile(modinfoPath)
+	c.Assert(err, IsNil)
+	src, err := os.ReadFile(filepath.Join(mountDir, "modules", kversion, "modules.symbols"))
+	c.Assert(err, IsNil)
+	c.Check(restored, DeepEquals, src)
+
+	// The lib/modules directory itself must never be renamed/recreated:
+	// it is a bind-mount source, only its children may be swapped.
+	c.Check(inodeOf(c, modsParent), Equals, modsParentInode)
+}
+
+func (s *kernelDriversTestSuite) TestRegenerateCorruptedModinfoFile(c *C) {
+	kversion := "5.15.0-78-generic"
+	mountDir := filepath.Join(dirs.SnapMountDir, "pc-kernel/1")
+	createKernelSnapFiles(c, kversion, mountDir, createKernelSnapFilesOpts{})
+
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, "pc-kernel", snap.R(1))
+	kMntPts := kernel.MountPoints{Current: mountDir, Target: mountDir}
+
+	_, err := kernel.EnsureKernelDriversTree(kMntPts, nil, destDir,
+		&kernel.KernelDriversTreeOptions{KernelInstall: true})
+	c.Assert(err, IsNil)
+
+	// Corrupt (rather than delete) a modprobe data file in the live
+	// tree; the byte-content comparison must notice the difference and
+	// swap in the corrected copy.
+	modinfoPath := filepath.Join(destDir, "lib", "modules", kversion, "modules.symbols")
+	c.Assert(os.WriteFile(modinfoPath, []byte("corrupted"), 0644), IsNil)
+
+	changed, err := kernel.EnsureKernelDriversTree(kMntPts, nil, destDir,
+		&kernel.KernelDriversTreeOptions{Regenerate: true})
+	c.Assert(err, IsNil)
+	c.Check(changed, Equals, true)
+
+	restored, err := os.ReadFile(modinfoPath)
+	c.Assert(err, IsNil)
+	src, err := os.ReadFile(filepath.Join(mountDir, "modules", kversion, "modules.symbols"))
+	c.Assert(err, IsNil)
+	c.Check(restored, DeepEquals, src)
+}
+
 func (s *kernelDriversTestSuite) TestRegenerateMissingTopLevelFirmwareSymlink(c *C) {
 	kversion := "5.15.0-78-generic"
 	mountDir := filepath.Join(dirs.SnapMountDir, "pc-kernel/1")
