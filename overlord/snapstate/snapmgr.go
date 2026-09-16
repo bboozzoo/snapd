@@ -93,6 +93,7 @@ type SnapManager struct {
 	ensuredDesktopFilesUpdated  bool
 	ensuredDownloadsCleanedNext time.Time
 	ensureStoreCacheCleanNext   time.Time
+	ensureKernelCheckDone       bool
 
 	changeCallbackID int
 }
@@ -1704,6 +1705,10 @@ func (m *SnapManager) ensureKernelDriversTreeChecked() error {
 	m.state.Lock()
 	defer m.state.Unlock()
 
+	if m.ensureKernelCheckDone {
+		return nil
+	}
+
 	var seeded bool
 	if err := m.state.Get("seeded", &seeded); err != nil && !errors.Is(err, state.ErrNoState) {
 		return err
@@ -1748,6 +1753,8 @@ func (m *SnapManager) ensureKernelDriversTreeChecked() error {
 		return err
 	}
 	if !needsCheck {
+		// We're done, the tree is up to date, nothing more to do.
+		m.ensureKernelCheckDone = true
 		return nil
 	}
 
@@ -1778,6 +1785,9 @@ func (m *SnapManager) ensureKernelDriversTreeChecked() error {
 	chg := m.state.NewChange("check-kernel-drivers-tree",
 		fmt.Sprintf(i18n.G("Check kernel drivers tree for %q"), kernelInfo.InstanceName()))
 	chg.AddTask(t)
+
+	// We're done, a change was created, nothing more to do here.
+	m.ensureKernelCheckDone = true
 
 	return nil
 }
