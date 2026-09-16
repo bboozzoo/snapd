@@ -5249,3 +5249,54 @@ func (m *SnapManager) undoDiscardOldKernelSnapSetup(t *state.Task, _ *tomb.Tomb)
 
 	return nil
 }
+
+// doCheckKernelDriversTree is the handler for checkKernelDriversTreeTaskKind.
+// It re-derives the current kernel snap and its currently active
+// kernel-modules components live at execution time (mirroring
+// doDiscardOldKernelSnapSetup's style) rather than trusting anything
+// stashed on the task, and asks the backend to check (and, if needed,
+// regenerate) the on-disk drivers tree. There is no undo handler: this is a
+// best-effort, idempotent verify/fix-forward operation with no other
+// system state depending on it being reversed. If it fails, the change is
+// left in an error state and the next SnapManager.Ensure() tick will detect
+// that the on-disk marker is still stale and create a fresh change to
+// retry.
+func (m *SnapManager) doCheckKernelDriversTree(t *state.Task, _ *tomb.Tomb) error {
+	st := t.State()
+	st.Lock()
+	defer st.Unlock()
+
+	deviceCtx, err := DeviceCtx(st, t, nil)
+	if err != nil {
+		return err
+	}
+	kernelInfo, err := KernelInfo(st, deviceCtx)
+	if err != nil {
+		return err
+	}
+
+	var snapst SnapState
+	if err := Get(st, kernelInfo.InstanceName(), &snapst); err != nil {
+		return err
+	}
+	currentComps := snapst.Sequence.ComponentsWithTypeForRev(snapst.Current, snap.KernelModulesComponent)
+
+	st.Unlock()
+	pm := NewTaskProgressAdapterUnlocked(t)
+	changed, setupErr := m.backend.SetupKernelSnap(
+		kernelInfo.InstanceName(), kernelInfo.Revision, currentComps,
+		&backend.SetupKernelSnapOptions{Regenerate: true}, pm)
+	st.Lock()
+	if setupErr != nil {
+		return setupErr
+	}
+
+	if changed {
+		logger.Noticef("kernel drivers tree for %q (%s) was regenerated", kernelInfo.InstanceName(), kernelInfo.Revision)
+	} else {
+		logger.Debugf("kernel drivers tree for %q (%s) already up to date", kernelInfo.InstanceName(), kernelInfo.Revision)
+	}
+
+	t.SetStatus(state.DoneStatus)
+	return nil
+}

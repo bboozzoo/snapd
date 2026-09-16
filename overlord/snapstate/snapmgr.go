@@ -33,6 +33,7 @@ import (
 	"github.com/snapcore/snapd/confdb"
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/i18n"
+	"github.com/snapcore/snapd/kernel"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/overlord/snapstate/backend"
@@ -68,6 +69,7 @@ func init() {
 	swfeats.RegisterEnsure("SnapManager", "ensureDesktopFilesUpdated")
 	swfeats.RegisterEnsure("SnapManager", "ensureDownloadsCleaned")
 	swfeats.RegisterEnsure("SnapManager", "ensureStoreDownloadsCacheCleaned")
+	swfeats.RegisterEnsure("SnapManager", "ensureKernelDriversTreeChecked")
 
 	RegisterResealingTaskKind("prepare-kernel-modules-components")
 	// TODO: consider registering these on classic only if the system is an hybrid system
@@ -91,6 +93,7 @@ type SnapManager struct {
 	ensuredDesktopFilesUpdated  bool
 	ensuredDownloadsCleanedNext time.Time
 	ensureStoreCacheCleanNext   time.Time
+	ensureKernelCheckDone       bool
 
 	changeCallbackID int
 }
@@ -863,6 +866,7 @@ func Manager(st *state.State, runner *state.TaskRunner) (*SnapManager, error) {
 	// specific set-up for the kernel snap
 	runner.AddHandler("prepare-kernel-snap", m.doPrepareKernelSnap, m.undoPrepareKernelSnap)
 	runner.AddHandler("discard-old-kernel-snap-setup", m.doDiscardOldKernelSnapSetup, m.undoDiscardOldKernelSnapSetup)
+	runner.AddHandler("check-kernel-drivers-tree", m.doCheckKernelDriversTree, nil)
 
 	// FIXME: drop the task entirely after a while
 	// (having this wart here avoids yet-another-patch)
@@ -1692,6 +1696,102 @@ func (m *SnapManager) ensureStoreDownloadsCacheCleaned() error {
 	return nil
 }
 
+// ensureKernelDriversTreeChecked looks at the currently active kernel snap (if
+// any) and creates a change to check it if the tree itself was generated using
+// an older format than currently supported.
+func (m *SnapManager) ensureKernelDriversTreeChecked() error {
+	logger.Trace("ensure", "manager", "SnapManager", "func", "ensureKernelDriversTreeChecked")
+
+	m.state.Lock()
+	defer m.state.Unlock()
+
+	if m.ensureKernelCheckDone {
+		return nil
+	}
+
+	seeded, err := SystemSeeded(m.state)
+	if err != nil {
+		return err
+	}
+	if !seeded {
+		return nil
+	}
+
+	deviceCtx, err := DeviceCtx(m.state, nil, nil)
+	if err != nil {
+		// model not known yet, or similar - nothing to do
+		if errors.Is(err, state.ErrNoState) {
+			return nil
+		}
+		return err
+	}
+	if deviceCtx.Model() == nil || !kernel.NeedsKernelDriversTree(deviceCtx.Model()) {
+		return nil
+	}
+
+	kernelInfo, err := KernelInfo(m.state, deviceCtx)
+	if err != nil {
+		if errors.Is(err, state.ErrNoState) {
+			return nil
+		}
+		return err
+	}
+
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, kernelInfo.InstanceName(), kernelInfo.Revision)
+	exists, isDir, err := osutil.DirExists(destDir)
+	if err != nil {
+		return err
+	}
+	if !exists || !isDir {
+		// Nothing to check against/regenerate; leave it to the normal
+		// install flow.
+		return nil
+	}
+
+	needsCheck, err := kernel.DriversTreeNeedsCheck(destDir)
+	if err != nil {
+		return err
+	}
+	if !needsCheck {
+		// We're done, the tree is up to date, nothing more to do.
+		m.ensureKernelCheckDone = true
+		return nil
+	}
+
+	// Coarse pre-check: defer entirely while anything else is happening -
+	// this is what makes this run "after snapd (and everything else) is
+	// done", and naturally wait out a change that ends in a reboot (its
+	// tasks stay non-Ready across the reboot). See ensureUbuntuCoreTransition
+	// for the exact same changeInFlight guard.
+	if changeInFlight(m.state) {
+		return nil
+	}
+
+	// Precise, authoritative guard (defense in depth on top of the coarse
+	// check above): conflicts with a real in-flight kernel/component
+	// change, or our own previously-launched check that hasn't finished
+	// yet, prevent a duplicate launch.
+	if err := CheckChangeConflict(m.state, kernelInfo.InstanceName(), nil); err != nil {
+		return nil // retry next Ensure() tick
+	}
+
+	t := m.state.NewTask("check-kernel-drivers-tree",
+		fmt.Sprintf(i18n.G("Check kernel drivers tree for %q"), kernelInfo.InstanceName()))
+	t.Set("snap-setup", &SnapSetup{
+		SideInfo: &kernelInfo.SideInfo,
+		Type:     snap.TypeKernel,
+	})
+
+	chg := m.state.NewChange("check-kernel-drivers-tree",
+		fmt.Sprintf(i18n.G("Check kernel drivers tree for %q"), kernelInfo.InstanceName()))
+	chg.AddTask(t)
+
+	// We're done, a change was created, nothing more to do here.
+	m.ensureKernelCheckDone = true
+
+	return nil
+}
+
 // Ensure implements StateManager.Ensure.
 func (m *SnapManager) Ensure() error {
 	if m.preseed {
@@ -1716,6 +1816,7 @@ func (m *SnapManager) Ensure() error {
 	if seeded {
 		errs = append(errs,
 			m.ensureUbuntuCoreTransition(),
+			m.ensureKernelDriversTreeChecked(),
 			// We should check for full regular refreshes before
 			// considering issuing a hint-only refresh request.
 			m.autoRefresh.Ensure(),
