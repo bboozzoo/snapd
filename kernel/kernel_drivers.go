@@ -110,8 +110,8 @@ func DriversTreeNeedsCheck(destDir string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	logger.Debugf("checking kernel tree generator version %v, current %v",
-		v.GeneratorVersion, kernelDriversTreeGeneratorVersion)
+	logger.Debugf("checking kernel tree generator version, current %v, on disk %v",
+		kernelDriversTreeGeneratorVersion, v.GeneratorVersion)
 	// Only care about older (lower) versions. The tree may have been build by a
 	// newer snapd.
 	return kernelDriversTreeGeneratorVersion > v.GeneratorVersion, nil
