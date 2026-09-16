@@ -168,3 +168,38 @@ func (s *validateKernelSuite) TestValidateModulesMultipleKernelVersions(c *C) {
 	err := kernel.Validate(mockKernelRoot)
 	c.Assert(err, ErrorMatches, `more than one modules directory in ".*"`)
 }
+
+func (s *validateKernelSuite) TestValidateFirmwareUpdatesConflict(c *C) {
+	mockKernelRoot := makeMockKernel(c, "", nil)
+	fwDir := filepath.Join(mockKernelRoot, "firmware")
+
+	// An "updates" directory in the firmware tree conflicts with the
+	// reserved directory for kernel-modules components.
+	c.Assert(os.MkdirAll(filepath.Join(fwDir, "updates"), 0755), IsNil)
+
+	err := kernel.Validate(mockKernelRoot)
+	c.Assert(err, ErrorMatches, `firmware directory ".*" must not contain an entry named "updates", reserved for kernel-modules components`)
+}
+
+func (s *validateKernelSuite) TestValidateFirmwareUpdatesConflictFile(c *C) {
+	mockKernelRoot := makeMockKernel(c, "", nil)
+	fwDir := filepath.Join(mockKernelRoot, "firmware")
+	c.Assert(os.MkdirAll(fwDir, 0755), IsNil)
+
+	// A regular file named "updates" conflicts just the same as a
+	// directory; the check is by name, not by type.
+	c.Assert(os.WriteFile(filepath.Join(fwDir, "updates"), []byte("content"), 0644), IsNil)
+
+	err := kernel.Validate(mockKernelRoot)
+	c.Assert(err, ErrorMatches, `firmware directory ".*" must not contain an entry named "updates", reserved for kernel-modules components`)
+}
+
+func (s *validateKernelSuite) TestValidateFirmwareNoUpdates(c *C) {
+	mockKernelRoot := makeMockKernel(c, "", nil)
+	fwDir := filepath.Join(mockKernelRoot, "firmware", "qcom")
+	c.Assert(os.MkdirAll(fwDir, 0755), IsNil)
+	c.Assert(os.WriteFile(filepath.Join(fwDir, "foo.bin"), []byte("content"), 0644), IsNil)
+
+	err := kernel.Validate(mockKernelRoot)
+	c.Assert(err, IsNil)
+}
