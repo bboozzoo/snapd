@@ -132,11 +132,16 @@ execute: |
   # not add a "snap debug" escape hatch exposing the constant).
   remote.exec "cat ${drivers_tree}/snapd.meta" | MATCH '"generator-version":[1-9][0-9]*'
 
-  # Idempotency / no duplicate launches: forcing another Ensure() tick
-  # (cheaper and faster than a second full snapd restart) must not
-  # create a second check-kernel-drivers-tree change, since the marker
-  # now matches.
-  remote.exec "sudo snap debug ensure-state-soon"
+  # Idempotency / no duplicate launches: with the ensureKernelCheckDone
+  # per-process cache, forcing another Ensure() tick within the *same*
+  # snapd process (e.g. via "snap debug ensure-state-soon") would be a
+  # guaranteed no-op regardless of marker state, so it would not actually
+  # prove anything here. Instead, restart snapd again - a fresh process
+  # really does re-run the check from scratch - and confirm it correctly
+  # finds the marker already up to date and does not launch a second
+  # check-kernel-drivers-tree change.
+  remote.exec "sudo systemctl restart snapd.service"
+  remote.exec "sudo snap wait system seed.loaded"
   sleep 5
   count="$(change_count_for_kind check-kernel-drivers-tree)"
   test "$count" = 1
