@@ -666,5 +666,3 @@ func (s *catalogRefresh) GetCatalogRefreshDelayWithDelta() time.Duration {
 func (m *SnapManager) EnsureKernelDriversTreeChecked() error {
 	return m.ensureKernelDriversTreeChecked()
 }
-
-const CheckKernelDriversTreeChangeKind = checkKernelDriversTreeChangeKind
