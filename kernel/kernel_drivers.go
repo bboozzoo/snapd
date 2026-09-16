@@ -99,7 +99,7 @@ func readDriversTreeGeneratorMeta(destDir string) (driversTreeMeta, error) {
 		// could be corrupted?
 		return driversTreeMeta{}, nil
 	}
-	return driversTreeMeta{}, nil
+	return meta, nil
 }
 
 // DriversTreeNeedsCheck reports whether destDir's recorded generator

@@ -33,7 +33,11 @@ func WriteDriversTreeMeta(destDir string) error {
 
 // ReadDriversTreeGeneratorVersion is exported for testing.
 func ReadDriversTreeGeneratorVersion(destDir string) (int, error) {
-	return readDriversTreeGeneratorVersion(destDir)
+	meta, err := readDriversTreeGeneratorMeta(destDir)
+	if err != nil {
+		return 0, err
+	}
+	return meta.GeneratorVersion, nil
 }
 
 // KernelDriversTreeGeneratorVersion returns the current generator version
