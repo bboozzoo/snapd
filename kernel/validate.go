@@ -110,8 +110,24 @@ func validateFirmwareTree(kernelRoot string) error {
 		// "updates" is reserved for firmware coming from
 		// kernel-modules components and must not be shipped by the
 		// kernel snap itself.
-		if e.Name() == "updates" {
+		if e.Name() != "updates" {
+			continue
+		}
+		if !e.IsDir() {
 			return fmt.Errorf("firmware directory %q must not contain an entry named %q, reserved for kernel-modules components", fwDir, e.Name())
+		}
+		// Some kernel build tooling ships an empty "updates" directory as
+		// a harmless placeholder; only a non-empty one actually conflicts
+		// with kernel-modules-component firmware at runtime (see
+		// createFirmwareSymlinks/setupModsFromComp in kernel_drivers.go,
+		// which always (re)creates this directory anyway).
+		updatesDir := filepath.Join(fwDir, e.Name())
+		updatesEntries, err := os.ReadDir(updatesDir)
+		if err != nil {
+			return err
+		}
+		if len(updatesEntries) > 0 {
+			return fmt.Errorf("firmware directory %q must not contain a non-empty entry named %q, reserved for kernel-modules components", fwDir, e.Name())
 		}
 	}
 
