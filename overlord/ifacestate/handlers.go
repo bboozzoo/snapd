@@ -1137,13 +1137,21 @@ func (m *InterfaceManager) doDisconnect(task *state.Task, _ *tomb.Tomb) error {
 	if err != nil {
 		_, notConnected := err.(*interfaces.NotConnectedError)
 		_, noPlugOrSlot := err.(*interfaces.NoPlugOrSlotError)
-		// not connected, just forget it.
-		if forget && (notConnected || noPlugOrSlot) {
+		switch {
+		case forget && (notConnected || noPlugOrSlot):
+			// not connected, just forget it.
 			delete(conns, cref.ID())
 			setConns(st, conns)
 			return nil
+		case notConnected:
+			// conns (durable state) still shows this connection above, so a
+			// NotConnectedError from the (ephemeral, in-memory) repo here can
+			// only mean an earlier, busy-retried attempt of this same task
+			// already disconnected it. Proceed to (re-)apply security for
+			// the affected snaps below.
+		default:
+			return fmt.Errorf("snapd changed, please retry the operation: %v", err)
 		}
-		return fmt.Errorf("snapd changed, please retry the operation: %v", err)
 	}
 
 	for _, snapst := range snapStates {
@@ -1338,7 +1346,11 @@ func (m *InterfaceManager) undoConnect(task *state.Task, _ *tomb.Tomb) error {
 	setConns(st, conns)
 
 	if err := m.repo.Disconnect(connRef.PlugRef.Snap, connRef.PlugRef.Name, connRef.SlotRef.Snap, connRef.SlotRef.Name); err != nil {
-		return err
+		if _, ok := err.(*interfaces.NotConnectedError); !ok {
+			return err
+		}
+		// already disconnected by an earlier, busy-retried attempt of this
+		// same task; proceed.
 	}
 
 	var delayedSetupProfiles bool
