@@ -1,0 +1,414 @@
+// -*- Mode: Go; indent-tabs-mode: t -*-
+
+/*
+ * Copyright (C) 2025 Canonical Ltd
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 3 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+package snapstate_test
+
+import (
+	"os"
+
+	. "gopkg.in/check.v1"
+
+	"github.com/snapcore/snapd/dirs"
+	"github.com/snapcore/snapd/kernel"
+	"github.com/snapcore/snapd/osutil"
+	"github.com/snapcore/snapd/overlord/snapstate"
+	"github.com/snapcore/snapd/overlord/snapstate/snapstatetest"
+	"github.com/snapcore/snapd/overlord/state"
+	"github.com/snapcore/snapd/snap"
+	"github.com/snapcore/snapd/snap/snaptest"
+	"github.com/snapcore/snapd/systemd"
+)
+
+type checkKernelDriversTreeSuite struct {
+	baseHandlerSuite
+}
+
+var _ = Suite(&checkKernelDriversTreeSuite{})
+
+func (s *checkKernelDriversTreeSuite) SetUpTest(c *C) {
+	s.baseHandlerSuite.SetUpTest(c)
+	s.AddCleanup(snapstatetest.MockDeviceModel(MakeModel20("gadget", map[string]any{"base": "core24"})))
+	s.AddCleanup(osutil.MockMountInfo(""))
+	// ensureMountsUpdated (a real, unfaked SnapManager.Ensure() step) walks
+	// every installed snap and talks to systemd directly; these tests
+	// install real SnapState entries and some of them call the real
+	// Ensure(), so systemctl needs to be mocked to avoid touching the
+	// real system (this was previously triggering a real
+	// "systemctl daemon-reload" attempt).
+	s.AddCleanup(systemd.MockSystemctl(func(args ...string) ([]byte, error) {
+		return []byte(""), nil
+	}))
+}
+
+// setUpKernel installs a minimal kernel snap "kernel" rev 3 in state.
+func (s *checkKernelDriversTreeSuite) setUpKernel(c *C) *snap.Info {
+	sideInfo := &snap.SideInfo{
+		RealName: "kernel",
+		Revision: snap.R(3),
+	}
+	info := snaptest.MockSnap(c, `
+name: kernel
+type: kernel
+version: v1
+`, sideInfo)
+
+	snapstate.Set(s.state, "kernel", &snapstate.SnapState{
+		SnapType: "kernel",
+		Active:   true,
+		Sequence: snapstatetest.NewSequenceFromSnapSideInfos([]*snap.SideInfo{sideInfo}),
+		Current:  sideInfo.Revision,
+	})
+	return info
+}
+
+func changesOfKind(st *state.State, kind string) []*state.Change {
+	var found []*state.Change
+	for _, chg := range st.Changes() {
+		if chg.Kind() == kind {
+			found = append(found, chg)
+		}
+	}
+	return found
+}
+
+func (s *checkKernelDriversTreeSuite) TestDoCheckKernelDriversTree(c *C) {
+	s.state.Lock()
+
+	sideInfo := &snap.SideInfo{
+		RealName: "kernel",
+		Revision: snap.R(3),
+	}
+	snaptest.MockSnap(c, `
+name: kernel
+type: kernel
+version: v1
+`, sideInfo)
+
+	snapstate.Set(s.state, "kernel", &snapstate.SnapState{
+		SnapType: "kernel",
+		Active:   true,
+		Sequence: snapstatetest.NewSequenceFromSnapSideInfos([]*snap.SideInfo{sideInfo}),
+		Current:  sideInfo.Revision,
+	})
+
+	t := s.state.NewTask("check-kernel-drivers-tree", "test check kernel drivers tree")
+	chg := s.state.NewChange("check-kernel-drivers-tree", "change desc")
+	chg.AddTask(t)
+
+	s.state.Unlock()
+
+	s.se.Ensure()
+	s.se.Wait()
+
+	s.state.Lock()
+	defer s.state.Unlock()
+	c.Check(chg.Err(), IsNil)
+	c.Check(t.Status(), Equals, state.DoneStatus)
+
+	// The handler re-derives the current kernel + its (empty, here)
+	// active kernel-modules components live at execution time and calls
+	// the backend to check/regenerate the drivers tree.
+	c.Check(s.fakeBackend.ops, DeepEquals, fakeOps{
+		{
+			op: "prepare-kernel-snap",
+		},
+	})
+}
+
+// 1. Not seeded yet: no change, no error.
+func (s *checkKernelDriversTreeSuite) TestEnsureNotSeededNoChange(c *C) {
+	s.state.Lock()
+	info := s.setUpKernel(c)
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, info.InstanceName(), info.Revision)
+	c.Assert(os.MkdirAll(destDir, 0755), IsNil)
+	// deliberately not setting "seeded"
+	s.state.Unlock()
+
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	defer s.state.Unlock()
+	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+}
+
+// 2. Model unknown yet: no change, no error.
+func (s *checkKernelDriversTreeSuite) TestEnsureModelUnknownNoChange(c *C) {
+	s.AddCleanup(snapstatetest.MockDeviceModel(nil))
+
+	s.state.Lock()
+	s.state.Set("seeded", true)
+	s.state.Unlock()
+
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	defer s.state.Unlock()
+	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+}
+
+// 3. kernel.NeedsKernelDriversTree(model) == false (e.g. a classic model):
+// no change created, even with a stale/missing marker.
+func (s *checkKernelDriversTreeSuite) TestEnsureNeedsKernelDriversTreeFalseNoChange(c *C) {
+	s.AddCleanup(snapstatetest.MockDeviceModel(ClassicModel()))
+
+	s.state.Lock()
+	s.state.Set("seeded", true)
+	s.state.Unlock()
+
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	defer s.state.Unlock()
+	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+}
+
+// 4. No kernel snap installed: no change, no error.
+func (s *checkKernelDriversTreeSuite) TestEnsureNoKernelInstalledNoChange(c *C) {
+	s.state.Lock()
+	s.state.Set("seeded", true)
+	s.state.Unlock()
+
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	defer s.state.Unlock()
+	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+}
+
+// 5. Kernel installed, but its drivers tree directory doesn't exist at all:
+// no change created (nothing to check against).
+func (s *checkKernelDriversTreeSuite) TestEnsureDestDirMissingNoChange(c *C) {
+	s.state.Lock()
+	s.setUpKernel(c)
+	s.state.Set("seeded", true)
+	s.state.Unlock()
+
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	defer s.state.Unlock()
+	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+}
+
+// 6. Kernel installed, tree exists, marker present and current: no change.
+func (s *checkKernelDriversTreeSuite) TestEnsureMarkerUpToDateNoChange(c *C) {
+	s.state.Lock()
+	info := s.setUpKernel(c)
+	s.state.Set("seeded", true)
+	s.state.Unlock()
+
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, info.InstanceName(), info.Revision)
+	mountDir := c.MkDir()
+	_, err := kernel.EnsureKernelDriversTree(
+		kernel.MountPoints{Current: mountDir, Target: mountDir},
+		nil, destDir, &kernel.KernelDriversTreeOptions{KernelInstall: true})
+	c.Assert(err, IsNil)
+
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	defer s.state.Unlock()
+	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+}
+
+// 7. Kernel installed, tree exists, marker missing entirely (simulates a
+// pre-existing tree from before this feature shipped): exactly one change
+// created, and after running it to completion the marker ends up written
+// and current.
+func (s *checkKernelDriversTreeSuite) TestEnsureMarkerMissingCreatesChangeAndRegenerates(c *C) {
+	s.state.Lock()
+	info := s.setUpKernel(c)
+	s.state.Set("seeded", true)
+	s.state.Unlock()
+
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, info.InstanceName(), info.Revision)
+	c.Assert(os.MkdirAll(destDir, 0755), IsNil)
+
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	found := changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind)
+	c.Check(found, HasLen, 1)
+	s.state.Unlock()
+
+	// Let the runner actually execute the task. The fake backend does not
+	// perform real filesystem work, so we can only assert the state
+	// machine converged (change completed without error); real marker
+	// persistence is covered by the kernel package's own tests plus
+	// backend's SetupKernelSnap tests.
+	s.se.Ensure()
+	s.se.Wait()
+
+	s.state.Lock()
+	defer s.state.Unlock()
+	c.Check(found[0].Err(), IsNil)
+	c.Check(found[0].Status(), Equals, state.DoneStatus)
+}
+
+// 8. Same as 7, but the marker is present with an older generator version
+// rather than fully missing.
+func (s *checkKernelDriversTreeSuite) TestEnsureMarkerOlderVersionCreatesChangeAndRegenerates(c *C) {
+	s.state.Lock()
+	info := s.setUpKernel(c)
+	s.state.Set("seeded", true)
+	s.state.Unlock()
+
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, info.InstanceName(), info.Revision)
+	c.Assert(os.MkdirAll(destDir, 0755), IsNil)
+	c.Assert(os.WriteFile(destDir+"/snapd.meta", []byte(`{"generator-version":0}`), 0644), IsNil)
+
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	found := changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind)
+	c.Check(found, HasLen, 1)
+	s.state.Unlock()
+
+	s.se.Ensure()
+	s.se.Wait()
+
+	s.state.Lock()
+	defer s.state.Unlock()
+	c.Check(found[0].Err(), IsNil)
+	c.Check(found[0].Status(), Equals, state.DoneStatus)
+}
+
+// 9. changeInFlight guard: an unrelated change in progress and not yet
+// Ready() defers the check entirely; once it completes, the check runs
+// (assuming the marker is still stale).
+func (s *checkKernelDriversTreeSuite) TestEnsureChangeInFlightGuard(c *C) {
+	s.state.Lock()
+	info := s.setUpKernel(c)
+	s.state.Set("seeded", true)
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, info.InstanceName(), info.Revision)
+	c.Assert(os.MkdirAll(destDir, 0755), IsNil)
+
+	// An unrelated change, unrelated to the kernel snap, still in flight.
+	t := s.state.NewTask("nop", "unrelated task")
+	unrelatedChg := s.state.NewChange("unrelated-change", "unrelated")
+	unrelatedChg.AddTask(t)
+	s.state.Unlock()
+
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+
+	// Let the unrelated change complete.
+	t.SetStatus(state.DoneStatus)
+	s.state.Unlock()
+
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	defer s.state.Unlock()
+	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 1)
+}
+
+// 10. CheckChangeConflict guard: a real in-flight change already touches
+// the kernel snap itself (e.g. a pending kernel-modules-component
+// operation): no change created while it's in flight; once it completes,
+// the check does get created. Note this scenario is also covered by the
+// coarser changeInFlight guard (9) in practice, since a not-yet-Ready
+// change of any kind blocks both; this test specifically targets the
+// kernel-snap-scoped CheckChangeConflict mechanism to document it as an
+// independent, defense-in-depth layer.
+func (s *checkKernelDriversTreeSuite) TestEnsureCheckChangeConflictGuard(c *C) {
+	s.state.Lock()
+	info := s.setUpKernel(c)
+	s.state.Set("seeded", true)
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, info.InstanceName(), info.Revision)
+	c.Assert(os.MkdirAll(destDir, 0755), IsNil)
+
+	// A conflicting change that touches the kernel snap itself (e.g. a
+	// pending kernel-modules-component install/remove).
+	t := s.state.NewTask("nop", "conflicting kernel-affecting task")
+	t.Set("snap-setup", &snapstate.SnapSetup{
+		SideInfo: &info.SideInfo,
+		Type:     snap.TypeKernel,
+	})
+	conflictingChg := s.state.NewChange("kernel-modules-setup", "conflicting")
+	conflictingChg.AddTask(t)
+	s.state.Unlock()
+
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+
+	// Let the conflicting change complete.
+	t.SetStatus(state.DoneStatus)
+	s.state.Unlock()
+
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	defer s.state.Unlock()
+	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 1)
+}
+
+// 11. Self-conflict / no duplicate launches: calling the Ensure() logic
+// again while our own check-kernel-drivers-tree change is still in
+// flight (task not yet run) must not create a second one.
+func (s *checkKernelDriversTreeSuite) TestEnsureNoDuplicateSelfConflict(c *C) {
+	s.state.Lock()
+	info := s.setUpKernel(c)
+	s.state.Set("seeded", true)
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, info.InstanceName(), info.Revision)
+	c.Assert(os.MkdirAll(destDir, 0755), IsNil)
+	s.state.Unlock()
+
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	defer s.state.Unlock()
+	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 1)
+}
+
+// 12. Forward-only / revert safety: marker version is higher than the
+// current generator version (simulating a snapd revert): no change
+// created, so a reverted (older) snapd cannot regress an already-fixed
+// tree.
+func (s *checkKernelDriversTreeSuite) TestEnsureForwardOnlyRevertSafetyNoChange(c *C) {
+	s.state.Lock()
+	info := s.setUpKernel(c)
+	s.state.Set("seeded", true)
+	s.state.Unlock()
+
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, info.InstanceName(), info.Revision)
+	mountDir := c.MkDir()
+	_, err := kernel.EnsureKernelDriversTree(
+		kernel.MountPoints{Current: mountDir, Target: mountDir},
+		nil, destDir, &kernel.KernelDriversTreeOptions{KernelInstall: true})
+	c.Assert(err, IsNil)
+
+	// Simulate a tree built by a newer generator than what is currently
+	// running (as if snapd had been reverted to an older build after a
+	// fix shipped). Using an arbitrarily high version number avoids
+	// needing to know the exact current generator-version constant.
+	c.Assert(os.WriteFile(destDir+"/snapd.meta",
+		[]byte(`{"generator-version":999999}`), 0644), IsNil)
+
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	defer s.state.Unlock()
+	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+}

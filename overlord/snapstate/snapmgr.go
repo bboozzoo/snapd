@@ -68,6 +68,7 @@ func init() {
 	swfeats.RegisterEnsure("SnapManager", "ensureDesktopFilesUpdated")
 	swfeats.RegisterEnsure("SnapManager", "ensureDownloadsCleaned")
 	swfeats.RegisterEnsure("SnapManager", "ensureStoreDownloadsCacheCleaned")
+	swfeats.RegisterEnsure("SnapManager", "ensureKernelDriversTreeChecked")
 
 	RegisterResealingTaskKind("prepare-kernel-modules-components")
 	// TODO: consider registering these on classic only if the system is an hybrid system
@@ -863,6 +864,7 @@ func Manager(st *state.State, runner *state.TaskRunner) (*SnapManager, error) {
 	// specific set-up for the kernel snap
 	runner.AddHandler("prepare-kernel-snap", m.doPrepareKernelSnap, m.undoPrepareKernelSnap)
 	runner.AddHandler("discard-old-kernel-snap-setup", m.doDiscardOldKernelSnapSetup, m.undoDiscardOldKernelSnapSetup)
+	runner.AddHandler(checkKernelDriversTreeTaskKind, m.doCheckKernelDriversTree, nil)
 
 	// FIXME: drop the task entirely after a while
 	// (having this wart here avoids yet-another-patch)
@@ -1704,6 +1706,7 @@ func (m *SnapManager) Ensure() error {
 		m.ensureAliasesV2(),
 		m.ensureForceDevmodeDropsDevmodeFromState(),
 		m.ensureUbuntuCoreTransition(),
+		m.ensureKernelDriversTreeChecked(),
 		// we should check for full regular refreshes before
 		// considering issuing a hint only refresh request
 		m.autoRefresh.Ensure(),
