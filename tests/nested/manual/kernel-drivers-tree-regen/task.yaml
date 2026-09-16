@@ -64,7 +64,7 @@ execute: |
   # Wait until the system is fully seeded before poking at the drivers
   # tree; also gives us a first-boot marker that should already be
   # up-to-date (a fresh install always writes it).
-  remote.exec "snap wait system seed.loaded"
+  remote.exec "sudo snap wait system seed.loaded"
 
   kernel_rev="$(remote.exec 'snap list pc-kernel' | tail -1 | awk '{print $3}')"
   kver="$(remote.exec uname -r)"
@@ -93,7 +93,7 @@ execute: |
   remote.exec "sudo rm -f ${drivers_tree}/snapd.meta"
   remote.exec "sudo rm -f ${modules_dir}/kernel"
   if [ -n "$fw_entry" ]; then
-      remote.exec "sudo rm -f ${firmware_dir}/${fw_entry}"
+      remote.exec "sudo rm -rfv ${firmware_dir}/${fw_entry}"
   fi
 
   # Confirm the corruption is visible live, through the bind-mounted
