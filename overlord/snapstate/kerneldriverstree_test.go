@@ -365,7 +365,15 @@ func (s *checkKernelDriversTreeSuite) TestEnsureCheckChangeConflictGuard(c *C) {
 
 // 11. Self-conflict / no duplicate launches: calling the Ensure() logic
 // again while our own check-kernel-drivers-tree change is still in
-// flight (task not yet run) must not create a second one.
+// flight (task not yet run) must not create a second one. Note: with the
+// ensureKernelCheckDone per-process cache (set as soon as a change is
+// successfully launched, or as soon as the tree is found to already be
+// up to date), the second call below is actually short-circuited by that
+// cache before it would even reach CheckChangeConflict again - see
+// TestEnsureKernelCheckRunsOnlyOncePerManagerLifetime below for a test
+// that isolates the cache's effect specifically, independent of
+// CheckChangeConflict/changeInFlight. The observable guarantee this test
+// checks (no duplicate launches) still holds either way.
 func (s *checkKernelDriversTreeSuite) TestEnsureNoDuplicateSelfConflict(c *C) {
 	s.state.Lock()
 	info := s.setUpKernel(c)
@@ -375,6 +383,45 @@ func (s *checkKernelDriversTreeSuite) TestEnsureNoDuplicateSelfConflict(c *C) {
 	s.state.Unlock()
 
 	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	defer s.state.Unlock()
+	c.Check(changesOfKind(s.state, "check-kernel-drivers-tree"), HasLen, 1)
+}
+
+// 11b. ensureKernelCheckDone per-process cache, isolated from
+// CheckChangeConflict/changeInFlight: once a change has been launched (or
+// the tree found to already be up to date), a SnapManager instance never
+// attempts the check again for the rest of its lifetime (i.e. until
+// snapd itself restarts and a fresh SnapManager is created) - even if the
+// on-disk marker would otherwise still look stale and nothing else is in
+// flight to block a relaunch via the other guards.
+func (s *checkKernelDriversTreeSuite) TestEnsureKernelCheckRunsOnlyOncePerManagerLifetime(c *C) {
+	s.state.Lock()
+	info := s.setUpKernel(c)
+	s.state.Set("seeded", true)
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, info.InstanceName(), info.Revision)
+	c.Assert(os.MkdirAll(destDir, 0755), IsNil)
+	s.state.Unlock()
+
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	found := changesOfKind(s.state, "check-kernel-drivers-tree")
+	c.Check(found, HasLen, 1)
+
+	// Mark the launched change's task as already done, without actually
+	// running it (so the on-disk marker stays missing/stale, exactly as
+	// if the real task had silently failed to persist it). This removes
+	// the change from changeInFlight/CheckChangeConflict's view entirely,
+	// so a second call below would, if the per-process cache did not
+	// exist, incorrectly launch a duplicate change.
+	for _, t := range found[0].Tasks() {
+		t.SetStatus(state.DoneStatus)
+	}
+	s.state.Unlock()
+
 	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
 
 	s.state.Lock()
