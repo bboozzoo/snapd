@@ -658,3 +658,11 @@ func MockProcessDelayedSecurityBackendEffects(f func(st *state.State, lanes []in
 func (s *catalogRefresh) GetCatalogRefreshDelayWithDelta() time.Duration {
 	return s.catalogRefreshDelayWithDelta
 }
+
+// EnsureKernelDriversTreeChecked is exported for testing so tests can
+// invoke the check-kernel-drivers-tree Ensure() logic directly, without
+// going through the full state engine's Ensure() (which would also run
+// unrelated managers/tasks).
+func (m *SnapManager) EnsureKernelDriversTreeChecked() error {
+	return m.ensureKernelDriversTreeChecked()
+}
