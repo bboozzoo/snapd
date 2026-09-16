@@ -82,6 +82,10 @@ execute: |
   # kernel-modules components and is not part of what this test
   # exercises).
   fw_entry="$(remote.exec "ls /snap/pc-kernel/current/firmware 2>/dev/null | grep -vx updates | head -1 || true")"
+  if [ -z "$fw_entry" ]; then
+      echo "no usable firmware entry in the kernel snap?"
+      exit 1
+  fi
 
   # Simulate a tree built by older/buggy generation logic:
   # - delete the generator-version marker, so it is treated as
@@ -92,17 +96,13 @@ execute: |
   # - delete one top-level firmware vendor symlink, if any exists.
   remote.exec "sudo rm -f ${drivers_tree}/snapd.meta"
   remote.exec "sudo rm -f ${modules_dir}/kernel"
-  if [ -n "$fw_entry" ]; then
-      remote.exec "sudo rm -rfv ${firmware_dir}/${fw_entry}"
-  fi
+  remote.exec "sudo rm -rfv ${firmware_dir}/${fw_entry}"
 
   # Confirm the corruption is visible live, through the bind-mounted
   # paths, *before* triggering the fix - this is the exact runtime
   # symptom the feature exists to correct.
   not remote.exec "test -e /usr/lib/modules/${kver}/kernel"
-  if [ -n "$fw_entry" ]; then
-      not remote.exec "test -e /usr/lib/firmware/${fw_entry}"
-  fi
+  not remote.exec "test -e /usr/lib/firmware/${fw_entry}"
 
   # Restarting snapd is the trigger: on its next Ensure() tick it
   # should notice the stale marker and launch a
@@ -115,16 +115,12 @@ execute: |
 
   # The underlying tree is corrected...
   remote.exec "test -L ${modules_dir}/kernel"
-  if [ -n "$fw_entry" ]; then
-      remote.exec "test -L ${firmware_dir}/${fw_entry}"
-  fi
+  remote.exec "test -L ${firmware_dir}/${fw_entry}"
 
   # ...and, critically, so is the *live*, already-mounted view, without
   # any reboot: this is the assertion this whole feature exists for.
   remote.exec "test -L /usr/lib/modules/${kver}/kernel"
-  if [ -n "$fw_entry" ]; then
-      remote.exec "test -L /usr/lib/firmware/${fw_entry}"
-  fi
+  remote.exec "test -L /usr/lib/firmware/${fw_entry}"
 
   # The marker is back, and non-zero, i.e. it was actually rewritten by
   # the fix (there is no way to check the exact expected integer from
