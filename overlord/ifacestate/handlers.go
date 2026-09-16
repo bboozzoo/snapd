@@ -143,12 +143,8 @@ func (m *InterfaceManager) setupAffectedSnaps(task *state.Task, affectingSnap st
 		if err != nil {
 			return err
 		}
-		busySnaps, err := m.setupSnapSecurity(task, affectedAppSet, opts, tm)
-		if err != nil {
+		if err := retryIfSnapBusy(task, m.setupSnapSecurity(task, affectedAppSet, opts, tm)); err != nil {
 			return err
-		}
-		if retryErr := maybeRetryForBusySnaps(task, busySnaps); retryErr != nil {
-			return retryErr
 		}
 	}
 	return nil
@@ -516,6 +512,7 @@ func (m *InterfaceManager) setupProfilesForAppSet(
 		// We are being updated
 		Reason:          interfaces.SnapSetupReasonOwnUpdate,
 		CanDelayEffects: false,
+		PreviouslyBusy:  previouslyBusySnaps != nil && previouslyBusySnaps[instanceName],
 	}
 
 	var delayedEffectsLock sync.Mutex
@@ -612,7 +609,7 @@ func (m *InterfaceManager) setupProfilesForAppSet(
 				}
 			}
 		}
-		sctx.PreviouslyBusy = previouslyBusySnaps != nil && previouslyBusySnaps[name]
+		sctx.PreviouslyBusy = previouslyBusySnaps != nil && previouslyBusySnaps[naming.InstanceName(name)]
 		setupContexts[name] = sctx
 
 		affectedSnapSets = append(affectedSnapSets, appSet)
@@ -810,9 +807,18 @@ func (m *InterfaceManager) undoSetupProfiles(task *state.Task, tomb *tomb.Tomb) 
 			return err
 		}
 
-		const canDefer = false
-		if _, err := m.setupProfilesForAppSet(task, appSet, opts, nil, canDefer, perfTimings); err != nil {
+		previouslyBusySnaps, err := previouslyRecordedBusySnaps(task)
+		if err != nil {
 			return err
+		}
+
+		const canDefer = false
+		_, busySnaps, err := m.setupProfilesForAppSet(task, appSet, opts, nil, previouslyBusySnaps, canDefer, perfTimings)
+		if err != nil {
+			return err
+		}
+		if retryErr := maybeRetryForBusySnaps(task, busySnaps); retryErr != nil {
+			return retryErr
 		}
 		return setPendingProfilesSideInfo(st, instanceName.String(), appSet)
 	}
@@ -1033,12 +1039,8 @@ func (m *InterfaceManager) doConnect(task *state.Task, _ *tomb.Tomb) (err error)
 		if err != nil {
 			return err
 		}
-		busySnaps, err := m.setupSnapSecurity(task, slotAppSet, slotOpts, perfTimings)
-		if err != nil {
+		if err := retryIfSnapBusy(task, m.setupSnapSecurity(task, slotAppSet, slotOpts, perfTimings)); err != nil {
 			return err
-		}
-		if retryErr := maybeRetryForBusySnaps(task, busySnaps); retryErr != nil {
-			return retryErr
 		}
 
 		plugSnapInfo, err := plugSnapst.CurrentInfo()
@@ -1049,12 +1051,8 @@ func (m *InterfaceManager) doConnect(task *state.Task, _ *tomb.Tomb) (err error)
 		if err != nil {
 			return err
 		}
-		busySnaps, err = m.setupSnapSecurity(task, plugAppSet, plugOpts, perfTimings)
-		if err != nil {
+		if err := retryIfSnapBusy(task, m.setupSnapSecurity(task, plugAppSet, plugOpts, perfTimings)); err != nil {
 			return err
-		}
-		if retryErr := maybeRetryForBusySnaps(task, busySnaps); retryErr != nil {
-			return retryErr
 		}
 	} else {
 		logger.Debugf("Connect handler: skipping setupSnapSecurity for snaps %q and %q", plug.Snap.InstanceName(), slot.Snap.InstanceName())
@@ -1163,12 +1161,8 @@ func (m *InterfaceManager) doDisconnect(task *state.Task, _ *tomb.Tomb) error {
 		if err != nil {
 			return err
 		}
-		busySnaps, err := m.setupSnapSecurity(task, appSet, opts, perfTimings)
-		if err != nil {
+		if err := retryIfSnapBusy(task, m.setupSnapSecurity(task, appSet, opts, perfTimings)); err != nil {
 			return err
-		}
-		if retryErr := maybeRetryForBusySnaps(task, busySnaps); retryErr != nil {
-			return retryErr
 		}
 	}
 
@@ -1291,12 +1285,8 @@ func (m *InterfaceManager) undoDisconnect(task *state.Task, _ *tomb.Tomb) error 
 	if err != nil {
 		return err
 	}
-	busySnaps, err := m.setupSnapSecurity(task, slotAppSet, slotOpts, perfTimings)
-	if err != nil {
+	if err := retryIfSnapBusy(task, m.setupSnapSecurity(task, slotAppSet, slotOpts, perfTimings)); err != nil {
 		return err
-	}
-	if retryErr := maybeRetryForBusySnaps(task, busySnaps); retryErr != nil {
-		return retryErr
 	}
 
 	plugSnapInfo, err := plugSnapst.CurrentInfo()
@@ -1307,12 +1297,8 @@ func (m *InterfaceManager) undoDisconnect(task *state.Task, _ *tomb.Tomb) error 
 	if err != nil {
 		return err
 	}
-	busySnaps, err = m.setupSnapSecurity(task, plugAppSet, plugOpts, perfTimings)
-	if err != nil {
+	if err := retryIfSnapBusy(task, m.setupSnapSecurity(task, plugAppSet, plugOpts, perfTimings)); err != nil {
 		return err
-	}
-	if retryErr := maybeRetryForBusySnaps(task, busySnaps); retryErr != nil {
-		return retryErr
 	}
 
 	conns[connRef.ID()] = &oldconn
@@ -1409,12 +1395,8 @@ func (m *InterfaceManager) undoConnect(task *state.Task, _ *tomb.Tomb) error {
 	if err != nil {
 		return err
 	}
-	busySnaps, err := m.setupSnapSecurity(task, slotAppSet, slotOpts, perfTimings)
-	if err != nil {
+	if err := retryIfSnapBusy(task, m.setupSnapSecurity(task, slotAppSet, slotOpts, perfTimings)); err != nil {
 		return err
-	}
-	if retryErr := maybeRetryForBusySnaps(task, busySnaps); retryErr != nil {
-		return retryErr
 	}
 
 	plugSnapInfo, err := plugSnapst.CurrentInfo()
@@ -1425,12 +1407,8 @@ func (m *InterfaceManager) undoConnect(task *state.Task, _ *tomb.Tomb) error {
 	if err != nil {
 		return err
 	}
-	busySnaps, err = m.setupSnapSecurity(task, plugAppSet, plugOpts, perfTimings)
-	if err != nil {
+	if err := retryIfSnapBusy(task, m.setupSnapSecurity(task, plugAppSet, plugOpts, perfTimings)); err != nil {
 		return err
-	}
-	if retryErr := maybeRetryForBusySnaps(task, busySnaps); retryErr != nil {
-		return retryErr
 	}
 
 	return nil
