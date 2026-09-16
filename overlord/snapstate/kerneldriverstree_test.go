@@ -144,7 +144,7 @@ func (s *checkKernelDriversTreeSuite) TestEnsureNotSeededNoChange(c *C) {
 
 	s.state.Lock()
 	defer s.state.Unlock()
-	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+	c.Check(changesOfKind(s.state, "check-kernel-drivers-tree"), HasLen, 0)
 }
 
 // 2. Model unknown yet: no change, no error.
@@ -159,7 +159,7 @@ func (s *checkKernelDriversTreeSuite) TestEnsureModelUnknownNoChange(c *C) {
 
 	s.state.Lock()
 	defer s.state.Unlock()
-	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+	c.Check(changesOfKind(s.state, "check-kernel-drivers-tree"), HasLen, 0)
 }
 
 // 3. kernel.NeedsKernelDriversTree(model) == false (e.g. a classic model):
@@ -175,7 +175,7 @@ func (s *checkKernelDriversTreeSuite) TestEnsureNeedsKernelDriversTreeFalseNoCha
 
 	s.state.Lock()
 	defer s.state.Unlock()
-	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+	c.Check(changesOfKind(s.state, "check-kernel-drivers-tree"), HasLen, 0)
 }
 
 // 4. No kernel snap installed: no change, no error.
@@ -188,7 +188,7 @@ func (s *checkKernelDriversTreeSuite) TestEnsureNoKernelInstalledNoChange(c *C) 
 
 	s.state.Lock()
 	defer s.state.Unlock()
-	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+	c.Check(changesOfKind(s.state, "check-kernel-drivers-tree"), HasLen, 0)
 }
 
 // 5. Kernel installed, but its drivers tree directory doesn't exist at all:
@@ -203,7 +203,7 @@ func (s *checkKernelDriversTreeSuite) TestEnsureDestDirMissingNoChange(c *C) {
 
 	s.state.Lock()
 	defer s.state.Unlock()
-	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+	c.Check(changesOfKind(s.state, "check-kernel-drivers-tree"), HasLen, 0)
 }
 
 // 6. Kernel installed, tree exists, marker present and current: no change.
@@ -224,7 +224,7 @@ func (s *checkKernelDriversTreeSuite) TestEnsureMarkerUpToDateNoChange(c *C) {
 
 	s.state.Lock()
 	defer s.state.Unlock()
-	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+	c.Check(changesOfKind(s.state, "check-kernel-drivers-tree"), HasLen, 0)
 }
 
 // 7. Kernel installed, tree exists, marker missing entirely (simulates a
@@ -243,7 +243,7 @@ func (s *checkKernelDriversTreeSuite) TestEnsureMarkerMissingCreatesChangeAndReg
 	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
 
 	s.state.Lock()
-	found := changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind)
+	found := changesOfKind(s.state, "check-kernel-drivers-tree")
 	c.Check(found, HasLen, 1)
 	s.state.Unlock()
 
@@ -276,7 +276,7 @@ func (s *checkKernelDriversTreeSuite) TestEnsureMarkerOlderVersionCreatesChangeA
 	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
 
 	s.state.Lock()
-	found := changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind)
+	found := changesOfKind(s.state, "check-kernel-drivers-tree")
 	c.Check(found, HasLen, 1)
 	s.state.Unlock()
 
@@ -308,7 +308,7 @@ func (s *checkKernelDriversTreeSuite) TestEnsureChangeInFlightGuard(c *C) {
 	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
 
 	s.state.Lock()
-	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+	c.Check(changesOfKind(s.state, "check-kernel-drivers-tree"), HasLen, 0)
 
 	// Let the unrelated change complete.
 	t.SetStatus(state.DoneStatus)
@@ -318,7 +318,7 @@ func (s *checkKernelDriversTreeSuite) TestEnsureChangeInFlightGuard(c *C) {
 
 	s.state.Lock()
 	defer s.state.Unlock()
-	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 1)
+	c.Check(changesOfKind(s.state, "check-kernel-drivers-tree"), HasLen, 1)
 }
 
 // 10. CheckChangeConflict guard: a real in-flight change already touches
@@ -350,7 +350,7 @@ func (s *checkKernelDriversTreeSuite) TestEnsureCheckChangeConflictGuard(c *C) {
 	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
 
 	s.state.Lock()
-	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+	c.Check(changesOfKind(s.state, "check-kernel-drivers-tree"), HasLen, 0)
 
 	// Let the conflicting change complete.
 	t.SetStatus(state.DoneStatus)
@@ -360,7 +360,7 @@ func (s *checkKernelDriversTreeSuite) TestEnsureCheckChangeConflictGuard(c *C) {
 
 	s.state.Lock()
 	defer s.state.Unlock()
-	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 1)
+	c.Check(changesOfKind(s.state, "check-kernel-drivers-tree"), HasLen, 1)
 }
 
 // 11. Self-conflict / no duplicate launches: calling the Ensure() logic
@@ -379,7 +379,7 @@ func (s *checkKernelDriversTreeSuite) TestEnsureNoDuplicateSelfConflict(c *C) {
 
 	s.state.Lock()
 	defer s.state.Unlock()
-	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 1)
+	c.Check(changesOfKind(s.state, "check-kernel-drivers-tree"), HasLen, 1)
 }
 
 // 12. Forward-only / revert safety: marker version is higher than the
@@ -410,5 +410,5 @@ func (s *checkKernelDriversTreeSuite) TestEnsureForwardOnlyRevertSafetyNoChange(
 
 	s.state.Lock()
 	defer s.state.Unlock()
-	c.Check(changesOfKind(s.state, snapstate.CheckKernelDriversTreeChangeKind), HasLen, 0)
+	c.Check(changesOfKind(s.state, "check-kernel-drivers-tree"), HasLen, 0)
 }
