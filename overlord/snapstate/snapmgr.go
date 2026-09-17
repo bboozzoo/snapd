@@ -93,7 +93,14 @@ type SnapManager struct {
 	ensuredDesktopFilesUpdated  bool
 	ensuredDownloadsCleanedNext time.Time
 	ensureStoreCacheCleanNext   time.Time
-	ensureKernelCheckDone       bool
+	// ensureKernelCheckDone is set once ensureKernelDriversTreeChecked has
+	// either confirmed the on-disk generator-version marker is current, or
+	// launched a check-kernel-drivers-tree change, for the lifetime of this
+	// process. It is intentionally *not* about whether that launched change
+	// (and its task) actually succeeds: a failed task is not retried within
+	// the same process, only on the next snapd restart, which re-arms this
+	// flag back to its zero value.
+	ensureKernelCheckDone bool
 
 	changeCallbackID int
 }
@@ -1698,7 +1705,8 @@ func (m *SnapManager) ensureStoreDownloadsCacheCleaned() error {
 
 // ensureKernelDriversTreeChecked looks at the currently active kernel snap (if
 // any) and creates a change to check it if the tree itself was generated using
-// an older format than currently supported.
+// an older format than currently supported. Its job ends at the point the
+// change is launched or the marker is confirmed current for this process.
 func (m *SnapManager) ensureKernelDriversTreeChecked() error {
 	logger.Trace("ensure", "manager", "SnapManager", "func", "ensureKernelDriversTreeChecked")
 
@@ -1786,7 +1794,9 @@ func (m *SnapManager) ensureKernelDriversTreeChecked() error {
 		fmt.Sprintf(i18n.G("Check kernel drivers tree for %q"), kernelInfo.InstanceName()))
 	chg.AddTask(t)
 
-	// We're done, a change was created, nothing more to do here.
+	// We're done, a change was created, nothing more to do here. This is
+	// deliberately set regardless of whether the change/task we just
+	// launched will actually succeed.
 	m.ensureKernelCheckDone = true
 
 	return nil

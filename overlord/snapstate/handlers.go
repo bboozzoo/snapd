@@ -5258,9 +5258,11 @@ func (m *SnapManager) undoDiscardOldKernelSnapSetup(t *state.Task, _ *tomb.Tomb)
 // regenerate) the on-disk drivers tree. There is no undo handler: this is a
 // best-effort, idempotent verify/fix-forward operation with no other
 // system state depending on it being reversed. If it fails, the change is
-// left in an error state and the next SnapManager.Ensure() tick will detect
-// that the on-disk marker is still stale and create a fresh change to
-// retry.
+// left in an error state; it is not retried within this same snapd process
+// (SnapManager.ensureKernelCheckDone is a one-shot-per-process gate - see
+// its doc comment), only on the next snapd process restart, which re-arms
+// that flag and lets ensureKernelDriversTreeChecked look at the still-stale
+// marker again and launch a fresh change.
 func (m *SnapManager) doCheckKernelDriversTree(t *state.Task, _ *tomb.Tomb) error {
 	st := t.State()
 	st.Lock()
