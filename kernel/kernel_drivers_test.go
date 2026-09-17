@@ -21,6 +21,7 @@ package kernel_test
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -33,6 +34,7 @@ import (
 	"github.com/snapcore/snapd/asserts/assertstest"
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/kernel"
+	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/release"
 	"github.com/snapcore/snapd/snap"
@@ -1188,6 +1190,59 @@ func (s *kernelDriversTestSuite) TestRegenerateMissingTopLevelFirmwareSymlink(c 
 	// lib/firmware itself must never be renamed/recreated: it is a
 	// bind-mount source, only its children may be swapped/replaced.
 	c.Check(inodeOf(c, fwParent), Equals, fwParentInode)
+}
+
+func (s *kernelDriversTestSuite) TestRegenerateLeavesNonEmptyLocalFirmwareDirAlone(c *C) {
+	kversion := "5.15.0-78-generic"
+	mountDir := filepath.Join(dirs.SnapMountDir, "pc-kernel/1")
+	createKernelSnapFiles(c, kversion, mountDir, createKernelSnapFilesOpts{})
+
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, "pc-kernel", snap.R(1))
+	kMntPts := kernel.MountPoints{Current: mountDir, Target: mountDir}
+
+	_, err := kernel.EnsureKernelDriversTree(kMntPts, nil, destDir,
+		&kernel.KernelDriversTreeOptions{KernelInstall: true})
+	c.Assert(err, IsNil)
+
+	fwParent := filepath.Join(destDir, "lib", "firmware")
+
+	// Simulate the user (or some other tool) having placed real content
+	// directly on the live tree, at a spot the generator wants to place a
+	// top-level firmware symlink: replace the "blob2" symlink with a
+	// non-empty directory.
+	blob2 := filepath.Join(fwParent, "blob2")
+	c.Assert(os.Remove(blob2), IsNil)
+	c.Assert(os.Mkdir(blob2, 0755), IsNil)
+	userContent := filepath.Join(blob2, "user_placed_file")
+	c.Assert(os.WriteFile(userContent, []byte("do not touch me"), 0644), IsNil)
+
+	logBuf, restore := logger.MockLogger()
+	defer restore()
+
+	changed, err := kernel.EnsureKernelDriversTree(kMntPts, nil, destDir,
+		&kernel.KernelDriversTreeOptions{Regenerate: true})
+	c.Assert(err, IsNil)
+	// The blocked entry does not count as a change, and nothing else in
+	// this tree needed touching, so overall nothing changed - but,
+	// crucially, no error was returned either (checked above).
+	c.Check(changed, Equals, false)
+
+	// The directory and its content must be left completely untouched.
+	c.Check(osutil.FileExists(userContent), Equals, true)
+	content, err := os.ReadFile(userContent)
+	c.Assert(err, IsNil)
+	c.Check(string(content), Equals, "do not touch me")
+	fi, err := os.Lstat(blob2)
+	c.Assert(err, IsNil)
+	c.Check(fi.IsDir(), Equals, true)
+
+	c.Check(logBuf.String(), Matches, fmt.Sprintf(`(?s).*cannot replace %q.*\n`, blob2))
+
+	// The unrelated "blob1" entry must still be created/updated correctly:
+	// this one blocked entry must not abort processing of the rest.
+	target, err := os.Readlink(filepath.Join(fwParent, "blob1"))
+	c.Assert(err, IsNil)
+	c.Check(target, Equals, filepath.Join(mountDir, "firmware", "blob1"))
 }
 
 func (s *kernelDriversTestSuite) TestRegenerateRemovesStaleTopLevelFirmwareSymlink(c *C) {

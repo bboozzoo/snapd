@@ -505,6 +505,15 @@ func syncFirmwareTopLevelSymlinks(kMntPts MountPoints, liveFwDir string) (change
 		// This only ever touches a child of the lib/firmware mount point,
 		// never lib/firmware itself, so it is safe to do live.
 		if rmErr := os.Remove(lpath); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+			if errors.Is(rmErr, syscall.ENOTEMPTY) {
+				// A real, non-empty directory sitting where we want to place a
+				// symlink is presumed to be something the user placed directly
+				// on the live tree, not generator-created content. Do not
+				// destroy it: log and leave this entry alone, but keep
+				// processing the rest.
+				logger.Noticef("cannot replace %q with a firmware symlink: directory is not empty, leaving it as is", lpath)
+				continue
+			}
 			return changed, rmErr
 		}
 		if err := os.Symlink(d.target, lpath); err != nil {
