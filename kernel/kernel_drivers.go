@@ -744,31 +744,36 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 	// knowable without building the candidate (already done above), so
 	// we compare the built candidate against the live tree before
 	// deciding. Outside Regenerate mode (routine components change),
-	// always swap unconditionally, as today.
-	modsChanged := true
-	if opts.Regenerate {
-		same, err := modulesTreesEqual(oldMods, newMods)
-		if err != nil {
-			// Undo firmware swap
-			if fwUpdatesChanged {
-				if err := osutil.SwapDirs(oldFwUpdates, updateFwDir); err != nil {
-					logger.Noticef("while reverting firmware updates swap: %v", err)
+	// always swap unconditionally, as today. A kernel with no modules at
+	// all (kversion == "") is valid; there is nothing to compare or swap
+	// in that case, so skip this entirely.
+	modsChanged := false
+	if kversion != "" {
+		modsChanged = true
+		if opts.Regenerate {
+			same, err := modulesTreesEqual(oldMods, newMods)
+			if err != nil {
+				// Undo firmware swap
+				if fwUpdatesChanged {
+					if err := osutil.SwapDirs(oldFwUpdates, updateFwDir); err != nil {
+						logger.Noticef("while reverting firmware updates swap: %v", err)
+					}
 				}
+				return false, err
 			}
-			return false, err
+			modsChanged = !same
 		}
-		modsChanged = !same
-	}
 
-	if modsChanged {
-		if err := osutil.SwapDirs(oldMods, newMods); err != nil {
-			// Undo firmware swap
-			if fwUpdatesChanged {
-				if err := osutil.SwapDirs(oldFwUpdates, updateFwDir); err != nil {
-					logger.Noticef("while reverting modules swap: %v", err)
+		if modsChanged {
+			if err := osutil.SwapDirs(oldMods, newMods); err != nil {
+				// Undo firmware swap
+				if fwUpdatesChanged {
+					if err := osutil.SwapDirs(oldFwUpdates, updateFwDir); err != nil {
+						logger.Noticef("while reverting modules swap: %v", err)
+					}
 				}
+				return false, fmt.Errorf("while swapping %q <-> %q: %w", newMods, oldMods, err)
 			}
-			return false, fmt.Errorf("while swapping %q <-> %q: %w", newMods, oldMods, err)
 		}
 	}
 

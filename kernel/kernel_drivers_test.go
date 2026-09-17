@@ -1245,6 +1245,33 @@ func (s *kernelDriversTestSuite) TestRegenerateLeavesNonEmptyLocalFirmwareDirAlo
 	c.Check(target, Equals, filepath.Join(mountDir, "firmware", "blob1"))
 }
 
+func (s *kernelDriversTestSuite) TestRegenerateNoModulesDir(c *C) {
+	mountDir := filepath.Join(dirs.RunDir, "mnt/pc-kernel")
+	createKernelSnapFilesOnlyFw(c, mountDir)
+
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, "pc-kernel", snap.R(1))
+	kMntPts := kernel.MountPoints{Current: mountDir, Target: mountDir}
+
+	_, err := kernel.EnsureKernelDriversTree(kMntPts, nil, destDir,
+		&kernel.KernelDriversTreeOptions{KernelInstall: true})
+	c.Assert(err, IsNil)
+
+	// A kernel with no modules/ directory at all is valid and must not
+	// break Regenerate mode: firmware is still processed and the marker
+	// is still written.
+	changed, err := kernel.EnsureKernelDriversTree(kMntPts, nil, destDir,
+		&kernel.KernelDriversTreeOptions{Regenerate: true})
+	c.Assert(err, IsNil)
+	c.Check(changed, Equals, false)
+
+	fwPath := filepath.Join(destDir, "lib", "firmware", "wifi_fw.bin")
+	c.Assert(osutil.IsSymlink(fwPath), Equals, true)
+
+	v, err := kernel.ReadDriversTreeGeneratorVersion(destDir)
+	c.Assert(err, IsNil)
+	c.Check(v, Equals, kernel.KernelDriversTreeGeneratorVersion())
+}
+
 func (s *kernelDriversTestSuite) TestRegenerateRemovesStaleTopLevelFirmwareSymlink(c *C) {
 	kversion := "5.15.0-78-generic"
 	mountDir := filepath.Join(dirs.SnapMountDir, "pc-kernel/1")
