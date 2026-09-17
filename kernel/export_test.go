@@ -26,6 +26,13 @@ func MockOsSymlink(newSymlink func(string, string) error) (restore func()) {
 	return func() { osSymlink = old }
 }
 
+// MockDoSync mocks the syscall.Sync wrapper for tests.
+func MockDoSync(newSync func()) (restore func()) {
+	old := doSync
+	doSync = newSync
+	return func() { doSync = old }
+}
+
 // WriteDriversTreeMeta is exported for testing.
 func WriteDriversTreeMeta(destDir string) error {
 	return writeDriversTreeMeta(destDir)

@@ -1329,3 +1329,43 @@ func (s *kernelDriversTestSuite) TestRegenerateLeavesUpdatesAlone(c *C) {
 	c.Check(osutil.FileExists(filepath.Join(fwUpdatesDir, "comp_marker")), Equals, true)
 	c.Check(osutil.FileExists(filepath.Join(modsUpdatesDir, "comp_marker")), Equals, true)
 }
+
+func (s *kernelDriversTestSuite) TestRegenerateSyncsAfterFirmwareFixBeforeMarker(c *C) {
+	kversion := "5.15.0-78-generic"
+	mountDir := filepath.Join(dirs.SnapMountDir, "pc-kernel/1")
+	createKernelSnapFiles(c, kversion, mountDir, createKernelSnapFilesOpts{})
+
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, "pc-kernel", snap.R(1))
+	kMntPts := kernel.MountPoints{Current: mountDir, Target: mountDir}
+
+	_, err := kernel.EnsureKernelDriversTree(kMntPts, nil, destDir,
+		&kernel.KernelDriversTreeOptions{KernelInstall: true})
+	c.Assert(err, IsNil)
+
+	// Force the live firmware fix path to actually do something.
+	fwParent := filepath.Join(destDir, "lib", "firmware")
+	blob2 := filepath.Join(fwParent, "blob2")
+	c.Assert(os.Remove(blob2), IsNil)
+
+	// Record, at each doSync call, whether the firmware fix (recreating
+	// the "blob2" symlink) has already happened - this pins down the
+	// ordering deterministically, without relying on wall-clock/mtime
+	// comparisons.
+	var fwFixedAtSync []bool
+	restore := kernel.MockDoSync(func() {
+		_, err := os.Readlink(blob2)
+		fwFixedAtSync = append(fwFixedAtSync, err == nil)
+	})
+	defer restore()
+
+	changed, err := kernel.EnsureKernelDriversTree(kMntPts, nil, destDir,
+		&kernel.KernelDriversTreeOptions{Regenerate: true})
+	c.Assert(err, IsNil)
+	c.Check(changed, Equals, true)
+
+	// One sync after building the candidate tree, one after the modules
+	// swap decision (neither of which has touched firmware yet), and one
+	// more - the fix under test - after the live firmware fix, before the
+	// marker gets written.
+	c.Assert(fwFixedAtSync, DeepEquals, []bool{false, false, true})
+}

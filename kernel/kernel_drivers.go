@@ -42,6 +42,10 @@ import (
 // For testing purposes
 var osSymlink = os.Symlink
 
+// doSync is a mockable wrapper around syscall.Sync, so tests can observe
+// ordering/call-count without needing real disk durability.
+var doSync = syscall.Sync
+
 // kernelDriversTreeGeneratorVersion identifies the logic that produced a
 // kernel drivers tree (the on-disk symlinks/files under
 // <destDir>/lib/{modules,firmware}). It is written to <destDir>/snapd.meta
@@ -700,7 +704,7 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 	// Sync before returning successfully (install kernel case) and also
 	// for swapping case so we have consistent content before swapping
 	// folder.
-	syscall.Sync()
+	doSync()
 
 	if opts.KernelInstall {
 		// A fresh install always counts as a change (destDir did not
@@ -778,7 +782,7 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 	}
 
 	// Make sure that changes are written
-	syscall.Sync()
+	doSync()
 
 	changed = modsChanged || fwUpdatesChanged
 
@@ -796,6 +800,12 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 			return changed, err
 		}
 		changed = changed || fwChanged
+
+		// Sync before writing the marker: these firmware changes were
+		// made live, directly against the mounted destination, and must
+		// be on disk before the marker claims the tree is current, or a
+		// crash could persist the marker while losing the symlink change.
+		doSync()
 	}
 
 	if err := writeDriversTreeMeta(oldRoot); err != nil {
