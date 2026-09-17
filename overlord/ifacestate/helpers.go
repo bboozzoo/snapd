@@ -819,12 +819,14 @@ func maybeRetryForBusySnaps(task *state.Task, busySnaps map[naming.InstanceName]
 
 // retryIfSnapBusy converts a *interfaces.SnapBusyError in err into a recorded,
 // retryable state.Retry (records "snaps-needing-retry" bookkeeping via
-// maybeRetryForBusySnaps); returns err unchanged otherwise (nil if err is
-// nil). This is the only place callers of setupSnapSecurity need to decide
-// retry policy. See LP#2164926.
+// maybeRetryForBusySnaps). If err is nil, it clears any "snaps-needing-retry"
+// bookkeeping left over from an earlier, busy-retried attempt of this same
+// task (via maybeRetryForBusySnaps(task, nil)) and returns nil. Any other
+// error is returned unchanged. This is the only place callers of
+// setupSnapSecurity need to decide retry policy. See LP#2164926.
 func retryIfSnapBusy(task *state.Task, err error) error {
 	if err == nil {
-		return nil
+		return maybeRetryForBusySnaps(task, nil)
 	}
 	var busyErr *interfaces.SnapBusyError
 	if errors.As(err, &busyErr) {
