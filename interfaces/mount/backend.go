@@ -101,8 +101,10 @@ func (b *Backend) Setup(appSet *interfaces.SnapAppSet, opts interfaces.Confineme
 	}
 
 	mutated := len(chg) != 0 || len(rm) != 0
-	if !mutated {
-		// no changes in mount profiles, nothing to do
+	if !mutated && !sctx.PreviouslyBusy {
+		// no changes in mount profiles, nothing to do, unless the caller
+		// explicitly asks for the mount namespace to be applied anyway (e.g.
+		// because a previous apply was skipped when the snap lock was busy)
 		return nil
 	}
 
@@ -133,11 +135,57 @@ func (b *Backend) Setup(appSet *interfaces.SnapAppSet, opts interfaces.Confineme
 		return nil
 	}
 
-	return b.updateOrDiscard(instanceName, snapInfo)
+	return b.updateOrDiscardLocked(instanceName, snapInfo)
+}
+
+// updateOrDiscardLocked attempts to update the mount namespace for a snap while holding
+// the snap lock, which serializes the apply against a concurrently running
+// snap-confine or snap-discard-ns. If the lock cannot be taken, a
+// interfaces.SnapBusyError naming the affected snap is returned, so the caller
+// can retry the apply later rather than race the concurrent namespace build.
+// The desired mount profile is committed by Setup() before this is called, so
+// this only (re)applies the namespace. See LP#2164926.
+func (b *Backend) updateOrDiscardLocked(instanceName naming.InstanceName, snapInfo *snap.Info) error {
+	lock, err := snaplock.OpenLock(instanceName.String())
+	if err != nil {
+		return fmt.Errorf("cannot lock mount namespace of snap %q: %s", instanceName, err)
+	}
+	// Closing the lock also unlocks it, if locked.
+	// TODO this should use snaplock.WithTryLock()
+	defer lock.Close()
+	if err := lock.TryLock(); err != nil {
+		if err == osutil.ErrAlreadyLocked {
+			return fmt.Errorf("cannot update mount namespace of snap %q, it is locked and possibly being updated: %w",
+				instanceName, &interfaces.SnapBusyError{Snap: instanceName})
+		}
+		return fmt.Errorf("cannot lock mount namespace of snap %q: %s", instanceName, err)
+	}
+
+	// Same recovery as updateOrDiscard, but using the locked variants of the
+	// mount namespace tools since we hold the snap lock
+	err = UpdateLockedSnapNamespace(instanceName.String())
+	if err != nil {
+		// try to discard the mount namespace but only if there aren't enduring daemons in the snap
+		for _, app := range snapInfo.Apps {
+			if app.Daemon != "" && app.RefreshMode == "endure" {
+				return fmt.Errorf("cannot update mount namespace of snap %q, and cannot discard it because it contains an enduring daemon: %s", instanceName, err)
+			}
+		}
+		logger.Noticef("discarding mount namespace of snap %q due update failure: %v", instanceName, err)
+		// In some snaps, if the layout change from a version to the next by replacing a bind by a symlink,
+		// the update can fail. Discarding the namespace allows to solve this.
+		if err = DiscardLockedSnapNamespace(instanceName.String()); err != nil {
+			return fmt.Errorf("cannot discard mount namespace of snap %q when trying to update it: %s", instanceName, err)
+		}
+	}
+	return nil
 }
 
 // updateOrDiscard attempts to update the mount namespace for a snap, and if
 // that fails, tries to discard the namespace (unless the snap has enduring daemons).
+//
+// The caller must NOT hold the snap lock; the unlocked variants of the mount
+// namespace tools are used.
 func (b *Backend) updateOrDiscard(instanceName naming.InstanceName, snapInfo *snap.Info) error {
 	logger.Debugf("update or discard mount ns for snap %v", snapInfo.InstanceName())
 
@@ -269,6 +317,7 @@ func (b *Backend) ApplyDelayedEffects(appSet *interfaces.SnapAppSet, work []inte
 
 		// Assuming all non-deferred work was done in Setup(), perform only the
 		// remaining work, specifically update or discard the mount namespace
+		// TODO: use updateOrDiscardLocked
 		return b.updateOrDiscard(instanceName, snapInfo)
 	}
 	return nil
