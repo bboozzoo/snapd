@@ -411,7 +411,7 @@ func (s *backendSuite) TestSetupLockBusy(c *C) {
 	got := strings.Split(string(content), "\n")
 	c.Check(got, testutil.DeepUnsortedMatches, strings.Split(fmt.Sprintf("%s\n%s\n%s\n", fsEntry1, fsEntry2, fsEntry3), "\n"))
 
-	// Once the lock is available, a retry with ForceMountNsApply set re-applies
+	// Once the lock is available, a retry with PreviouslyBusy set re-applies
 	// the namespace even though the desired profile did not change (it was
 	// already committed on the failed attempt).
 	sctx.PreviouslyBusy = true
@@ -419,7 +419,7 @@ func (s *backendSuite) TestSetupLockBusy(c *C) {
 	c.Assert(err, IsNil)
 	c.Check(cmd.Calls(), DeepEquals, [][]string{{"snap-update-ns", "--snap-already-locked", "snap-name"}})
 
-	// A plain retry without ForceMountNsApply is a no-op (mutated == false).
+	// A plain retry without PreviouslyBusy is a no-op (mutated == false).
 	sctx.PreviouslyBusy = false
 	cmd.ForgetCalls()
 	err = s.Backend.Setup(appSet, interfaces.ConfinementOptions{}, sctx, s.Repo, timings.New(nil).StartSpan("", ""))
@@ -427,7 +427,7 @@ func (s *backendSuite) TestSetupLockBusy(c *C) {
 	c.Check(cmd.Calls(), HasLen, 0)
 }
 
-func (s *backendSuite) TestSetupForceMountNsApply(c *C) {
+func (s *backendSuite) TestSetupPreviouslyBusy(c *C) {
 	fsEntry1 := osutil.MountEntry{Name: "/src-1", Dir: "/dst-1", Type: "none", Options: []string{"bind", "ro"}, DumpFrequency: 0, CheckPassNumber: 0}
 
 	s.Iface.MountPermanentPlugCallback = func(spec *mount.Specification, plug *snap.PlugInfo) error {
@@ -450,12 +450,12 @@ func (s *backendSuite) TestSetupForceMountNsApply(c *C) {
 
 	sctx := interfaces.SetupContext{Reason: interfaces.SnapSetupReasonOther}
 
-	// No content changes and no ForceMountNsApply: nothing is done.
+	// No content changes and PreviouslyBusy not set: nothing is done.
 	err = s.Backend.Setup(appSet, interfaces.ConfinementOptions{}, sctx, s.Repo, timings.New(nil).StartSpan("", ""))
 	c.Assert(err, IsNil)
 	c.Check(cmd.Calls(), HasLen, 0)
 
-	// With ForceMountNsApply the namespace is (re)applied even though the
+	// With PreviouslyBusy set the namespace is (re)applied even though the
 	// desired mount profile did not change. This is used when a previous apply
 	// attempt was skipped because the snap lock was busy.
 	sctx.PreviouslyBusy = true
