@@ -181,31 +181,6 @@ func (b *Backend) updateOrDiscardLocked(instanceName naming.InstanceName, snapIn
 	return nil
 }
 
-// updateOrDiscard attempts to update the mount namespace for a snap, and if
-// that fails, tries to discard the namespace (unless the snap has enduring daemons).
-//
-// The caller must NOT hold the snap lock; the unlocked variants of the mount
-// namespace tools are used.
-func (b *Backend) updateOrDiscard(instanceName naming.InstanceName, snapInfo *snap.Info) error {
-	logger.Debugf("update or discard mount ns for snap %v", snapInfo.InstanceName())
-
-	if err := UpdateSnapNamespace(instanceName.String()); err != nil {
-		// try to discard the mount namespace but only if there aren't enduring daemons in the snap
-		for _, app := range snapInfo.Apps {
-			if app.Daemon != "" && app.RefreshMode == "endure" {
-				return fmt.Errorf("cannot update mount namespace of snap %q, and cannot discard it because it contains an enduring daemon: %s", instanceName, err)
-			}
-		}
-		logger.Noticef("discarding mount namespace of snap %q due update failure: %v", instanceName, err)
-		// In some snaps, if the layout change from a version to the next by replacing a bind by a symlink,
-		// the update can fail. Discarding the namespace allows to solve this.
-		if err = DiscardSnapNamespace(instanceName.String()); err != nil {
-			return fmt.Errorf("cannot discard mount namespace of snap %q when trying to update it: %s", instanceName, err)
-		}
-	}
-	return nil
-}
-
 // Remove removes mount configuration files of a given snap.
 //
 // This method should be called after removing a snap.
@@ -317,8 +292,7 @@ func (b *Backend) ApplyDelayedEffects(appSet *interfaces.SnapAppSet, work []inte
 
 		// Assuming all non-deferred work was done in Setup(), perform only the
 		// remaining work, specifically update or discard the mount namespace
-		// TODO: use updateOrDiscardLocked
-		return b.updateOrDiscard(instanceName, snapInfo)
+		return b.updateOrDiscardLocked(instanceName, snapInfo)
 	}
 	return nil
 }

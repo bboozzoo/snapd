@@ -777,7 +777,7 @@ func (s *backendSuite) TestSetupDelaysIfDuringOtherUpdateAndConnectedOnPlugSideA
 	c.Assert(err, IsNil)
 
 	c.Check(cmdUpdNs.Calls(), DeepEquals, [][]string{
-		{"snap-update-ns", "consumer"},
+		{"snap-update-ns", "--snap-already-locked", "consumer"},
 	})
 
 	cmdUpdNs.ForgetCalls()
@@ -997,7 +997,7 @@ func (s *backendSuite) TestEffectApplyDelayedOpportunisticDiscardHappy(c *C) {
 	c.Assert(err, IsNil)
 
 	c.Check(cmdUpdNs.Calls(), DeepEquals, [][]string{
-		{"snap-update-ns", "consumer"},
+		{"snap-update-ns", "--snap-already-locked", "consumer"},
 	})
 	c.Check(cmdDiscardNs.Calls(), HasLen, 0)
 
@@ -1012,7 +1012,7 @@ func (s *backendSuite) TestEffectApplyDelayedOpportunisticDiscardHappy(c *C) {
 	c.Assert(err, IsNil)
 
 	c.Check(cmdUpdNs.Calls(), DeepEquals, [][]string{
-		{"snap-update-ns", "consumer"},
+		{"snap-update-ns", "--snap-already-locked", "consumer"},
 	})
 	c.Check(cmdDiscardNs.Calls(), HasLen, 0)
 
@@ -1027,7 +1027,7 @@ func (s *backendSuite) TestEffectApplyDelayedOpportunisticDiscardHappy(c *C) {
 	c.Assert(err, IsNil)
 
 	c.Check(cmdUpdNs.Calls(), DeepEquals, [][]string{
-		{"snap-update-ns", "consumer"},
+		{"snap-update-ns", "--snap-already-locked", "consumer"},
 	})
 	c.Check(cmdDiscardNs.Calls(), HasLen, 0)
 
@@ -1063,7 +1063,7 @@ func (s *backendSuite) TestEffectApplyDelayedOpportunisticDiscardErrFallsBack(c 
 
 	c.Check(cmds.Calls(), DeepEquals, [][]string{
 		{"snap-discard-ns", "--snap-already-locked", "consumer"},
-		{"snap-update-ns", "consumer"},
+		{"snap-update-ns", "--snap-already-locked", "consumer"},
 	})
 }
 
@@ -1087,18 +1087,21 @@ func (s *backendSuite) TestEffectApplyDelayedOpportunisticDiscardErrLockHeldFall
 	// write mnt file
 	c.Assert(os.WriteFile(filepath.Join(dirs.SnapRunNsDir, "consumer.mnt"), []byte(""), 0644), IsNil)
 
-	// take the lock so nested locking attempts will fail
+	// take the lock so nested locking attempts will fail: the opportunistic
+	// discard declines to even try (lock busy), and the fallback update no
+	// longer races the held lock unlocked -- it also declines, surfacing a
+	// retryable interfaces.SnapBusyError to the caller. See LP#2164926.
 	err := snaplock.WithLock("consumer", func() error {
 		err := defMntB.ApplyDelayedEffects(consumerAppSet, eff, timings.New(nil).StartSpan("", ""))
-		c.Assert(err, IsNil)
+		var snapBusyErr *interfaces.SnapBusyError
+		c.Assert(errors.As(err, &snapBusyErr), Equals, true,
+			Commentf("expected a SnapBusyError, got: %v", err))
+		c.Check(snapBusyErr.Snap, Equals, naming.InstanceName("consumer"))
 
-		c.Check(cmds.Calls(), DeepEquals, [][]string{
-			// only call to snap-update-ns
-			{"snap-update-ns", "consumer"},
-		})
+		c.Check(cmds.Calls(), HasLen, 0)
 		return err
 	})
-	c.Assert(err, IsNil)
+	c.Assert(err, NotNil)
 }
 
 func (s *backendSuite) cgroupRoot() string {
