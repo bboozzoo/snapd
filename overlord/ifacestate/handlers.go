@@ -267,8 +267,7 @@ func (m *InterfaceManager) doSetupProfiles(task *state.Task, tomb *tomb.Tomb) er
 					Reason:          interfaces.SnapSetupReasonOwnUpdate,
 					CanDelayEffects: false,
 					// it's unlikely this snap may have been busy
-					PreviouslyBusy: previouslyBusySnaps != nil &&
-						previouslyBusySnaps[naming.InstanceName(appSet.InstanceName())],
+					PreviouslyBusy: previouslyBusySnaps[appSet.InstanceName()],
 				},
 			}
 			busySnaps, err := m.setupSecurityByBackend(task, []*interfaces.SnapAppSet{appSet}, []interfaces.ConfinementOptions{opts}, sctxs, perfTimings)
@@ -512,7 +511,7 @@ func (m *InterfaceManager) setupProfilesForAppSet(
 		// We are being updated
 		Reason:          interfaces.SnapSetupReasonOwnUpdate,
 		CanDelayEffects: false,
-		PreviouslyBusy:  previouslyBusySnaps != nil && previouslyBusySnaps[instanceName],
+		PreviouslyBusy:  previouslyBusySnaps[instanceName],
 	}
 
 	var delayedEffectsLock sync.Mutex
@@ -609,7 +608,7 @@ func (m *InterfaceManager) setupProfilesForAppSet(
 				}
 			}
 		}
-		sctx.PreviouslyBusy = previouslyBusySnaps != nil && previouslyBusySnaps[naming.InstanceName(name)]
+		sctx.PreviouslyBusy = previouslyBusySnaps[naming.InstanceName(name)]
 		setupContexts[name] = sctx
 
 		affectedSnapSets = append(affectedSnapSets, appSet)
