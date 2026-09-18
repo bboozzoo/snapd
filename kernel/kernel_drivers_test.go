@@ -1420,3 +1420,77 @@ func (s *kernelDriversTestSuite) TestRegenerateSyncsAfterFirmwareFixBeforeMarker
 	// marker gets written.
 	c.Assert(fwFixedAtSync, DeepEquals, []bool{false, false, true})
 }
+
+func (s *kernelDriversTestSuite) TestKernelInstallMarkerWriteFailureDiscardsTree(c *C) {
+	kversion := "5.15.0-78-generic"
+	mountDir := filepath.Join(dirs.SnapMountDir, "pc-kernel/1")
+	createKernelSnapFiles(c, kversion, mountDir, createKernelSnapFilesOpts{})
+
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, "pc-kernel", snap.R(1))
+	kMntPts := kernel.MountPoints{Current: mountDir, Target: mountDir}
+
+	boom := errors.New("boom: no space left on device")
+	restore := kernel.MockAtomicWriteFile(func(string, []byte, os.FileMode, osutil.AtomicWriteFlags) error {
+		return boom
+	})
+	defer restore()
+
+	// Current, intentionally-kept behavior on the fresh-install path: a
+	// marker-write failure is fatal and discards the entire freshly-built
+	// tree, even though the tree content itself (modules/firmware) was
+	// already correctly built by this point. See the comment above the
+	// writeDriversTreeMeta call in the KernelInstall branch of
+	// EnsureKernelDriversTree for the rationale.
+	_, err := kernel.EnsureKernelDriversTree(kMntPts, nil, destDir,
+		&kernel.KernelDriversTreeOptions{KernelInstall: true})
+	c.Assert(err, Equals, boom)
+
+	c.Check(osutil.FileExists(destDir), Equals, false)
+}
+
+func (s *kernelDriversTestSuite) TestRegenerateMarkerWriteFailureKeepsLiveTree(c *C) {
+	kversion := "5.15.0-78-generic"
+	mountDir := filepath.Join(dirs.SnapMountDir, "pc-kernel/1")
+	createKernelSnapFiles(c, kversion, mountDir, createKernelSnapFilesOpts{})
+
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, "pc-kernel", snap.R(1))
+	kMntPts := kernel.MountPoints{Current: mountDir, Target: mountDir}
+
+	_, err := kernel.EnsureKernelDriversTree(kMntPts, nil, destDir,
+		&kernel.KernelDriversTreeOptions{KernelInstall: true})
+	c.Assert(err, IsNil)
+
+	// Force the Regenerate path to actually find something to fix, so the
+	// live tree swap/sync logic runs before the marker write is reached.
+	fwParent := filepath.Join(destDir, "lib", "firmware")
+	blob2 := filepath.Join(fwParent, "blob2")
+	c.Assert(os.Remove(blob2), IsNil)
+
+	boom := errors.New("boom: no space left on device")
+	restore := kernel.MockAtomicWriteFile(func(string, []byte, os.FileMode, osutil.AtomicWriteFlags) error {
+		return boom
+	})
+	defer restore()
+
+	// Current, intentionally-kept behavior on the Regenerate path: a
+	// marker-write failure only discards the _tmp scratch copy (per the
+	// deferred cleanup), leaving the already-live, already-correct tree
+	// untouched. It still surfaces as an error to the caller. See the
+	// comment above this writeDriversTreeMeta call in EnsureKernelDriversTree
+	// for the rationale.
+	changed, err := kernel.EnsureKernelDriversTree(kMntPts, nil, destDir,
+		&kernel.KernelDriversTreeOptions{Regenerate: true})
+	c.Assert(err, Equals, boom)
+	// changed is still reported accurately: the live fix did happen.
+	c.Check(changed, Equals, true)
+
+	// The live tree survives, and the firmware fix that was made live
+	// before the marker write was attempted is still in place.
+	c.Check(osutil.FileExists(destDir), Equals, true)
+	target, err := os.Readlink(blob2)
+	c.Assert(err, IsNil)
+	c.Check(target, Equals, filepath.Join(mountDir, "firmware", "blob2"))
+
+	// The _tmp scratch copy must not linger around.
+	c.Check(osutil.FileExists(destDir+"_tmp"), Equals, false)
+}

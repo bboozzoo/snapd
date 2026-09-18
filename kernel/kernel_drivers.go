@@ -46,6 +46,11 @@ var osSymlink = os.Symlink
 // ordering/call-count without needing real disk durability.
 var doSync = syscall.Sync
 
+// atomicWriteFile is a mockable wrapper around osutil.AtomicWriteFile, used
+// by writeDriversTreeMeta, so tests can simulate a marker-write failure
+// (e.g. ENOSPC) without needing to actually exhaust disk space.
+var atomicWriteFile = osutil.AtomicWriteFile
+
 // kernelDriversTreeGeneratorVersion identifies the logic that produced a
 // kernel drivers tree (the on-disk symlinks/files under
 // <destDir>/lib/{modules,firmware}). It is written to <destDir>/snapd.meta
@@ -84,7 +89,7 @@ func writeDriversTreeMeta(destDir string) error {
 	if err != nil {
 		return err
 	}
-	return osutil.AtomicWriteFile(driversTreeMetaPath(destDir), data, 0644, 0)
+	return atomicWriteFile(driversTreeMetaPath(destDir), data, 0644, 0)
 }
 
 // readDriversTreeGeneratorMeta returns the generator metadata recorded for
@@ -706,6 +711,17 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 		// A fresh install always counts as a change (destDir did not
 		// exist as a proper directory beforehand, see the early return
 		// above).
+		//
+		// Note: a writeDriversTreeMeta failure here is treated as fatal
+		// and (via the deferred cleanup above, since err != nil) discards
+		// the entire freshly-built tree, even though the tree content
+		// itself is already correct at this point and only the marker
+		// write failed. This is intentionally left as-is (asymmetric with
+		// the Regenerate path below, where an equivalent failure only
+		// discards the _tmp scratch copy and leaves the already-live tree
+		// untouched): fresh install is a rarer, already-conflict-serialized
+		// code path where failing loudly and retrying from scratch is
+		// preferable to risking a tree with no marker at all.
 		if err := writeDriversTreeMeta(targetDir); err != nil {
 			return false, err
 		}
@@ -804,6 +820,12 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 		doSync()
 	}
 
+	// Note: unlike the KernelInstall path above, a writeDriversTreeMeta
+	// failure here only discards the already-cleaned-up _tmp scratch copy
+	// (see the deferred cleanup above): the live tree at oldRoot, already
+	// correctly swapped in, is left untouched. It still surfaces as a
+	// task error, which (see SnapManager.ensureKernelCheckDone) is not
+	// retried within the same snapd process, only on the next restart.
 	if err := writeDriversTreeMeta(oldRoot); err != nil {
 		return changed, err
 	}
