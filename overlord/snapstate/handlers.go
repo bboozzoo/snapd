@@ -5250,7 +5250,8 @@ func (m *SnapManager) undoDiscardOldKernelSnapSetup(t *state.Task, _ *tomb.Tomb)
 	return nil
 }
 
-// doCheckKernelDriversTree is the handler for checkKernelDriversTreeTaskKind.
+// doCheckKernelDriversTree is the handler for the "check-kernel-drivers-tree"
+// task kind.
 // It re-derives the current kernel snap and its currently active
 // kernel-modules components live at execution time (mirroring
 // doDiscardOldKernelSnapSetup's style) rather than trusting anything

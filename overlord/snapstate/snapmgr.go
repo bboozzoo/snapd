@@ -58,6 +58,11 @@ import (
 var (
 	removeSnapChangeKind           = swfeats.RegisterChangeKind("remove-snap")
 	transitionUbuntuCoreChangeKind = swfeats.RegisterChangeKind("transition-ubuntu-core")
+	// The "check-kernel-drivers-tree" task kind is not registered via
+	// swfeats: task kinds are not separately tracked in that registry
+	// elsewhere in this package (see e.g. "discard-old-kernel-snap-setup"),
+	// only change kinds are.
+	checkKernelDriversTreeChangeKind = swfeats.RegisterChangeKind("check-kernel-drivers-tree")
 )
 
 func init() {
@@ -1790,7 +1795,7 @@ func (m *SnapManager) ensureKernelDriversTreeChecked() error {
 		Type:     snap.TypeKernel,
 	})
 
-	chg := m.state.NewChange("check-kernel-drivers-tree",
+	chg := m.state.NewChange(checkKernelDriversTreeChangeKind,
 		fmt.Sprintf(i18n.G("Check kernel drivers tree for %q"), kernelInfo.InstanceName()))
 	chg.AddTask(t)
 
