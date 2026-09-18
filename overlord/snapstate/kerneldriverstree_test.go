@@ -20,6 +20,7 @@
 package snapstate_test
 
 import (
+	"fmt"
 	"os"
 
 	. "gopkg.in/check.v1"
@@ -458,4 +459,55 @@ func (s *checkKernelDriversTreeSuite) TestEnsureForwardOnlyRevertSafetyNoChange(
 	s.state.Lock()
 	defer s.state.Unlock()
 	c.Check(changesOfKind(s.state, "check-kernel-drivers-tree"), HasLen, 0)
+}
+
+// 13. A real doCheckKernelDriversTree task failure (backend.SetupKernelSnap
+// returns an error): the task and change end up in an error state, and -
+// this is the concrete regression test for the ensureKernelCheckDone
+// one-shot-per-process behavior documented on that field and exercised only
+// indirectly by TestEnsureKernelCheckRunsOnlyOncePerManagerLifetime above -
+// a subsequent EnsureKernelDriversTreeChecked() call in the same process
+// does not launch a second change, even though the on-disk marker is still
+// stale (the failed task never got to write it).
+func (s *checkKernelDriversTreeSuite) TestEnsureRealTaskFailureNoRelaunch(c *C) {
+	s.fakeBackend.maybeInjectErr = func(op *fakeOp) error {
+		if op.op == "prepare-kernel-snap" {
+			return fmt.Errorf("boom: cannot set up kernel snap")
+		}
+		return nil
+	}
+
+	s.state.Lock()
+	info := s.setUpKernel(c)
+	s.state.Set("seeded", true)
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, info.InstanceName(), info.Revision)
+	c.Assert(os.MkdirAll(destDir, 0755), IsNil)
+	s.state.Unlock()
+
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	found := changesOfKind(s.state, "check-kernel-drivers-tree")
+	c.Check(found, HasLen, 1)
+	s.state.Unlock()
+
+	s.se.Ensure()
+	s.se.Wait()
+
+	s.state.Lock()
+	c.Check(found[0].Err(), ErrorMatches, "(?s).*boom: cannot set up kernel snap.*")
+	c.Check(found[0].Status(), Equals, state.ErrorStatus)
+	for _, t := range found[0].Tasks() {
+		c.Check(t.Status(), Equals, state.ErrorStatus)
+	}
+	s.state.Unlock()
+
+	// A subsequent Ensure()-driven check must not relaunch, even though the
+	// marker is still stale, because ensureKernelCheckDone was already set
+	// when the (now-failed) change was launched.
+	c.Assert(s.snapmgr.EnsureKernelDriversTreeChecked(), IsNil)
+
+	s.state.Lock()
+	defer s.state.Unlock()
+	c.Check(changesOfKind(s.state, "check-kernel-drivers-tree"), HasLen, 1)
 }
