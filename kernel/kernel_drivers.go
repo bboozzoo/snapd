@@ -390,11 +390,6 @@ func setupModsFromComp(kernelTree, kversion string, compsMntPts []ModulesCompMou
 // and out of scope for this comparison, as it is unaffected when components
 // have not changed) entry-by-entry: same set of names, same symlink
 // targets, same regular file contents.
-// modulesTreesEqual compares two lib/modules/<kversion> directories
-// (excluding the "updates" subtree, reserved for kernel-modules components
-// and out of scope for this comparison, as it is unaffected when components
-// have not changed) entry-by-entry: same set of names, same symlink
-// targets, same regular file contents.
 func modulesTreesEqual(oldDir, newDir string) (bool, error) {
 	return dirContentsEqual(oldDir, newDir, "updates")
 }
