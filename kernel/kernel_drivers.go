@@ -483,9 +483,11 @@ func readDirExcept(dir, except string) (map[string]fs.DirEntry, error) {
 // silently leaving it showing stale content forever. Only children of an
 // already-mounted directory are live when changed, so each top-level entry
 // is created/updated/removed individually, directly against the live
-// directory. "updates" (reserved for kernel-modules components) and any
-// unrecognized directory are left untouched. Returns whether anything was
-// changed.
+// directory, using an atomic symlink replace so the destination path is
+// never briefly unresolvable to a concurrent reader (e.g. a kernel
+// request_firmware() call landing on lib/firmware). "updates" (reserved
+// for kernel-modules components) and any unrecognized directory are left
+// untouched. Returns whether anything was changed.
 func syncFirmwareTopLevelSymlinks(kMntPts MountPoints, liveFwDir string) (changed bool, err error) {
 	if err := os.MkdirAll(liveFwDir, 0755); err != nil {
 		return false, err
@@ -507,20 +509,19 @@ func syncFirmwareTopLevelSymlinks(kMntPts MountPoints, liveFwDir string) (change
 		}
 		// Either missing, wrong target, or not a symlink at all: replace it.
 		// This only ever touches a child of the lib/firmware mount point,
-		// never lib/firmware itself, so it is safe to do live.
-		if rmErr := os.Remove(lpath); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
-			if errors.Is(rmErr, syscall.ENOTEMPTY) {
-				// A real, non-empty directory sitting where we want to place a
-				// symlink is presumed to be something the user placed directly
-				// on the live tree, not generator-created content. Do not
-				// destroy it: log and leave this entry alone, but keep
-				// processing the rest.
-				logger.Noticef("cannot replace %q with a firmware symlink: directory is not empty, leaving it as is", lpath)
+		// never lib/firmware itself, so it is safe to do live. Use an atomic
+		// symlink replace (rename over the destination) so lpath is never
+		// briefly unresolvable to a concurrent reader.
+		if err := osutil.AtomicSymlink(d.target, lpath); err != nil {
+			if errors.Is(err, syscall.EEXIST) {
+				// A real directory (empty or not) sitting where we want to
+				// place a symlink is presumed to be something the user
+				// placed directly on the live tree, not generator-created
+				// content. Do not destroy it: log and leave this entry
+				// alone, but keep processing the rest.
+				logger.Noticef("cannot replace %q with a firmware symlink: a directory is already present, leaving it as is", lpath)
 				continue
 			}
-			return changed, rmErr
-		}
-		if err := os.Symlink(d.target, lpath); err != nil {
 			return changed, err
 		}
 		changed = true

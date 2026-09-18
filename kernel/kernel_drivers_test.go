@@ -1236,7 +1236,58 @@ func (s *kernelDriversTestSuite) TestRegenerateLeavesNonEmptyLocalFirmwareDirAlo
 	c.Assert(err, IsNil)
 	c.Check(fi.IsDir(), Equals, true)
 
-	c.Check(logBuf.String(), Matches, fmt.Sprintf(`(?s).*cannot replace %q.*\n`, blob2))
+	c.Check(logBuf.String(), Matches, fmt.Sprintf(`(?s).*cannot replace %q with a firmware symlink: a directory is already present.*\n`, blob2))
+
+	// The unrelated "blob1" entry must still be created/updated correctly:
+	// this one blocked entry must not abort processing of the rest.
+	target, err := os.Readlink(filepath.Join(fwParent, "blob1"))
+	c.Assert(err, IsNil)
+	c.Check(target, Equals, filepath.Join(mountDir, "firmware", "blob1"))
+}
+
+func (s *kernelDriversTestSuite) TestRegenerateLeavesEmptyLocalFirmwareDirAlone(c *C) {
+	kversion := "5.15.0-78-generic"
+	mountDir := filepath.Join(dirs.SnapMountDir, "pc-kernel/1")
+	createKernelSnapFiles(c, kversion, mountDir, createKernelSnapFilesOpts{})
+
+	destDir := kernel.DriversTreeDir(dirs.GlobalRootDir, "pc-kernel", snap.R(1))
+	kMntPts := kernel.MountPoints{Current: mountDir, Target: mountDir}
+
+	_, err := kernel.EnsureKernelDriversTree(kMntPts, nil, destDir,
+		&kernel.KernelDriversTreeOptions{KernelInstall: true})
+	c.Assert(err, IsNil)
+
+	fwParent := filepath.Join(destDir, "lib", "firmware")
+
+	// Same as the non-empty case above, but this time the stray directory
+	// sitting where we want to place a top-level firmware symlink is
+	// itself empty. Behavior change: this used to be silently removed and
+	// replaced (a plain os.Remove succeeds on an empty directory); with an
+	// atomic symlink replace via rename(2), placing a symlink over *any*
+	// pre-existing directory - empty or not - fails with EEXIST, so an
+	// empty directory is now left alone too, exactly like a non-empty one.
+	blob2 := filepath.Join(fwParent, "blob2")
+	c.Assert(os.Remove(blob2), IsNil)
+	c.Assert(os.Mkdir(blob2, 0755), IsNil)
+
+	logBuf, restore := logger.MockLogger()
+	defer restore()
+
+	changed, err := kernel.EnsureKernelDriversTree(kMntPts, nil, destDir,
+		&kernel.KernelDriversTreeOptions{Regenerate: true})
+	c.Assert(err, IsNil)
+	c.Check(changed, Equals, false)
+
+	// The empty directory must be left completely untouched (not removed,
+	// not replaced with a symlink).
+	fi, err := os.Lstat(blob2)
+	c.Assert(err, IsNil)
+	c.Check(fi.IsDir(), Equals, true)
+	entries, err := os.ReadDir(blob2)
+	c.Assert(err, IsNil)
+	c.Check(entries, HasLen, 0)
+
+	c.Check(logBuf.String(), Matches, fmt.Sprintf(`(?s).*cannot replace %q with a firmware symlink: a directory is already present.*\n`, blob2))
 
 	// The unrelated "blob1" entry must still be created/updated correctly:
 	// this one blocked entry must not abort processing of the rest.
