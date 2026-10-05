@@ -218,7 +218,7 @@ func (s *regenerateKernelDriversTreeSuite) TestEnsureMarkerUpToDateNoChange(c *C
 	mountDir := c.MkDir()
 	err := kernel.EnsureKernelDriversTree(
 		kernel.MountPoints{Current: mountDir, Target: mountDir},
-		nil, destDir, &kernel.KernelDriversTreeOptions{KernelInstall: true})
+		nil, destDir, kernel.KernelInstallMode)
 	c.Assert(err, IsNil)
 
 	c.Assert(s.snapmgr.EnsureKernelDriversTreeRegenerated(), IsNil)
@@ -444,7 +444,7 @@ func (s *regenerateKernelDriversTreeSuite) TestEnsureForwardOnlyRevertSafetyNoCh
 	mountDir := c.MkDir()
 	err := kernel.EnsureKernelDriversTree(
 		kernel.MountPoints{Current: mountDir, Target: mountDir},
-		nil, destDir, &kernel.KernelDriversTreeOptions{KernelInstall: true})
+		nil, destDir, kernel.KernelInstallMode)
 	c.Assert(err, IsNil)
 
 	// Simulate a tree built by a newer generator than what is currently

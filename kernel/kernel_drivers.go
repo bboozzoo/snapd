@@ -483,14 +483,24 @@ func RemoveKernelDriversTree(treeRoot string) (err error) {
 	return os.RemoveAll(treeRoot)
 }
 
-type KernelDriversTreeOptions struct {
-	// Set if we are building the tree for a kernel we are installing right now
-	KernelInstall bool
-	// Regenerate rebuilds and swaps in place the tree of an already
-	// installed, active kernel (never a fresh install). Must be used
-	// with KernelInstall: false.
-	Regenerate bool
-}
+type KernelDriversTreeMode int
+
+const (
+	// zero value is reserved and intentionally invalid: every caller must
+	// pick a mode explicitly instead of silently defaulting to one.
+	_ KernelDriversTreeMode = iota
+
+	// KernelInstallMode builds a tree for a kernel snap being installed
+	// right now (possibly together with kernel-modules components).
+	KernelInstallMode
+	// ComponentChangeMode updates the tree of an already-installed, kernel in
+	// response to a kernel-modules component install or removal. Can be applied
+	// to an live, active kernel tree.
+	ComponentChangeMode
+	// RegenerateMode unconditionally rebuilds and swaps in the tree of an
+	// already-installed kernel.
+	RegenerateMode
+)
 
 // MountPoints describes mount points for a snap or a component.
 type MountPoints struct {
@@ -522,9 +532,9 @@ type ModulesCompMountPoints struct {
 }
 
 // EnsureKernelDriversTree creates a drivers tree that can include modules/fw
-// from kernel-modules components. opts.KernelInstall tells the function if
-// this is a kernel install (which might be installing components at the same
-// time) or an only components install.
+// from kernel-modules components. mode tells the function which of the
+// fixed set of scenarios (KernelInstallMode, ComponentChangeMode,
+// RegenerateMode) it is building the tree for.
 //
 // For kernel installs, this function creates a tree in destDir (should be of
 // the form <somedir>/var/lib/snapd/kernel/<ksnapName>/<rev>), which is
@@ -546,7 +556,7 @@ type ModulesCompMountPoints struct {
 // from the initramfs). To consider all cases, we need to run depmod with links
 // to the currently available content, and then replace those links with the
 // expected mounts in the running system.
-func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMountPoints, destDir string, opts *KernelDriversTreeOptions) (retErr error) {
+func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMountPoints, destDir string, mode KernelDriversTreeMode) (retErr error) {
 	// The temporal dir when installing only components can be fixed as a
 	// task installing/updating a kernel-modules component must conflict
 	// with changes containing this same task. This helps with clean-ups if
@@ -554,7 +564,7 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 	// filesystem as the final one so we can atomically switch the folders.
 	destDir = strings.TrimSuffix(destDir, "/")
 	targetDir := destDir + "_tmp"
-	if opts.KernelInstall {
+	if mode == KernelInstallMode {
 		targetDir = destDir
 		exists, isDir, err := osutil.DirExists(targetDir)
 		if err != nil {
@@ -587,7 +597,7 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 
 	defer func() {
 		// Remove on return if error or if temporary tree
-		if retErr == nil && opts.KernelInstall {
+		if retErr == nil && mode == KernelInstallMode {
 			return
 		}
 		if rmErr := RemoveKernelDriversTree(targetDir); rmErr != nil &&
@@ -608,7 +618,7 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 	}
 
 	fwDir := filepath.Join(targetDir, "lib", "firmware")
-	if opts.KernelInstall {
+	if mode == KernelInstallMode {
 		// symlinks in /lib/firmware are not affected by components
 		if err := createFirmwareSymlinks(kMntPts, fwDir); err != nil {
 			return err
@@ -631,7 +641,7 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 	// folder.
 	doSync()
 
-	if opts.KernelInstall {
+	if mode == KernelInstallMode {
 		// Record the version of the layout used for the firmware and modules
 		// tree.
 		if err := writeDriversTreeMeta(targetDir); err != nil {
@@ -716,7 +726,7 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 	// Make sure that changes are written
 	doSync()
 
-	if opts.Regenerate {
+	if mode == RegenerateMode {
 		// lib/firmware is a bind-mount source like lib/modules; only its
 		// children can be changed live, so sync per-entry instead of
 		// swapping the directory as a unit.
@@ -737,7 +747,7 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 	// Only advance the marker on a full Regenerate pass: a component-only
 	// change never touches top-level firmware, so advancing the marker
 	// there would mask a still-pending firmware fix.
-	if opts.Regenerate {
+	if mode == RegenerateMode {
 		if err := writeDriversTreeMeta(oldRoot); err != nil {
 			return err
 		}
