@@ -7,6 +7,13 @@ post_install() {
   _set_snap_confine_caps
   install -d -m 0700 /tmp/snap-private-tmp
 
+  # Enable and start the snap mount directory bind mounts (safe on a
+  # fresh install: no preexisting snap mount namespaces yet).
+  /usr/bin/systemctl daemon-reload > /dev/null 2>&1 || :
+  /usr/bin/systemctl enable --now \
+    var-lib-snapd-snap.mount \
+    var-snap.mount > /dev/null 2>&1 || :
+
   echo
   echo 'To use snapd start/enable the snapd.socket'
   echo
@@ -33,9 +40,23 @@ _disable_services() {
   _systemctl_do_for_all --no-reload disable
 }
 
+_stop_mounts() {
+  /usr/bin/systemctl stop \
+    var-lib-snapd-snap.mount \
+    var-snap.mount > /dev/null 2>&1 || :
+}
+
+_disable_mounts() {
+  /usr/bin/systemctl --no-reload disable \
+    var-lib-snapd-snap.mount \
+    var-snap.mount > /dev/null 2>&1 || :
+}
+
 pre_remove() {
   _stop_services
   _disable_services
+  _stop_mounts
+  _disable_mounts
 
   /usr/lib/snapd/snap-mgmt --purge || :
 }
@@ -49,6 +70,13 @@ post_upgrade() {
   install -d -m 0700 /tmp/snap-private-tmp
 
   /usr/bin/systemctl daemon-reload > /dev/null 2>&1 || :
+
+  # Enable and start the snap mount directory bind mounts after an
+  # upgrade from a version that did not ship them. Safe even with snaps
+  # already running: each unit's own Condition guards against that.
+  /usr/bin/systemctl enable --now \
+    var-lib-snapd-snap.mount \
+    var-snap.mount > /dev/null 2>&1 || :
 
   # restore the services after an upgrade
   if /usr/bin/systemctl -q is-enabled snapd.socket > /dev/null 2>&1; then
