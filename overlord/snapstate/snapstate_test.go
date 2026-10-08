@@ -27,6 +27,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -7290,6 +7291,99 @@ func (s *snapmgrTestSuite) TestParallelInstallValidateFeatureFlag(c *C) {
 
 	err = snapstate.ValidateFeatureFlags(s.state, info)
 	c.Assert(err, IsNil)
+}
+
+func (s *snapmgrTestSuite) TestCheckSnapMountDirForParallelClassicInstall(c *C) {
+	unrelatedMountInfo := "104 23 0:19 /snapd/ns /run/snapd/ns rw,nosuid,noexec,relatime - tmpfs tmpfs rw,size=99840k,mode=755"
+	mountEntry := func(dir string) string {
+		return fmt.Sprintf("660 30 8:1 / %s rw,relatime shared:1 - ext4 /dev/sda1 rw", dir)
+	}
+	snapMountDirMounted := unrelatedMountInfo + "\n" + mountEntry(dirs.SnapMountDir)
+	varSnapMounted := unrelatedMountInfo + "\n" + mountEntry(dirs.SnapDataDir)
+	bothMounted := unrelatedMountInfo + "\n" + mountEntry(dirs.SnapMountDir) + "\n" + mountEntry(dirs.SnapDataDir)
+
+	for _, t := range []struct {
+		summary     string
+		instanceKey string
+		classic     bool
+		installed   bool
+		mountInfo   string
+		errMatch    string
+	}{
+		{
+			summary:     "strict confinement with instance key is never checked",
+			instanceKey: "foo",
+			classic:     false,
+			mountInfo:   unrelatedMountInfo,
+		},
+		{
+			summary:     "classic confinement without instance key is never checked",
+			instanceKey: "",
+			classic:     true,
+			mountInfo:   unrelatedMountInfo,
+		},
+		{
+			summary:     "refresh of an already installed parallel classic instance is not checked",
+			instanceKey: "foo",
+			classic:     true,
+			installed:   true,
+			mountInfo:   unrelatedMountInfo,
+		},
+		{
+			summary:     "fresh install of a parallel classic instance fails when neither mount point exists",
+			instanceKey: "foo",
+			classic:     true,
+			mountInfo:   unrelatedMountInfo,
+			errMatch:    fmt.Sprintf(`cannot install classic snap "some-snap_foo" as parallel instance: %s is not a mount point, a reboot may be required after installing or updating the snapd native package, or enable and start the snap.mount and var-snap.mount systemd units`, regexp.QuoteMeta(dirs.SnapMountDir)),
+		},
+		{
+			summary:     "fresh install of a parallel classic instance fails when only snap mount dir is a mount point",
+			instanceKey: "foo",
+			classic:     true,
+			mountInfo:   snapMountDirMounted,
+			errMatch:    fmt.Sprintf(`cannot install classic snap "some-snap_foo" as parallel instance: %s is not a mount point, a reboot may be required after installing or updating the snapd native package, or enable and start the snap.mount and var-snap.mount systemd units`, regexp.QuoteMeta(dirs.SnapDataDir)),
+		},
+		{
+			summary:     "fresh install of a parallel classic instance fails when only /var/snap is a mount point",
+			instanceKey: "foo",
+			classic:     true,
+			mountInfo:   varSnapMounted,
+			errMatch:    fmt.Sprintf(`cannot install classic snap "some-snap_foo" as parallel instance: %s is not a mount point, a reboot may be required after installing or updating the snapd native package, or enable and start the snap.mount and var-snap.mount systemd units`, regexp.QuoteMeta(dirs.SnapMountDir)),
+		},
+		{
+			summary:     "fresh install of a parallel classic instance succeeds when both mount points exist",
+			instanceKey: "foo",
+			classic:     true,
+			mountInfo:   bothMounted,
+		},
+	} {
+		c.Logf("scenario: %s", t.summary)
+
+		restore := osutil.MockMountInfo(t.mountInfo)
+		defer restore()
+
+		confinement := snap.StrictConfinement
+		if t.classic {
+			confinement = snap.ClassicConfinement
+		}
+		info := &snap.Info{
+			SuggestedName: "some-snap",
+			InstanceKey:   t.instanceKey,
+			Confinement:   confinement,
+		}
+
+		var snapst snapstate.SnapState
+		if t.installed {
+			snapst.Current = snap.R(1)
+		}
+
+		err := snapstate.CheckSnapMountDirForParallelClassicInstall(info, &snapst)
+		if t.errMatch != "" {
+			c.Assert(err, ErrorMatches, t.errMatch)
+		} else {
+			c.Assert(err, IsNil)
+		}
+	}
 }
 
 func (s *snapmgrTestSuite) TestInjectTasks(c *C) {
