@@ -1,0 +1,36 @@
+[Unit]
+Description=snap mount directory mount
+Documentation=https://forum.snapcraft.io/
+# Only set up the self bind mount with shared propagation when there is no
+# preserved snap mount namespace yet (ie. no snap has run since boot). If a
+# preserved namespace already exists, creating this mount now could propagate
+# into it and shadow mounts (eg. content interface or layout mounts) that
+# were already established there. See the "parallel installs" specification
+# for details.
+ConditionPathExistsGlob=!/run/snapd/ns/*.mnt
+# Order ahead of sysinit.target so this is always established very early at
+# boot, independently of snapd. Also order explicitly ahead of
+# snapd.mounts-pre.target - the actual synchronization point every
+# individual snap content mount (eg. snap-<name>-<rev>.mount) is ordered
+# after - since that is started imperatively by snapd.service rather than
+# pulled in by the standard boot target chain, so it cannot be relied on to
+# run strictly after sysinit.target.
+Before=sysinit.target
+Before=snapd.mounts-pre.target
+
+[Mount]
+# Recursive (rbind): snap-mount-dir almost always already has content
+# mounted under it (every installed snap revision is its own mount), and a
+# plain, non-recursive bind mount would shadow all of that the moment this
+# unit activates on a live system (eg. on a package upgrade, independently of
+# whether this is a fresh boot) - rbind carries existing child mounts along
+# into the new mount instead. Explicit "shared": makes the propagation type
+# change in the same mount operation rather than relying on inheriting it
+# from an already-rshared root filesystem, matching the same pattern already
+# used by snapd-generator's ensure_root_fs_shared() (LP: #1668759).
+What=/snap
+Where=/snap
+Options=rbind,shared
+
+[Install]
+WantedBy=sysinit.target snapd.mounts-pre.target
