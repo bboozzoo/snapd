@@ -628,6 +628,33 @@ func checkParallelInstancesSupport(st *state.State, info *snap.Info) error {
 	return nil
 }
 
+// checkSnapMountDirForParallelClassicInstall checks that the system is set
+// up to support installing a classic snap under a non-empty instance key
+// (eg. hello-world_foo): this requires SNAP_MOUNT_DIR to already be a mount
+// point, which is normally established at boot by the snap.mount /
+// var-lib-snapd-snap.mount systemd units shipped by the native snapd
+// package (see data/systemd/snap.dmounts.target). Without that, snap-confine
+// refuses to run the resulting installed snap, so fail the installation
+// early with an actionable error instead of letting it complete only to be
+// unusable. This check is only applied to fresh installations, not to
+// refreshes of an already installed parallel instance.
+func checkSnapMountDirForParallelClassicInstall(info *snap.Info, snapst *SnapState) error {
+	if snapst.IsInstalled() || info.InstanceKey == "" || !info.NeedsClassic() {
+		return nil
+	}
+
+	mounted, err := osutil.IsMounted(dirs.SnapMountDir)
+	if err != nil {
+		return err
+	}
+	if !mounted {
+		return fmt.Errorf("cannot install classic snap %q as parallel instance: snap mount directory is not "+
+			"a mount point, a reboot may be required after installing or updating the snapd native package",
+			info.InstanceName())
+	}
+	return nil
+}
+
 func ensureInstallPreconditions(st *state.State, info *snap.Info, flags Flags, snapst *SnapState) (Flags, error) {
 	// if snap is allowed to be devmode via the dangerous model and it's
 	// confinement is indeed devmode, promote the flags.DevMode to true
@@ -662,6 +689,9 @@ func ensureInstallPreconditions(st *state.State, info *snap.Info, flags Flags, s
 		return flags, fmt.Errorf("feature flag validation failed for snap %q: %w", info.InstanceName(), err)
 	}
 	if err := checkParallelInstancesSupport(st, info); err != nil {
+		return flags, err
+	}
+	if err := checkSnapMountDirForParallelClassicInstall(info, snapst); err != nil {
 		return flags, err
 	}
 	// TODO: if we implement a --disabled flag for install we should skip the
