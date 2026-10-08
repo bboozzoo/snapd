@@ -87,8 +87,20 @@ static void test_is_subdir(void) {
     g_assert_false(is_subdir("/", ""));
 }
 
+static void test_sc_is_mount_point(void) {
+    // The root filesystem is always a mount point, on any system this test
+    // can plausibly run on.
+    g_assert_true(sc_is_mount_point("/"));
+    // An arbitrary path that is merely a directory (not a distinct mount
+    // point) is correctly reported as such. This also covers paths that do
+    // not exist at all, since sc_is_mount_point only consults
+    // /proc/self/mountinfo and never stats the given path.
+    g_assert_false(sc_is_mount_point("/non-existent-path-used-by-mount-support-test"));
+}
+
 static void __attribute__((constructor)) init(void) {
     g_test_add_func("/mount/get_nextpath/typical", test_get_nextpath__typical);
     g_test_add_func("/mount/get_nextpath/weird", test_get_nextpath__weird);
     g_test_add_func("/mount/is_subdir", test_is_subdir);
+    g_test_add_func("/mount/sc_is_mount_point", test_sc_is_mount_point);
 }
