@@ -1,0 +1,49 @@
+[Unit]
+Description=snap mount directory mount
+Documentation=https://forum.snapcraft.io/
+# Only set up the self bind mount with shared propagation when there is no
+# preserved snap mount namespace yet (ie. no snap has run since boot). If a
+# preserved namespace already exists, creating this mount now could propagate
+# into it and shadow mounts (eg. content interface or layout mounts) that
+# were already established there. See the "parallel installs" specification
+# for details.
+ConditionPathExistsGlob=!/run/snapd/ns/*.mnt
+# Order ahead of sysinit.target so this is always established very early at
+# boot, independently of snapd. Also order explicitly ahead of
+# snapd.mounts-pre.target - the actual synchronization point every
+# individual snap content mount (eg. snap-<name>-<rev>.mount) is ordered
+# after - since that is started imperatively by snapd.service rather than
+# pulled in by the standard boot target chain, so it cannot be relied on to
+# run strictly after sysinit.target.
+Before=sysinit.target
+Before=snapd.mounts-pre.target
+
+[Mount]
+# Recursive (rbind): snap-mount-dir almost always already has content
+# mounted under it (every installed snap revision is its own mount), and a
+# plain, non-recursive bind mount would shadow all of that the moment this
+# unit activates on a live system (eg. on a package upgrade, independently of
+# whether this is a fresh boot) - rbind carries existing child mounts along
+# into the new mount instead.
+#
+# private,shared (rather than just shared): before this unit runs,
+# snap-mount-dir is merely a plain subdirectory of the root filesystem, not
+# a mount of its own. Since the root filesystem is normally already shared
+# (modern systemd marks it rshared very early at boot), a bind mount whose
+# source is a path inside an already-shared mount automatically becomes a
+# peer of that source mount - ie. this bind mount would become a peer of
+# the root filesystem mount itself, not an independent mount. Peers
+# propagate new submounts to every member of the peer group, so every
+# individual snap content mount created afterward under snap-mount-dir would
+# be duplicated: once correctly, nested under this mount, and once more as
+# an orphaned, unreachable copy directly under the root filesystem mount -
+# this was observed empirically via findmnt after a reboot. Making the bind
+# mount private first detaches it from the inherited peer group, so the
+# following "shared" allocates a genuinely new, independent peer group
+# instead of rejoining root's.
+What=/snap
+Where=/snap
+Options=rbind,private,shared
+
+[Install]
+WantedBy=sysinit.target snapd.mounts-pre.target

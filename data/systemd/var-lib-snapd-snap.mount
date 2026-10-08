@@ -1,0 +1,24 @@
+[Unit]
+Description=snap mount directory mount
+Documentation=https://forum.snapcraft.io/
+# Only set up the self bind mount with shared propagation when there is no
+# preserved snap mount namespace yet (ie. no snap has run since boot). If a
+# preserved namespace already exists, creating this mount now could propagate
+# into it and shadow mounts (eg. content interface or layout mounts) that
+# were already established there. See the "parallel installs" specification
+# for details.
+ConditionPathExistsGlob=!/run/snapd/ns/*.mnt
+# See snap.mount for why this is ordered ahead of both sysinit.target and
+# snapd.mounts-pre.target.
+Before=sysinit.target
+Before=snapd.mounts-pre.target
+
+[Mount]
+# See snap.mount for why this needs to be a recursive bind mount made
+# private before being made shared.
+What=/var/lib/snapd/snap
+Where=/var/lib/snapd/snap
+Options=rbind,private,shared
+
+[Install]
+WantedBy=sysinit.target snapd.mounts-pre.target

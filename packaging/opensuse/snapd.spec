@@ -43,7 +43,7 @@
 
 # The list of systemd services we are expected to ship. Note that this does
 # not include services that are only required on core systems.
-%global systemd_services_list snapd.socket snapd.service snapd.seeded.service %{?with_apparmor:snapd.apparmor.service} snapd.mounts.target snapd.mounts-pre.target
+%global systemd_services_list snapd.socket snapd.service snapd.seeded.service %{?with_apparmor:snapd.apparmor.service} snapd.mounts.target snapd.mounts-pre.target var-lib-snapd-snap.mount var-snap.mount
 %global systemd_user_services_list snapd.session-agent.socket
 
 # Alternate snap mount directory: not used by openSUSE.
@@ -482,6 +482,15 @@ if test ! -e %{snap_mount_dir} && test ! -e %{alt_snap_mount_dir} ; then
     mkdir -p -m 755 %{alt_snap_mount_dir} || :
 fi
 
+# Parallel installed classic snaps (ie. a classic snap installed under a
+# non-empty instance key) require %{alt_snap_mount_dir} to be a shared mount
+# point at boot (see var-lib-snapd-snap.mount). We only ship that unit for
+# %{alt_snap_mount_dir}, since that is openSUSE's modern,
+# preferred configuration. A system that still has %{snap_mount_dir} as a
+# real directory (rather than a symlink to %{alt_snap_mount_dir}) will not
+# get this set up automatically; such systems need to migrate their snaps to
+# %{alt_snap_mount_dir} (and replace %{snap_mount_dir} with a symlink to it)
+# before parallel installed classic snaps will work.
 %service_add_post %{systemd_services_list}
 %systemd_user_post %{systemd_user_services_list}
 %if %{with apparmor}
@@ -671,6 +680,8 @@ fi
 %{_unitdir}/snapd.socket
 %{_unitdir}/snapd.mounts.target
 %{_unitdir}/snapd.mounts-pre.target
+%{_unitdir}/var-lib-snapd-snap.mount
+%{_unitdir}/var-snap.mount
 %{_userunitdir}/snapd.session-agent.service
 %{_userunitdir}/snapd.session-agent.socket
 %{_libexecdir}/snapd/snapd-tool-wrap
