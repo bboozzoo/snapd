@@ -5,20 +5,26 @@ details: |
   parallel instances create a recursive bind mount of $SNAP_MOUNT_DIR. This
   should not prevent snaps from being unmounted when removed.
 
+environment:
+    CONFINEMENT/strict: strict
+    CONFINEMENT/classic: classic
+
 skip:
+    - reason: classic snaps are not supported on Ubuntu Core
+      if: '[ "$CONFINEMENT" = classic ] && os.query is-core'
     - reason: classic parallel installs require the var-snap and
         snap-mount-dir mount units shipped by the native package
-      if: os.query is-classic && not systemctl cat var-snap.mount
+      if: '[ "$CONFINEMENT" = classic ] && not systemctl cat var-snap.mount'
 
 prepare: |
     SNAP_MOUNT_DIR="$(os.paths snap-mount-dir)"
-    if [ "$SNAP_MOUNT_DIR" = "/var/lib/snapd/snap" ] && [ ! -L /snap ]; then
+    if [ "$CONFINEMENT" = classic ] && [ "$SNAP_MOUNT_DIR" = "/var/lib/snapd/snap" ] && [ ! -L /snap ]; then
         # set up classic execution support
         ln -sfn "$SNAP_MOUNT_DIR" /snap
         tests.cleanup defer rm -f /snap
     fi
 
-    if os.query is-classic; then
+    if [ "$CONFINEMENT" = classic ]; then
         # Fedora/openSUSE/Arch/Debian ship opt-in units; Ubuntu enables them.
         # Classic parallel installs need both units active.
         if [ "$SNAP_MOUNT_DIR" = "/snap" ]; then
@@ -33,7 +39,7 @@ prepare: |
     fi
 
 restore: |
-    if os.query is-classic && [ -f mount-units.state ]; then
+    if [ "$CONFINEMENT" = classic ] && [ -f mount-units.state ]; then
         # Remove test snaps before stopping a parent mount.
         for snap_name in test-snapd-sh_foo test-snapd-sh test-snapd-classic-confinement_foo test-snapd-classic-confinement; do
             if snap list "$snap_name" >/dev/null 2>&1; then
@@ -61,7 +67,7 @@ restore: |
 execute: |
     # install confined and classic snaps
     "$TESTSTOOLS"/snaps-state install-local test-snapd-sh
-    if os.query is-classic ; then
+    if [ "$CONFINEMENT" = classic ]; then
         "$TESTSTOOLS"/snaps-state install-local test-snapd-classic-confinement --classic
     fi
 
@@ -70,33 +76,33 @@ execute: |
     # regular instances work
     # shellcheck disable=SC2016
     test-snapd-sh.sh -c 'echo confined $SNAP_INSTANCE_NAME works'
-    if os.query is-classic ; then
+    if [ "$CONFINEMENT" = classic ]; then
         # shellcheck disable=SC2016
         test-snapd-classic-confinement.sh -c 'echo classic $SNAP_INSTANCE_NAME works'
     fi
 
     # new instances of same snaps
     "$TESTSTOOLS"/snaps-state install-local-as test-snapd-sh test-snapd-sh_foo
-    if os.query is-classic ; then
+    if [ "$CONFINEMENT" = classic ]; then
         "$TESTSTOOLS"/snaps-state install-local-as test-snapd-classic-confinement test-snapd-classic-confinement_foo --classic
     fi
 
     # parallel instances works
     # shellcheck disable=SC2016
     test-snapd-sh_foo.sh -c 'echo confined $SNAP_INSTANCE_NAME works'
-    if os.query is-classic ; then
+    if [ "$CONFINEMENT" = classic ]; then
         # shellcheck disable=SC2016
         test-snapd-classic-confinement_foo.sh -c 'echo classic $SNAP_INSTANCE_NAME works'
     fi
 
     # removal of snaps should not fail
     snap remove --purge test-snapd-sh
-    if os.query is-classic ; then
+    if [ "$CONFINEMENT" = classic ]; then
         snap remove --purge test-snapd-classic-confinement
     fi
 
     # neither should the removal of instances
     snap remove --purge test-snapd-sh_foo
-    if os.query is-classic ; then
+    if [ "$CONFINEMENT" = classic ]; then
         snap remove --purge test-snapd-classic-confinement_foo
     fi
