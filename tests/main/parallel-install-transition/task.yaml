@@ -112,7 +112,7 @@ execute: |
 
         echo "Reload alone must not create the bind mounts"
         for u in "$SNAP_MOUNT_UNIT" var-snap.mount; do
-            test "$(systemctl show "$u" -p FragmentPath)" = "FragmentPath=/usr/lib/systemd/system/$u"
+            systemctl show "$u" -p FragmentPath | MATCH "FragmentPath=(/usr)?/lib/systemd/system/$u"
             not systemctl is-active "$u"
         done
         not findmnt -M "$SNAP_MOUNT_DIR"
