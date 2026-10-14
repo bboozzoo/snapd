@@ -15,6 +15,4 @@ Where=/var/snap
 Options=rbind,private,shared
 
 [Install]
-WantedBy=snapd.mounts-pre.target
-# Pull in /var/snap when the snap mount directory starts.
-WantedBy=snap.mount
+WantedBy=local-fs.target

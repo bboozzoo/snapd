@@ -5,6 +5,7 @@ Documentation=https://forum.snapcraft.io/
 # preserved snap mount namespace yet.
 ConditionPathExistsGlob=!/run/snapd/ns/*.mnt
 Before=snapd.mounts-pre.target
+Wants=var-snap.mount
 
 [Mount]
 # rbind - recursively bind the dir on top of itself, inherits shared
@@ -13,6 +14,3 @@ Before=snapd.mounts-pre.target
 What=/var/lib/snapd/snap
 Where=/var/lib/snapd/snap
 Options=rbind,private,shared
-
-[Install]
-WantedBy=snapd.mounts-pre.target
