@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	. "gopkg.in/check.v1"
 
@@ -144,4 +145,46 @@ func (s *iconsTestSuite) TestParallelInstanceRemoveIcons(c *C) {
 	c.Check(instanceNameFile, testutil.FileAbsent)
 	// The non-instance qualified icon remains
 	c.Check(snapNameFile, testutil.FilePresent)
+}
+
+const testSVGIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="blue"/></svg>`
+
+func (s *iconsTestSuite) TestParallelInstanceEnsureIconsBadges(c *C) {
+	info := snaptest.MockSnap(c, packageHello, &snap.SideInfo{Revision: snap.R(11)})
+	info.InstanceKey = "instance"
+
+	baseDir := info.MountDir()
+	iconsDir := filepath.Join(baseDir, "meta", "gui", "icons")
+	c.Assert(os.MkdirAll(filepath.Join(iconsDir, "hicolor", "scalable", "apps"), 0755), IsNil)
+	c.Assert(os.WriteFile(filepath.Join(iconsDir, "hicolor", "scalable", "apps", "snap.hello-snap.foo.svg"), []byte(testSVGIcon), 0644), IsNil)
+
+	c.Assert(wrappers.EnsureSnapIcons(info), IsNil)
+	iconFile := filepath.Join(dirs.SnapDesktopIconsDir, "hicolor", "scalable", "apps", "snap.hello-snap_instance.foo.svg")
+	c.Check(iconFile, testutil.FilePresent)
+
+	content, err := os.ReadFile(iconFile)
+	c.Assert(err, IsNil)
+	c.Check(strings.Contains(string(content), `id="snapd-parallel-instance-badge"`), Equals, true)
+
+	// No file installed without the instance qualifier
+	iconFile = filepath.Join(dirs.SnapDesktopIconsDir, "hicolor", "scalable", "apps", "snap.hello-snap.foo.svg")
+	c.Check(iconFile, testutil.FileAbsent)
+}
+
+func (s *iconsTestSuite) TestBaseSnapEnsureIconsNoBadge(c *C) {
+	info := snaptest.MockSnap(c, packageHello, &snap.SideInfo{Revision: snap.R(11)})
+	// info.InstanceKey is empty (base snap)
+
+	baseDir := info.MountDir()
+	iconsDir := filepath.Join(baseDir, "meta", "gui", "icons")
+	c.Assert(os.MkdirAll(filepath.Join(iconsDir, "hicolor", "scalable", "apps"), 0755), IsNil)
+	c.Assert(os.WriteFile(filepath.Join(iconsDir, "hicolor", "scalable", "apps", "snap.hello-snap.foo.svg"), []byte(testSVGIcon), 0644), IsNil)
+
+	c.Assert(wrappers.EnsureSnapIcons(info), IsNil)
+	iconFile := filepath.Join(dirs.SnapDesktopIconsDir, "hicolor", "scalable", "apps", "snap.hello-snap.foo.svg")
+	c.Check(iconFile, testutil.FilePresent)
+
+	content, err := os.ReadFile(iconFile)
+	c.Assert(err, IsNil)
+	c.Check(strings.Contains(string(content), `id="snapd-parallel-instance-badge"`), Equals, false)
 }

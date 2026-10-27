@@ -25,7 +25,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/snapcore/snapd/desktop/iconbadge"
 	"github.com/snapcore/snapd/dirs"
+	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/snap"
 )
@@ -65,7 +67,7 @@ func findIconFiles(snapName string, rootDir string) (icons []string, err error) 
 	return icons, err
 }
 
-func deriveIconContent(instanceName string, rootDir string, icons []string) (content map[string]map[string]osutil.FileState, err error) {
+func deriveIconContent(instanceName string, instanceKey string, rootDir string, icons []string) (content map[string]map[string]osutil.FileState, err error) {
 	content = make(map[string]map[string]osutil.FileState)
 	snapPrefix := fmt.Sprintf("snap.%s.", snap.InstanceSnap(instanceName))
 	instancePrefix := fmt.Sprintf("snap.%s.", instanceName)
@@ -83,6 +85,22 @@ func deriveIconContent(instanceName string, rootDir string, icons []string) (con
 		}
 		// rename icons to match snap instance name
 		base = instancePrefix + base[len(snapPrefix):]
+		if instanceKey != "" {
+			src, readErr := os.ReadFile(filepath.Join(rootDir, iconFile))
+			if readErr == nil {
+				badged, badgeErr := iconbadge.Badge(src, filepath.Ext(iconFile), instanceKey)
+				if badgeErr == nil {
+					dirContent[base] = &osutil.MemoryFileState{
+						Content: badged,
+						Mode:    0644,
+					}
+					continue
+				}
+				logger.Debugf("cannot badge icon %s: %v", iconFile, badgeErr)
+			} else {
+				logger.Debugf("cannot read icon %s for badging: %v", iconFile, readErr)
+			}
+		}
 		dirContent[base] = &osutil.FileReferencePlusMode{
 			FileReference: osutil.FileReference{Path: filepath.Join(rootDir, iconFile)},
 			Mode:          0644,
@@ -109,7 +127,7 @@ func EnsureSnapIcons(s *snap.Info) error {
 		return err
 	}
 
-	content, err := deriveIconContent(s.InstanceName().String(), rootDir, icons)
+	content, err := deriveIconContent(s.InstanceName().String(), s.InstanceKey, rootDir, icons)
 	if err != nil {
 		return err
 	}

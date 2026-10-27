@@ -42,7 +42,8 @@ var (
 	NewUserServiceClientNames = newUserServiceClientNames
 
 	// icons
-	FindIconFiles = findIconFiles
+	FindIconFiles     = findIconFiles
+	DeriveIconContent = deriveIconContent
 )
 
 func MockKillWait(wait time.Duration) (restore func()) {
