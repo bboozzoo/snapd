@@ -578,29 +578,6 @@ type ModulesCompMountPoints struct {
 	MountPoints
 }
 
-func dirSwapOrRename(temp, target string) (existed bool, retErr error) {
-	exists, isDir, err := osutil.DirExists(target)
-	if err != nil {
-		return false, err
-	}
-	missing := !(exists && isDir)
-	if missing {
-		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-			return false, err
-		}
-		if err := os.Rename(temp, target); err != nil {
-			return false, fmt.Errorf("while moving %q to %q: %w", temp, target, err)
-		}
-		// Did not exist, but created successfully
-		return false, nil
-	} else {
-		if err := osutil.SwapDirs(temp, target); err != nil {
-			return true, fmt.Errorf("while swapping %q <-> %q: %w", temp, target, err)
-		}
-		return true, nil
-	}
-}
-
 // EnsureKernelDriversTree reconciles the managed tree with the supplied mounts.
 // Current mounts are used for discovery and depmod; links point at Target.
 // Existing root and lib/{modules,firmware} inodes remain stable for bind mounts.
@@ -643,38 +620,8 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 		}
 	}
 
-	// A bare mount directory may have been created by a mount unit without
-	// its kernel snap. Do not certify an empty tree for such a source.
-	if _, modErr := os.Stat(kMntPts.UnderCurrentPath("modules")); errors.Is(modErr, fs.ErrNotExist) {
-		if _, fwErr := os.Stat(kMntPts.UnderCurrentPath("firmware")); errors.Is(fwErr, fs.ErrNotExist) {
-			if _, metaErr := os.Stat(kMntPts.UnderCurrentPath("meta", "snap.yaml")); metaErr != nil {
-				return fmt.Errorf("cannot read kernel drivers source %q: no mounted kernel content", kMntPts.Current)
-			}
-		} else if fwErr != nil {
-			return fwErr
-		}
-	} else if modErr != nil {
-		return modErr
-	}
-	if fi, err := os.Stat(kMntPts.Current); err != nil {
-		return fmt.Errorf("cannot read kernel drivers source %q: %w", kMntPts.Current, err)
-	} else if !fi.IsDir() {
-		return fmt.Errorf("cannot read kernel drivers source %q: not a directory", kMntPts.Current)
-	}
-	for _, cmp := range compsMntPts {
-		if fi, err := os.Stat(cmp.Current); err != nil {
-			return fmt.Errorf("cannot read kernel component source %q: %w", cmp.Current, err)
-		} else if !fi.IsDir() {
-			return fmt.Errorf("cannot read kernel component source %q: not a directory", cmp.Current)
-		}
-		// Dynamic module directories have no component metadata, but must
-		// contain drivers. An empty mount directory is not a driverless
-		// component: without metadata it can be an unmounted squashfs.
-		if !sourceExists(cmp.UnderCurrentPath("meta", "component.yaml")) &&
-			!sourceExists(cmp.UnderCurrentPath("modules")) &&
-			!sourceExists(cmp.UnderCurrentPath("firmware")) {
-			return fmt.Errorf("cannot read kernel component source %q: no mounted component content", cmp.Current)
-		}
+	if err := checkKernelDriversSources(kMntPts, compsMntPts); err != nil {
+		return err
 	}
 
 	// Build beside the destination so a prepared image and a running system
@@ -792,6 +739,44 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 		return err
 	}
 	doSync()
+	return nil
+}
+
+// checkKernelDriversSources rejects mount directories without mounted content.
+func checkKernelDriversSources(kMntPts MountPoints, compsMntPts []ModulesCompMountPoints) error {
+	// A bare mount directory may have been created by a mount unit without
+	// its kernel snap. Do not certify an empty tree for such a source.
+	if _, modErr := os.Stat(kMntPts.UnderCurrentPath("modules")); errors.Is(modErr, fs.ErrNotExist) {
+		if _, fwErr := os.Stat(kMntPts.UnderCurrentPath("firmware")); errors.Is(fwErr, fs.ErrNotExist) {
+			if _, metaErr := os.Stat(kMntPts.UnderCurrentPath("meta", "snap.yaml")); metaErr != nil {
+				return fmt.Errorf("cannot read kernel drivers source %q: no mounted kernel content", kMntPts.Current)
+			}
+		} else if fwErr != nil {
+			return fwErr
+		}
+	} else if modErr != nil {
+		return modErr
+	}
+	if fi, err := os.Stat(kMntPts.Current); err != nil {
+		return fmt.Errorf("cannot read kernel drivers source %q: %w", kMntPts.Current, err)
+	} else if !fi.IsDir() {
+		return fmt.Errorf("cannot read kernel drivers source %q: not a directory", kMntPts.Current)
+	}
+	for _, cmp := range compsMntPts {
+		if fi, err := os.Stat(cmp.Current); err != nil {
+			return fmt.Errorf("cannot read kernel component source %q: %w", cmp.Current, err)
+		} else if !fi.IsDir() {
+			return fmt.Errorf("cannot read kernel component source %q: not a directory", cmp.Current)
+		}
+		// Dynamic module directories have no component metadata, but must
+		// contain drivers. An empty mount directory is not a driverless
+		// component: without metadata it can be an unmounted squashfs.
+		if !sourceExists(cmp.UnderCurrentPath("meta", "component.yaml")) &&
+			!sourceExists(cmp.UnderCurrentPath("modules")) &&
+			!sourceExists(cmp.UnderCurrentPath("firmware")) {
+			return fmt.Errorf("cannot read kernel component source %q: no mounted component content", cmp.Current)
+		}
+	}
 	return nil
 }
 

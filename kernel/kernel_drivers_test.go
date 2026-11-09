@@ -100,68 +100,6 @@ func (s *kernelDriversTestSuite) TestKernelVersionFromModulesDirBadVersion(c *C)
 	c.Check(ver, Equals, "")
 }
 
-func (s *kernelDriversTestSuite) TestDirSwapOrRenameMissingTarget(c *C) {
-	root := c.MkDir()
-	temp := filepath.Join(root, "temp")
-	target := filepath.Join(root, "live", "nested", "target")
-	c.Assert(os.Mkdir(temp, 0755), IsNil)
-	c.Assert(os.WriteFile(filepath.Join(temp, "new"), []byte("new"), 0644), IsNil)
-
-	existed, err := kernel.DirSwapOrRename(temp, target)
-	c.Assert(err, IsNil)
-	c.Check(existed, Equals, false)
-	content, err := os.ReadFile(filepath.Join(target, "new"))
-	c.Assert(err, IsNil)
-	c.Check(string(content), Equals, "new")
-	_, err = os.Stat(temp)
-	c.Check(os.IsNotExist(err), Equals, true)
-}
-
-func (s *kernelDriversTestSuite) TestDirSwapOrRenameExistingTarget(c *C) {
-	root := c.MkDir()
-	temp := filepath.Join(root, "temp")
-	target := filepath.Join(root, "target")
-	c.Assert(os.Mkdir(temp, 0755), IsNil)
-	c.Assert(os.Mkdir(target, 0755), IsNil)
-	c.Assert(os.WriteFile(filepath.Join(temp, "new"), nil, 0644), IsNil)
-	c.Assert(os.WriteFile(filepath.Join(target, "old"), nil, 0644), IsNil)
-
-	existed, err := kernel.DirSwapOrRename(temp, target)
-	c.Assert(err, IsNil)
-	c.Check(existed, Equals, true)
-	_, err = os.Stat(filepath.Join(target, "new"))
-	c.Check(err, IsNil)
-	_, err = os.Stat(filepath.Join(temp, "old"))
-	c.Check(err, IsNil)
-}
-
-func (s *kernelDriversTestSuite) TestDirSwapOrRenameErrors(c *C) {
-	root := c.MkDir()
-	temp := filepath.Join(root, "temp")
-	c.Assert(os.Mkdir(temp, 0755), IsNil)
-
-	// An existing non-directory cannot be replaced by the candidate tree.
-	targetFile := filepath.Join(root, "target-file")
-	c.Assert(os.WriteFile(targetFile, []byte("keep"), 0644), IsNil)
-	existed, err := kernel.DirSwapOrRename(temp, targetFile)
-	c.Assert(err, NotNil)
-	c.Check(existed, Equals, false)
-	content, err := os.ReadFile(targetFile)
-	c.Assert(err, IsNil)
-	c.Check(string(content), Equals, "keep")
-	_, err = os.Stat(temp)
-	c.Check(err, IsNil)
-
-	// Swapping with a missing candidate must fail without moving the target.
-	targetDir := filepath.Join(root, "target-dir")
-	c.Assert(os.Mkdir(targetDir, 0755), IsNil)
-	existed, err = kernel.DirSwapOrRename(filepath.Join(root, "missing"), targetDir)
-	c.Assert(err, NotNil)
-	c.Check(existed, Equals, true)
-	_, err = os.Stat(targetDir)
-	c.Check(err, IsNil)
-}
-
 type createKernelSnapFilesOpts struct {
 	withFwUpdatesDir bool
 }

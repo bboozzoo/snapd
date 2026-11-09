@@ -49,8 +49,6 @@ func MockAtomicSymlink(f func(target, linkPath string) error) (restore func()) {
 	return testutil.Mock(&atomicSymlink, f)
 }
 
-var DirSwapOrRename = dirSwapOrRename
-
 func WriteDriversTreeMeta(destDir string) error {
 	return writeDriversTreeMeta(driversTreeMetaPath(destDir), driversTreeMeta{GeneratorVersion: kernelDriversTreeGeneratorVersion})
 }
