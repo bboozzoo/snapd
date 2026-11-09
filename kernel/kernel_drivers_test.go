@@ -1358,6 +1358,10 @@ func (s *kernelDriversTestSuite) TestRegenerateFirmwareBestEffortContinuesPastEr
 	// "blob2" is left missing, confirming the mock actually fired.
 	_, err = os.Lstat(filepath.Join(fwParent, "blob2"))
 	c.Check(errors.Is(err, fs.ErrNotExist), Equals, true)
+	c.Check(filepath.Join(destDir, "kernel.json.pending"), Not(testutil.FileAbsent))
+	outdated, err := kernel.DriversTreeOutdated(destDir)
+	c.Assert(err, IsNil)
+	c.Check(outdated, Equals, true)
 }
 
 func (s *kernelDriversTestSuite) TestRegenerateMissingTopLevelFirmwareSymlink(c *C) {
@@ -1489,7 +1493,9 @@ func (s *kernelDriversTestSuite) TestRegenerateModulesReadErrorDoesNotAdvanceMar
 	c.Check(errors.Is(err, syscall.ENOTDIR), Equals, true)
 	outdated, err := kernel.DriversTreeOutdated(destDir)
 	c.Assert(err, IsNil)
-	c.Check(outdated, Equals, true)
+	// Construction failed before publishing a pending live update.
+	c.Check(outdated, Equals, false)
+	c.Check(filepath.Join(destDir, "kernel.json.pending"), testutil.FileAbsent)
 	c.Check(osutil.FileExists(destDir+"_tmp"), Equals, false)
 }
 
@@ -1690,8 +1696,8 @@ func (s *kernelDriversTestSuite) TestRegenerateSyncsAfterFirmwareFixBeforeMarker
 	err = kernel.EnsureKernelDriversTree(kMntPts, nil, destDir)
 	c.Assert(err, IsNil)
 
-	// Intent and built markers are synced before live changes, then the
-	// reconciled children are synced before and after the final rename.
+	// Candidate content and the published pending marker are synced before
+	// live changes; the children are synced before final marker publication.
 	c.Assert(fwFixedAtSync, DeepEquals, []bool{false, false, false, true, true})
 }
 
@@ -1725,6 +1731,8 @@ func (s *kernelDriversTestSuite) TestRegenerateMarkerWriteFailureKeepsLiveTree(c
 
 	err := kernel.EnsureKernelDriversTree(kMntPts, nil, destDir)
 	c.Assert(err, IsNil)
+	completed, err := os.ReadFile(filepath.Join(destDir, "kernel.json"))
+	c.Assert(err, IsNil)
 
 	// Force the Regenerate path to find something to fix, so the live
 	// swap/sync logic runs before the marker write.
@@ -1750,6 +1758,10 @@ func (s *kernelDriversTestSuite) TestRegenerateMarkerWriteFailureKeepsLiveTree(c
 
 	// Neither the prior final marker nor live children have changed.
 	c.Check(osutil.FileExists(destDir), Equals, true)
+	unchanged, err := os.ReadFile(filepath.Join(destDir, "kernel.json"))
+	c.Assert(err, IsNil)
+	c.Check(unchanged, DeepEquals, completed)
+	c.Check(filepath.Join(destDir, "kernel.json.pending"), testutil.FileAbsent)
 	_, err = os.Readlink(blob2)
 	c.Check(os.IsNotExist(err), Equals, true)
 	content, err := os.ReadFile(staleFw)

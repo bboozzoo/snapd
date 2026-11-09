@@ -22,7 +22,7 @@ func writePendingDriversTreeMarker(c *C, dest string, mounts kernel.MountPoints,
 		"destination":       dest,
 	})
 	c.Assert(err, IsNil)
-	c.Assert(os.WriteFile(filepath.Join(dest, "kernel.json.built"), data, 0644), IsNil)
+	c.Assert(os.WriteFile(filepath.Join(dest, "kernel.json.pending"), data, 0644), IsNil)
 }
 
 // Model an interrupted reconciliation: firmware/updates reflects the new
@@ -67,12 +67,13 @@ func (s *kernelDriversTestSuite) TestEnsureRepairsPartiallyAppliedTree(c *C) {
 	meta, err := kernel.ReadDriversTreeMeta(dest)
 	c.Assert(err, IsNil)
 	c.Check(meta.Components, DeepEquals, []kernel.ModulesCompMountPoints{newComp})
+	c.Check(filepath.Join(dest, "kernel.json.pending"), testutil.FileAbsent)
 	c.Check(filepath.Join(dest, "kernel.json.in"), testutil.FileAbsent)
 	c.Check(filepath.Join(dest, "kernel.json.built"), testutil.FileAbsent)
 }
 
-// Model a new tree moved into place before its built marker became final.
-func (s *kernelDriversTestSuite) TestEnsureCompletesUnfinishedNewTree(c *C) {
+// A tree left by the older .built protocol can still be reconciled.
+func (s *kernelDriversTestSuite) TestEnsureCompletesLegacyBuiltTree(c *C) {
 	root := c.MkDir()
 	mountDir := filepath.Join(root, "source")
 	createKernelSnapFilesOnlyFw(c, mountDir)
@@ -83,6 +84,7 @@ func (s *kernelDriversTestSuite) TestEnsureCompletesUnfinishedNewTree(c *C) {
 	fwTarget := filepath.Join(mounts.Target, "firmware", "wifi_fw.bin")
 	c.Assert(os.Symlink(fwTarget, filepath.Join(fwDir, "wifi_fw.bin")), IsNil)
 	writePendingDriversTreeMarker(c, dest, mounts, nil)
+	c.Assert(os.Rename(filepath.Join(dest, "kernel.json.pending"), filepath.Join(dest, "kernel.json.built")), IsNil)
 
 	c.Assert(kernel.EnsureKernelDriversTree(mounts, nil, dest), IsNil)
 	c.Check(filepath.Join(fwDir, "wifi_fw.bin"), testutil.SymlinkTargetEquals, fwTarget)
@@ -90,6 +92,7 @@ func (s *kernelDriversTestSuite) TestEnsureCompletesUnfinishedNewTree(c *C) {
 	c.Assert(err, IsNil)
 	c.Check(*meta.Kernel, DeepEquals, mounts)
 	c.Check(filepath.Join(dest, "kernel.json.built"), testutil.FileAbsent)
+	c.Check(filepath.Join(dest, "kernel.json.pending"), testutil.FileAbsent)
 	c.Check(dest+"_tmp", testutil.FileAbsent)
 }
 
@@ -109,9 +112,21 @@ func (s *kernelDriversTestSuite) TestEnsureMarkerLegacyAndForward(c *C) {
 	meta, err := kernel.ReadDriversTreeMeta(dest)
 	c.Assert(err, IsNil)
 	c.Check(meta.Destination, Equals, dest)
+	c.Check(filepath.Join(dest, "kernel.json.pending"), testutil.FileAbsent)
 	c.Check(meta.GeneratorVersion, Equals, kernel.KernelDriversTreeGeneratorVersion())
 
 	forward := []byte(`{"generator-version":99}`)
+	c.Assert(os.WriteFile(marker, forward, 0644), IsNil)
+	writePendingDriversTreeMarker(c, dest, mounts, nil)
+	outdated, err = kernel.DriversTreeOutdated(dest)
+	c.Assert(err, IsNil)
+	c.Check(outdated, Equals, false)
+	c.Assert(os.Remove(marker+".pending"), IsNil)
+	c.Assert(os.WriteFile(marker, []byte(`{"generator-version":1}`), 0644), IsNil)
+	c.Assert(os.WriteFile(marker+".pending", forward, 0644), IsNil)
+	err = kernel.EnsureKernelDriversTree(mounts, nil, dest)
+	c.Assert(err, ErrorMatches, `cannot replace kernel drivers tree .* from newer generator 99`)
+	c.Assert(os.Remove(marker+".pending"), IsNil)
 	c.Assert(os.WriteFile(marker+".in", forward, 0644), IsNil)
 	err = kernel.EnsureKernelDriversTree(mounts, nil, dest)
 	c.Assert(err, ErrorMatches, `cannot replace kernel drivers tree .* from newer generator 99`)
@@ -119,10 +134,101 @@ func (s *kernelDriversTestSuite) TestEnsureMarkerLegacyAndForward(c *C) {
 	c.Assert(err, IsNil)
 	c.Check(string(data), Equals, string(forward))
 	c.Assert(os.Remove(marker+".in"), IsNil)
+	c.Assert(os.WriteFile(marker+".built", forward, 0644), IsNil)
+	err = kernel.EnsureKernelDriversTree(mounts, nil, dest)
+	c.Assert(err, ErrorMatches, `cannot replace kernel drivers tree .* from newer generator 99`)
+	c.Assert(os.Remove(marker+".built"), IsNil)
 	c.Assert(os.WriteFile(marker, forward, 0644), IsNil)
 	err = kernel.EnsureKernelDriversTree(mounts, nil, dest)
 	c.Assert(err, ErrorMatches, `cannot replace kernel drivers tree .* from newer generator 99`)
 	c.Check(strings.Contains(err.Error(), dest), Equals, true)
+}
+
+func (s *kernelDriversTestSuite) TestEnsurePublishesNewTreeWithFinalMarker(c *C) {
+	root := c.MkDir()
+	source := filepath.Join(root, "kernel")
+	createKernelSnapFilesOnlyFw(c, source)
+	mounts := kernel.MountPoints{Current: source, Target: filepath.Join(root, "future")}
+	dest := filepath.Join(root, "tree")
+	c.Assert(kernel.EnsureKernelDriversTree(mounts, nil, dest), IsNil)
+	meta, err := kernel.ReadDriversTreeMeta(dest)
+	c.Assert(err, IsNil)
+	c.Check(meta.GeneratorVersion, Equals, kernel.KernelDriversTreeGeneratorVersion())
+	c.Check(*meta.Kernel, DeepEquals, mounts)
+	c.Check(meta.Destination, Equals, dest)
+	c.Check(filepath.Join(dest, "kernel.json.pending"), testutil.FileAbsent)
+	c.Check(dest+"_tmp", testutil.FileAbsent)
+}
+
+func (s *kernelDriversTestSuite) TestEnsureDiscardsCandidateWithoutLosingPending(c *C) {
+	root := c.MkDir()
+	source := filepath.Join(root, "kernel")
+	createKernelSnapFilesOnlyFw(c, source)
+	mounts := kernel.MountPoints{Current: source, Target: source}
+	dest := filepath.Join(root, "tree")
+	c.Assert(kernel.EnsureKernelDriversTree(mounts, nil, dest), IsNil)
+	writePendingDriversTreeMarker(c, dest, mounts, nil)
+	c.Assert(os.MkdirAll(dest+"_tmp", 0755), IsNil)
+	c.Assert(os.WriteFile(filepath.Join(dest+"_tmp", "old-candidate"), nil, 0644), IsNil)
+	// Force construction to fail after removing the old candidate.
+	c.Assert(os.WriteFile(filepath.Join(source, "modules"), nil, 0644), IsNil)
+	c.Assert(kernel.EnsureKernelDriversTree(mounts, nil, dest), NotNil)
+	c.Check(dest+"_tmp", testutil.FileAbsent)
+	c.Check(filepath.Join(dest, "kernel.json.pending"), Not(testutil.FileAbsent))
+	outdated, err := kernel.DriversTreeOutdated(dest)
+	c.Assert(err, IsNil)
+	c.Check(outdated, Equals, true)
+	c.Assert(os.Remove(filepath.Join(source, "modules")), IsNil)
+	c.Assert(kernel.EnsureKernelDriversTree(mounts, nil, dest), IsNil)
+	c.Check(filepath.Join(dest, "kernel.json.pending"), testutil.FileAbsent)
+}
+
+func (s *kernelDriversTestSuite) TestPendingDoesNotOwnUnappliedFirmwareTarget(c *C) {
+	root := c.MkDir()
+	oldSource := filepath.Join(root, "old")
+	newSource := filepath.Join(root, "new")
+	createKernelSnapFilesOnlyFw(c, oldSource)
+	createKernelSnapFilesOnlyFw(c, newSource)
+	dest := filepath.Join(root, "tree")
+	oldMounts := kernel.MountPoints{Current: oldSource, Target: oldSource}
+	newMounts := kernel.MountPoints{Current: newSource, Target: newSource}
+	c.Assert(kernel.EnsureKernelDriversTree(oldMounts, nil, dest), IsNil)
+	writePendingDriversTreeMarker(c, dest, newMounts, nil)
+	link := filepath.Join(dest, "lib", "firmware", "wifi_fw.bin")
+	c.Assert(os.Remove(link), IsNil)
+	unowned := filepath.Join(newSource, "firmware", "user-choice.bin")
+	c.Assert(os.Symlink(unowned, link), IsNil)
+	c.Assert(kernel.EnsureKernelDriversTree(newMounts, nil, dest), ErrorMatches, `cannot replace unowned firmware symlink .*wifi_fw.bin.*`)
+	c.Check(link, testutil.SymlinkTargetEquals, unowned)
+	c.Check(filepath.Join(dest, "kernel.json.pending"), Not(testutil.FileAbsent))
+	c.Assert(os.Remove(link), IsNil)
+	c.Assert(kernel.EnsureKernelDriversTree(newMounts, nil, dest), IsNil)
+}
+
+func (s *kernelDriversTestSuite) TestEnsurePreflightsParentBeforePending(c *C) {
+	root := c.MkDir()
+	source := filepath.Join(root, "kernel")
+	createKernelSnapFilesOnlyFw(c, source)
+	mounts := kernel.MountPoints{Current: source, Target: source}
+	dest := filepath.Join(root, "tree")
+	c.Assert(kernel.EnsureKernelDriversTree(mounts, nil, dest), IsNil)
+	parent := filepath.Join(dest, "lib", "modules")
+	c.Assert(os.WriteFile(parent, []byte("user content"), 0644), IsNil)
+	c.Assert(kernel.EnsureKernelDriversTree(mounts, nil, dest), ErrorMatches, `cannot update kernel drivers tree .*parent is not a directory`)
+	c.Check(filepath.Join(dest, "kernel.json.pending"), testutil.FileAbsent)
+	c.Check(filepath.Join(dest, "kernel.json"), Not(testutil.FileAbsent))
+}
+
+func (s *kernelDriversTestSuite) TestEnsureRejectsCorruptPendingMarker(c *C) {
+	root := c.MkDir()
+	source := filepath.Join(root, "kernel")
+	createKernelSnapFilesOnlyFw(c, source)
+	mounts := kernel.MountPoints{Current: source, Target: source}
+	dest := filepath.Join(root, "tree")
+	c.Assert(kernel.EnsureKernelDriversTree(mounts, nil, dest), IsNil)
+	c.Assert(os.WriteFile(filepath.Join(dest, "kernel.json.pending"), []byte("not json"), 0644), IsNil)
+	c.Assert(kernel.EnsureKernelDriversTree(mounts, nil, dest), ErrorMatches, `cannot read kernel drivers tree marker .*`)
+	c.Check(filepath.Join(dest, "kernel.json.pending"), Not(testutil.FileAbsent))
 }
 
 func (s *kernelDriversTestSuite) TestEnsureMissingSourcesCannotComplete(c *C) {

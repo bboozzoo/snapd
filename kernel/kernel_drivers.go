@@ -90,7 +90,7 @@ var (
 // GeneratorVersion set to 0 is returned and no error.
 func readDriversTreeMeta(destDir string) (driversTreeMeta, error) {
 	path := driversTreeMetaPath(destDir)
-	for _, pending := range []string{path + ".in", path + ".built"} {
+	for _, pending := range []string{path + ".pending", path + ".in", path + ".built"} {
 		if _, err := os.Lstat(pending); err == nil {
 			path = pending
 			break
@@ -131,21 +131,27 @@ func DriversTreeOutdated(destDir string) (bool, error) {
 	}
 	logger.Debugf("checking kernel tree generator version, current %v, on disk %v",
 		kernelDriversTreeGeneratorVersion, v.GeneratorVersion)
-	// Do not treat a pending build as complete just because an older final
-	// marker exists. A newer generator remains protected on downgrade.
-	for _, suffix := range []string{".in", ".built"} {
-		if _, err := os.Lstat(driversTreeMetaPath(destDir) + suffix); err == nil {
-			return v.GeneratorVersion <= kernelDriversTreeGeneratorVersion, nil
-		} else if !errors.Is(err, fs.ErrNotExist) {
+	// A pending live update overrides the old final marker, but no marker
+	// from a newer generator may trigger a downgrade.
+	pending := false
+	for _, suffix := range []string{".pending", ".in", ".built", ""} {
+		data, err := os.ReadFile(driversTreeMetaPath(destDir) + suffix)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
 			return false, err
 		}
+		var marker driversTreeMeta
+		if json.Unmarshal(data, &marker) != nil {
+			return true, nil
+		}
+		if marker.GeneratorVersion > kernelDriversTreeGeneratorVersion {
+			return false, nil
+		}
+		pending = pending || suffix != ""
 	}
-	// A tree marked with a version *newer* than what is currently running (e.g.
-	// after a snapd revert) is deliberately NOT considered outdated: rebuilding
-	// it with older, possibly-buggy logic could regress a fix already applied
-	// by the newer generator. Only consider the kernel tree to be outdated if
-	// the current snapd version is strictly newer.
-	return kernelDriversTreeGeneratorVersion > v.GeneratorVersion, nil
+	return pending || kernelDriversTreeGeneratorVersion > v.GeneratorVersion, nil
 }
 
 // We expect as a minimum something that starts with three numbers
@@ -595,11 +601,10 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 		GeneratorVersion: kernelDriversTreeGeneratorVersion,
 		Kernel:           &kMntPts, Components: compsMntPts, Destination: destDir,
 	}
-	// A newer generator's output must not be rewritten by an older one.
-	// Existing input markers identify previous generated absolute firmware
-	// links (including links left by an interrupted earlier pass).
-	ownedFwDirs := []string{kMntPts.UnderTargetPath("firmware")}
-	for _, suffix := range []string{".in", ".built", ""} {
+	// Pending markers record intent, not which firmware links were applied.
+	// Only a completed marker can establish ownership of an old target.
+	var ownedFwDirs []string
+	for _, suffix := range []string{".pending", ".in", ".built", ""} {
 		path := driversTreeMetaPath(destDir) + suffix
 		data, err := os.ReadFile(path)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -615,8 +620,13 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 		if old.GeneratorVersion > kernelDriversTreeGeneratorVersion {
 			return fmt.Errorf("cannot replace kernel drivers tree %q from newer generator %d", destDir, old.GeneratorVersion)
 		}
-		if old.Kernel != nil && old.Destination == destDir {
-			ownedFwDirs = append(ownedFwDirs, old.Kernel.UnderTargetPath("firmware"))
+		if suffix == "" {
+			if old.Kernel != nil && old.Destination == destDir {
+				ownedFwDirs = append(ownedFwDirs, old.Kernel.UnderTargetPath("firmware"))
+			} else if old.Kernel == nil {
+				// Version-only finals predate recorded inputs.
+				ownedFwDirs = append(ownedFwDirs, kMntPts.UnderTargetPath("firmware"))
+			}
 		}
 	}
 
@@ -639,20 +649,9 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 		}
 	}()
 
-	markerRoot := candidate
-	if exists {
-		markerRoot = destDir
-	}
-	in := driversTreeMetaPath(markerRoot) + ".in"
-	built := driversTreeMetaPath(markerRoot) + ".built"
 	if err := os.MkdirAll(candidate, 0755); err != nil {
 		return err
 	}
-	// On an existing tree, persist intent before touching any live child.
-	if err := writeDriversTreeMeta(in, meta); err != nil {
-		return err
-	}
-	doSync()
 
 	kversion, err := KernelVersionFromModulesDir(kMntPts.Current)
 	if err != nil {
@@ -676,66 +675,79 @@ func EnsureKernelDriversTree(kMntPts MountPoints, compsMntPts []ModulesCompMount
 			return err
 		}
 	}
-	// Preflight all firmware conflicts before mutating any live subtree.
-	if exists {
-		if err := checkFirmwareCollisions(kMntPts, filepath.Join(destDir, "lib", "firmware"), ownedFwDirs); err != nil {
+	final := driversTreeMetaPath(destDir)
+	if !exists {
+		if err := writeDriversTreeMeta(driversTreeMetaPath(candidate), meta); err != nil {
 			return err
 		}
-	}
-	doSync()
-	if err := os.Rename(in, built); err != nil {
-		return err
-	}
-	doSync()
-
-	if !exists {
+		doSync()
 		if err := os.Rename(candidate, destDir); err != nil {
 			return err
 		}
-		// The marker moved together with the candidate.
-		built = driversTreeMetaPath(destDir) + ".built"
 		doSync()
-	} else {
-		liveLib := filepath.Join(destDir, "lib")
-		liveMods := filepath.Join(liveLib, "modules")
-		liveFw := filepath.Join(liveLib, "firmware")
-		for _, dir := range []string{liveMods, liveFw} {
-			if fi, err := os.Lstat(dir); err == nil && !fi.IsDir() {
-				return fmt.Errorf("cannot update kernel drivers tree %q: parent is not a directory", dir)
-			} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return err
-			}
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				return err
-			}
-		}
-		// The versioned modules directory and firmware updates directory are
-		// safe swap units. Never swap a bind-mounted parent directory.
-		if err := replaceManagedDir(updateFwDir, filepath.Join(liveFw, "updates")); err != nil {
-			return err
-		}
-		if kversion != "" {
-			if err := replaceManagedDir(filepath.Join(candidate, "lib", "modules", kversion), filepath.Join(liveMods, kversion)); err != nil {
-				return err
-			}
-		}
-		entries, err := os.ReadDir(liveMods)
-		if err != nil {
-			return err
-		}
-		for _, entry := range entries {
-			if entry.Name() != kversion {
-				if err := os.RemoveAll(filepath.Join(liveMods, entry.Name())); err != nil {
-					return err
-				}
-			}
-		}
-		if err := syncFirmwareTopLevelSymlinks(kMntPts, liveFw, ownedFwDirs); err != nil {
-			return err
-		}
-		doSync()
+		return nil
 	}
-	if err := os.Rename(built, driversTreeMetaPath(destDir)); err != nil {
+
+	liveLib := filepath.Join(destDir, "lib")
+	liveMods := filepath.Join(liveLib, "modules")
+	liveFw := filepath.Join(liveLib, "firmware")
+	// Preflight parents and firmware before changing the live tree.
+	for _, dir := range []string{liveLib, liveMods, liveFw} {
+		if fi, err := os.Lstat(dir); err == nil && !fi.IsDir() {
+			return fmt.Errorf("cannot update kernel drivers tree %q: parent is not a directory", dir)
+		} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	if err := checkFirmwareCollisions(kMntPts, liveFw, ownedFwDirs); err != nil {
+		return err
+	}
+	doSync()
+	pending := final + ".pending"
+	if err := writeDriversTreeMeta(driversTreeMetaPath(candidate)+".pending", meta); err != nil {
+		return err
+	}
+	doSync()
+	if err := os.Rename(driversTreeMetaPath(candidate)+".pending", pending); err != nil {
+		return err
+	}
+	doSync()
+	for _, dir := range []string{liveMods, liveFw} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+	}
+	// The versioned modules directory and firmware updates directory are
+	// safe swap units. Never swap a bind-mounted parent directory.
+	if err := replaceManagedDir(updateFwDir, filepath.Join(liveFw, "updates")); err != nil {
+		return err
+	}
+	if kversion != "" {
+		if err := replaceManagedDir(filepath.Join(candidate, "lib", "modules", kversion), filepath.Join(liveMods, kversion)); err != nil {
+			return err
+		}
+	}
+	entries, err := os.ReadDir(liveMods)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.Name() != kversion {
+			if err := os.RemoveAll(filepath.Join(liveMods, entry.Name())); err != nil {
+				return err
+			}
+		}
+	}
+	if err := syncFirmwareTopLevelSymlinks(kMntPts, liveFw, ownedFwDirs); err != nil {
+		return err
+	}
+	doSync()
+	for _, suffix := range []string{".in", ".built"} {
+		if err := os.Remove(final + suffix); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	if err := os.Rename(pending, final); err != nil {
 		return err
 	}
 	doSync()
